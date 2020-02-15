@@ -3,6 +3,9 @@ use std::convert::TryFrom;
 mod serializable;
 use serializable::Serializable;
 
+// TODO Maybe using flat structures and modeling operands as macros would be much more ergonomic.
+// TODO Look into const function to replace some macros?
+
 // =================================================================================
 // Macros
 // =================================================================================
@@ -30,6 +33,20 @@ macro_rules! serialized_size {
     }
 }
 
+// Derive replacement (proc-macro would not allow this to be a normal lib)
+macro_rules! impl_serialized {
+    ( $name: ident, $($x: ident),* ) => {
+        impl Serializable for $name {
+            fn serialized_size(&self) -> usize {
+                serialized_size!($({ self.$x }),*)
+            }
+            fn serialize(&self, out: &mut [u8]) -> usize {
+                serialize_all!(out, $({ self.$x }),*)
+            }
+        }
+    }
+}
+
 macro_rules! control_byte {
     ($flag7: expr, $flag6: expr, $op_code: expr) => {{
         let ctrl = $op_code as u8;
@@ -47,6 +64,21 @@ macro_rules! op_serialize {
     ($out: expr, $flag7: expr, $flag6: expr, $op_code: expr, $($x: expr),* ) => {{
         out[0] = control_byte!($flag7, $flag6, $op_code);
         1 + serialize_all!(&mut $out[1..])
+    }};
+}
+
+// TODO
+macro_rules! impl_op_serialized {
+    ($name: ident, $flags: expr, $op_code: expr, $($x: expr),* ) => {{
+        impl Serializable for ReadFileData {
+            fn serialized_size(&self) -> usize {
+                1 + self.data.serialized_size()
+            }
+            fn serialize(&self, out: &mut [u8]) -> usize {
+                out[0] = control_byte!(self.group, self.resp, OpCode::ReadFileData);
+                1 + self.data.serialize(&mut out[1..])
+            }
+        }
     }};
 }
 
@@ -192,27 +224,13 @@ struct FileOffsetOperand {
     file_id: FileIdOperand,
     offset: VariableUint,
 }
-impl Serializable for FileOffsetOperand {
-    fn serialized_size(&self) -> usize {
-        serialized_size!(self.file_id, self.offset)
-    }
-    fn serialize(&self, out: &mut [u8]) -> usize {
-        serialize_all!(out, self.file_id, self.offset)
-    }
-}
+impl_serialized!(FileOffsetOperand, file_id, offset);
 
 struct FileDataRequestOperand {
     file_offset: FileOffsetOperand,
     size: VariableUint,
 }
-impl Serializable for FileDataRequestOperand {
-    fn serialized_size(&self) -> usize {
-        serialized_size!(self.file_offset, self.size)
-    }
-    fn serialize(&self, out: &mut [u8]) -> usize {
-        serialize_all!(out, self.file_offset, self.size)
-    }
-}
+impl_serialized!(FileDataRequestOperand, file_offset, size);
 
 struct DataOperand {
     data: Box<[u8]>,
@@ -243,14 +261,7 @@ struct FileDataOperand {
     file_offset: FileOffsetOperand,
     data: DataOperand,
 }
-impl Serializable for FileDataOperand {
-    fn serialized_size(&self) -> usize {
-        serialized_size!(self.file_offset, self.data)
-    }
-    fn serialize(&self, out: &mut [u8]) -> usize {
-        serialize_all!(out, self.file_offset, self.data)
-    }
-}
+impl_serialized!(FileDataOperand, file_offset, data);
 
 // TODO
 // ALP SPEC: Missing link to find definition in ALP spec
@@ -270,14 +281,7 @@ struct FileHeader {
     file_id: FileIdOperand,
     data: FileProperties,
 }
-impl Serializable for FileHeader {
-    fn serialized_size(&self) -> usize {
-        serialized_size!(self.file_id, self.data)
-    }
-    fn serialize(&self, out: &mut [u8]) -> usize {
-        serialize_all!(out, self.file_id, self.data)
-    }
-}
+impl_serialized!(FileHeader, file_id, data);
 
 enum StatusCode {
     Received = 1,
@@ -359,15 +363,7 @@ struct PermissionOperand {
     level: PermissionLevel,
     permission: Permission,
 }
-
-impl Serializable for PermissionOperand {
-    fn serialized_size(&self) -> usize {
-        serialized_size!(self.level, self.permission)
-    }
-    fn serialize(&self, out: &mut [u8]) -> usize {
-        serialize_all!(out, self.level, self.permission)
-    }
-}
+impl_serialized!(PermissionOperand, level, permission);
 
 enum QueryComparisonType {
     Inequal = 0,
@@ -388,50 +384,135 @@ struct NonVoid {
     file_offset: FileOffsetOperand,
 }
 impl Serializable for NonVoid {
-    fn serialized_size(&self) -> usize {}
+    fn serialized_size(&self) -> usize {
+        1 + serialized_size!(self.size, self.file_offset)
+    }
     fn serialize(&self, out: &mut [u8]) -> usize {
-        todo!()
+        out[0] = 0;
+        1 + serialize_all!(&mut out[1..], self.size, self.file_offset)
     }
 }
+// TODO Check size coherence upon creation
 struct ComparisonWithZero {
     signed_data: bool,
     comparison_type: QueryComparisonType,
+    size: VariableUint,
     mask: Option<Box<[u8]>>,
     file_offset: FileOffsetOperand,
 }
 impl Serializable for ComparisonWithZero {
-    fn serialized_size(&self) -> usize {}
+    fn serialized_size(&self) -> usize {
+        let mask_size = match self.mask {
+            Some(_) => self.size.value as usize,
+            None => 0,
+        };
+        1 + self.size.serialized_size() + mask_size + self.file_offset.serialized_size()
+    }
     fn serialize(&self, out: &mut [u8]) -> usize {
-        todo!()
+        const query_op: u8 = 1;
+        let mask_flag = match self.mask {
+            Some(_) => 1,
+            None => 0,
+        };
+        let signed_flag = if self.signed_data { 1 } else { 0 };
+        let offset = 0;
+        out[0] =
+            (query_op << 4) + (mask_flag << 3) + (signed_flag << 3) + self.comparison_type as u8;
+        offset += 1;
+        offset += self.size.serialize(&mut out[offset..]);
+        if let Some(mask) = self.mask {
+            out[offset..].clone_from_slice(&mask);
+            offset += mask.len();
+        }
+        offset += self.file_offset.serialize(&mut out[offset..]);
+        offset
     }
 }
+// TODO Check size coherence upon creation
 struct ComparisonWithValue {
     signed_data: bool,
     comparison_type: QueryComparisonType,
+    size: VariableUint,
     mask: Option<Box<[u8]>>,
     value: Box<[u8]>,
     file_offset: FileOffsetOperand,
 }
 impl Serializable for ComparisonWithValue {
-    fn serialized_size(&self) -> usize {}
+    fn serialized_size(&self) -> usize {
+        let mask_size = match self.mask {
+            Some(_) => self.size.value as usize,
+            None => 0,
+        };
+        1 + self.size.serialized_size()
+            + mask_size
+            + self.value.len()
+            + self.file_offset.serialized_size()
+    }
     fn serialize(&self, out: &mut [u8]) -> usize {
-        todo!()
+        const query_op: u8 = 2;
+        let mask_flag = match self.mask {
+            Some(_) => 1,
+            None => 0,
+        };
+        let signed_flag = if self.signed_data { 1 } else { 0 };
+        let offset = 0;
+        out[0] =
+            (query_op << 4) + (mask_flag << 3) + (signed_flag << 3) + self.comparison_type as u8;
+        offset += 1;
+        offset += self.size.serialize(&mut out[offset..]);
+        if let Some(mask) = self.mask {
+            out[offset..].clone_from_slice(&mask);
+            offset += mask.len();
+        }
+        out[offset..].clone_from_slice(&self.value[..]);
+        offset += self.value.len();
+        offset += self.file_offset.serialize(&mut out[offset..]);
+        offset
     }
 }
-// ALP SPEC: Which of the offset operand is the source and the dest? (file 1 and 2)
+// TODO Check size coherence upon creation
 struct ComparisonWithOtherFile {
     signed_data: bool,
     comparison_type: QueryComparisonType,
+    size: VariableUint,
     mask: Option<Box<[u8]>>,
     file_offset_src: FileOffsetOperand,
     file_offset_dst: FileOffsetOperand,
 }
 impl Serializable for ComparisonWithOtherFile {
-    fn serialized_size(&self) -> usize {}
+    fn serialized_size(&self) -> usize {
+        let mask_size = match self.mask {
+            Some(_) => self.size.value as usize,
+            None => 0,
+        };
+        1 + self.size.serialized_size()
+            + mask_size
+            + self.file_offset_src.serialized_size()
+            + self.file_offset_dst.serialized_size()
+    }
     fn serialize(&self, out: &mut [u8]) -> usize {
-        todo!()
+        const query_op: u8 = 3;
+        let mask_flag = match self.mask {
+            Some(_) => 1,
+            None => 0,
+        };
+        let signed_flag = if self.signed_data { 1 } else { 0 };
+        let offset = 0;
+        out[0] =
+            (query_op << 4) + (mask_flag << 3) + (signed_flag << 3) + self.comparison_type as u8;
+        offset += 1;
+        offset += self.size.serialize(&mut out[offset..]);
+        if let Some(mask) = self.mask {
+            out[offset..].clone_from_slice(&mask);
+            offset += mask.len();
+        }
+        // ALP SPEC: Which of the offset operand is the source and the dest? (file 1 and 2)
+        offset += self.file_offset_src.serialize(&mut out[offset..]);
+        offset += self.file_offset_dst.serialize(&mut out[offset..]);
+        offset
     }
 }
+// TODO Check size coherence upon creation (start, stop and bitmap)
 struct BitmapRangeComparison {
     signed_data: bool,
     comparison_type: QueryRangeComparisonType,
@@ -442,11 +523,30 @@ struct BitmapRangeComparison {
     file_offset: FileOffsetOperand,
 }
 impl Serializable for BitmapRangeComparison {
-    fn serialized_size(&self) -> usize {}
+    fn serialized_size(&self) -> usize {
+        1 + self.size.serialized_size()
+            + 2 * self.size.value as usize
+            + self.bitmap.len()
+            + self.file_offset.serialized_size()
+    }
     fn serialize(&self, out: &mut [u8]) -> usize {
-        todo!()
+        const query_op: u8 = 4;
+        let offset = 0;
+        let signed_flag = if self.signed_data { 1 } else { 0 };
+        out[0] = (query_op << 4) + (0 << 3) + (signed_flag << 3) + self.comparison_type as u8;
+        offset += 1;
+        offset += self.size.serialize(&mut out[offset..]);
+        out[offset..].clone_from_slice(&self.start[..]);
+        offset += self.start.len();
+        out[offset..].clone_from_slice(&self.stop[..]);
+        offset += self.stop.len();
+        out[offset..].clone_from_slice(&self.bitmap[..]);
+        offset += self.bitmap.len();
+        offset += self.file_offset.serialize(&mut out[offset..]);
+        offset
     }
 }
+// TODO Check size coherence upon creation
 struct StringTokenSearch {
     max_errors: u8,
     size: VariableUint,
@@ -455,9 +555,34 @@ struct StringTokenSearch {
     file_offset: FileOffsetOperand,
 }
 impl Serializable for StringTokenSearch {
-    fn serialized_size(&self) -> usize {}
+    fn serialized_size(&self) -> usize {
+        let mask_size = match self.mask {
+            Some(_) => self.size.value as usize,
+            None => 0,
+        };
+        1 + self.size.serialized_size()
+            + mask_size
+            + self.value.len()
+            + self.file_offset.serialized_size()
+    }
     fn serialize(&self, out: &mut [u8]) -> usize {
-        todo!()
+        const query_op: u8 = 7;
+        let mask_flag = match self.mask {
+            Some(_) => 1,
+            None => 0,
+        };
+        let offset = 0;
+        out[0] = (query_op << 4) + (mask_flag << 3) + (0 << 3) + self.max_errors;
+        offset += 1;
+        offset += self.size.serialize(&mut out[offset..]);
+        if let Some(mask) = self.mask {
+            out[offset..].clone_from_slice(&mask);
+            offset += mask.len();
+        }
+        out[offset..].clone_from_slice(&self.value[..]);
+        offset += self.value.len();
+        offset += self.file_offset.serialize(&mut out[offset..]);
+        offset
     }
 }
 
@@ -493,7 +618,14 @@ impl Serializable for QueryOperand {
         }
     }
     fn serialize(&self, out: &mut [u8]) -> usize {
-        todo!()
+        match self {
+            QueryOperand::NonVoid(v) => v.serialize(out),
+            QueryOperand::ComparisonWithZero(v) => v.serialize(out),
+            QueryOperand::ComparisonWithArgument(v) => v.serialize(out),
+            QueryOperand::ComparisonWithOtherFile(v) => v.serialize(out),
+            QueryOperand::BitmapRangeComparison(v) => v.serialize(out),
+            QueryOperand::StringTokenSearch(v) => v.serialize(out),
+        }
     }
 }
 
