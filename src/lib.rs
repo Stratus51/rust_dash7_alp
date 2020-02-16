@@ -38,10 +38,10 @@ macro_rules! impl_serialized {
     ( $name: ident, $($x: ident),* ) => {
         impl Serializable for $name {
             fn serialized_size(&self) -> usize {
-                serialized_size!($({ self.$x }),*)
+                serialized_size!($({ &self.$x }),*)
             }
             fn serialize(&self, out: &mut [u8]) -> usize {
-                serialize_all!(out, $({ self.$x }),*)
+                serialize_all!(out, $({ &self.$x }),*)
             }
         }
     }
@@ -49,7 +49,7 @@ macro_rules! impl_serialized {
 
 macro_rules! control_byte {
     ($flag7: expr, $flag6: expr, $op_code: expr) => {{
-        let ctrl = $op_code as u8;
+        let mut ctrl = $op_code as u8;
         if $flag7 {
             ctrl |= 0x80;
         }
@@ -60,26 +60,31 @@ macro_rules! control_byte {
     }};
 }
 
-macro_rules! op_serialize {
-    ($out: expr, $flag7: expr, $flag6: expr, $op_code: expr, $($x: expr),* ) => {{
-        out[0] = control_byte!($flag7, $flag6, $op_code);
-        1 + serialize_all!(&mut $out[1..])
-    }};
-}
-
 // TODO
 macro_rules! impl_op_serialized {
-    ($name: ident, $flags: expr, $op_code: expr, $($x: expr),* ) => {{
-        impl Serializable for ReadFileData {
+    ($name: ident, $flag7: ident, $flag6: ident) => {
+        impl Serializable for $name {
             fn serialized_size(&self) -> usize {
-                1 + self.data.serialized_size()
+                1
             }
             fn serialize(&self, out: &mut [u8]) -> usize {
-                out[0] = control_byte!(self.group, self.resp, OpCode::ReadFileData);
-                1 + self.data.serialize(&mut out[1..])
+                out[0] = control_byte!(self.$flag7, self.$flag6, OpCode::$name);
+                1
             }
         }
-    }};
+    };
+    ($name: ident, $flag7: ident, $flag6: ident, $($x: ident),* ) => {
+        impl Serializable for $name {
+            fn serialized_size(&self) -> usize {
+                1 +
+                serialized_size!($(self.$x),*)
+            }
+            fn serialize(&self, out: &mut [u8]) -> usize {
+                out[0] = control_byte!(self.$flag7, self.$flag6, OpCode::$name);
+                1 + serialize_all!(out, $({ &self.$x }),*)
+            }
+        }
+    };
 }
 
 // =================================================================================
@@ -129,7 +134,8 @@ pub enum OpCode {
 // =================================================================================
 // D7a definitions
 // =================================================================================
-enum NlsMethod {
+#[derive(Clone, Copy)]
+pub enum NlsMethod {
     None = 0,
     AesCtr = 1,
     AesCbcMac128 = 2,
@@ -141,14 +147,14 @@ enum NlsMethod {
 }
 
 // ALP SPEC: Where is this defined?
-enum Address {
+pub enum Address {
     // D7A SPEC: It is not clear that the estimated reached has to be placed on the "ID" field.
     Nbid(u8),
     NoId,
     Uid(Box<[u8; 8]>),
     Vid(Box<[u8; 2]>),
 }
-struct Addressee {
+pub struct Addressee {
     nls_method: NlsMethod,
     access_class: u8,
     address: Address,
@@ -164,8 +170,8 @@ impl Serializable for Addressee {
             }
     }
     fn serialize(&self, out: &mut [u8]) -> usize {
-        let (id_type, id): (u8, Box<[u8]>) = match self.address {
-            Address::Nbid(n) => (0, Box::new([n])),
+        let (id_type, id): (u8, Box<[u8]>) = match &self.address {
+            Address::Nbid(n) => (0, Box::new([*n])),
             Address::NoId => (1, Box::new([])),
             Address::Uid(uid) => (2, uid.clone()),
             Address::Vid(vid) => (3, vid.clone()),
@@ -178,27 +184,121 @@ impl Serializable for Addressee {
     }
 }
 
+// ALP SPEC: Add link to D7a section
+pub struct D7aspInterfaceConfiguration {
+    qos: u8,
+    to: u8,
+    te: u8,
+    addressee: Addressee,
+}
+
+impl Serializable for D7aspInterfaceConfiguration {
+    fn serialized_size(&self) -> usize {
+        3 + self.addressee.serialized_size()
+    }
+    fn serialize(&self, out: &mut [u8]) -> usize {
+        out[0] = self.qos;
+        out[1] = self.to;
+        out[2] = self.te;
+        3 + self.addressee.serialize(&mut out[3..])
+    }
+}
+
+// ALP SPEC: Add link to D7a section (names do not even match)
+pub struct D7aspInterfaceStatus {
+    ch_header: u8,
+    ch_idx: u16,
+    rxlev: u8,
+    lb: u8,
+    snr: u8,
+    status: u8,
+    token: u8,
+    seq: u8,
+    resp_to: u8,
+    addressee: Addressee,
+    nls_state: Option<[u8; 5]>, // TODO Constrain this existence with addressee nls value
+}
+impl Serializable for D7aspInterfaceStatus {
+    fn serialized_size(&self) -> usize {
+        10 + self.addressee.serialized_size()
+            + match self.nls_state {
+                Some(_) => 5,
+                None => 0,
+            }
+    }
+    fn serialize(&self, out: &mut [u8]) -> usize {
+        let mut i = 0;
+        out[i] = self.ch_header;
+        i += 1;
+        out[i..].clone_from_slice(&self.ch_idx.to_le_bytes());
+        i += 2;
+        out[i] = self.rxlev;
+        i += 1;
+        out[i] = self.lb;
+        i += 1;
+        out[i] = self.snr;
+        i += 1;
+        out[i] = self.status;
+        i += 1;
+        out[i] = self.token;
+        i += 1;
+        out[i] = self.seq;
+        i += 1;
+        out[i] = self.resp_to;
+        i += 1;
+        i += self.addressee.serialize(&mut out[i..]);
+        match self.nls_state {
+            Some(nls_state) => {
+                out[i..].clone_from_slice(&nls_state[i..]);
+                i += 5;
+            }
+            None => (),
+        }
+        i
+    }
+}
+
 // =================================================================================
 // Alp Interfaces
 // =================================================================================
-enum InterfaceId {
+pub enum InterfaceId {
     Host = 0,
     D7asp = 0xD7,
 }
 
-struct InterfaceConfiguration {}
-
+pub enum InterfaceConfiguration {
+    D7asp(D7aspInterfaceConfiguration),
+}
 impl Serializable for InterfaceConfiguration {
-    fn serialized_size(&self) -> usize {}
+    fn serialized_size(&self) -> usize {
+        match self {
+            InterfaceConfiguration::D7asp(v) => v.serialized_size(),
+        }
+    }
     fn serialize(&self, out: &mut [u8]) -> usize {
-        todo!()
+        out[0] = match self {
+            InterfaceConfiguration::D7asp(_) => InterfaceId::D7asp,
+        } as u8;
+        1 + match self {
+            InterfaceConfiguration::D7asp(v) => v.serialize(&mut out[1..]),
+        }
     }
 }
 
-struct InterfaceStatus {}
-
+pub enum InterfaceStatus {
+    D7asp(D7aspInterfaceStatus),
+    // TODO Protect with size limit (< VariableUint max size)
+    Unknown(Box<[u8]>),
+}
 impl Serializable for InterfaceStatus {
-    fn serialized_size(&self) -> usize {}
+    fn serialized_size(&self) -> usize {
+        match self {
+            InterfaceStatus::D7asp(itf) => itf.serialized_size(),
+            InterfaceStatus::Unknown(data) => {
+                1 + VariableUint::unsafe_size(data.len() as u32) as usize
+            }
+        }
+    }
     fn serialize(&self, out: &mut [u8]) -> usize {
         todo!()
     }
@@ -281,11 +381,11 @@ impl Serializable for VariableUint {
     }
 
     fn serialize(&self, out: &mut [u8]) -> usize {
-        Self::u32_serialize(self.value, out) as usize
+        unsafe { Self::u32_serialize(self.value, out) as usize }
     }
 }
 
-struct FileIdOperand {
+pub struct FileIdOperand {
     file_id: u8,
 }
 impl Serializable for FileIdOperand {
@@ -298,19 +398,19 @@ impl Serializable for FileIdOperand {
     }
 }
 
-struct FileOffsetOperand {
+pub struct FileOffsetOperand {
     file_id: FileIdOperand,
     offset: VariableUint,
 }
 impl_serialized!(FileOffsetOperand, file_id, offset);
 
-struct FileDataRequestOperand {
+pub struct FileDataRequestOperand {
     file_offset: FileOffsetOperand,
     size: VariableUint,
 }
 impl_serialized!(FileDataRequestOperand, file_offset, size);
 
-struct DataOperand {
+pub struct DataOperand {
     data: Box<[u8]>,
 }
 impl DataOperand {
@@ -329,13 +429,13 @@ impl Serializable for DataOperand {
         VariableUint::size(self.data.len() as u32).unwrap() as usize + self.data.len()
     }
     fn serialize(&self, out: &mut [u8]) -> usize {
-        let offset = VariableUint::u32_serialize(self.data.len() as u32, out) as usize;
+        let offset = unsafe { VariableUint::u32_serialize(self.data.len() as u32, out) as usize };
         out[offset..].clone_from_slice(&self.data[..]);
         offset + self.data.len()
     }
 }
 
-struct FileDataOperand {
+pub struct FileDataOperand {
     file_offset: FileOffsetOperand,
     data: DataOperand,
 }
@@ -343,7 +443,7 @@ impl_serialized!(FileDataOperand, file_offset, data);
 
 // TODO
 // ALP SPEC: Missing link to find definition in ALP spec
-struct FileProperties {
+pub struct FileProperties {
     data: [u8; 12],
 }
 impl Serializable for FileProperties {
@@ -355,13 +455,14 @@ impl Serializable for FileProperties {
     }
 }
 
-struct FileHeader {
+pub struct FileHeader {
     file_id: FileIdOperand,
     data: FileProperties,
 }
 impl_serialized!(FileHeader, file_id, data);
 
-enum StatusCode {
+#[derive(Copy, Clone)]
+pub enum StatusCode {
     Received = 1,
     Ok = 0,
     FileIdMissing = 0xFF,
@@ -378,7 +479,7 @@ enum StatusCode {
     OperandWrongFormat = 0xF4,
     UnknownError = 0x80,
 }
-struct StatusOperand {
+pub struct StatusOperand {
     action_index: u8,
     status: StatusCode,
 }
@@ -394,7 +495,7 @@ impl Serializable for StatusOperand {
 }
 
 // ALP SPEC: where is this defined? Link?
-enum Permission {
+pub enum Permission {
     Dash7([u8; 8]), // TODO Check
 }
 
@@ -423,7 +524,8 @@ impl Serializable for Permission {
     }
 }
 
-enum PermissionLevel {
+#[derive(Clone, Copy)]
+pub enum PermissionLevel {
     User = 0,
     Root = 1,
 }
@@ -437,13 +539,14 @@ impl Serializable for PermissionLevel {
     }
 }
 
-struct PermissionOperand {
+pub struct PermissionOperand {
     level: PermissionLevel,
     permission: Permission,
 }
 impl_serialized!(PermissionOperand, level, permission);
 
-enum QueryComparisonType {
+#[derive(Clone, Copy)]
+pub enum QueryComparisonType {
     Inequal = 0,
     Equal = 1,
     LessThan = 2,
@@ -452,12 +555,13 @@ enum QueryComparisonType {
     GreaterThanOrEqual = 5,
 }
 
-enum QueryRangeComparisonType {
+#[derive(Clone, Copy)]
+pub enum QueryRangeComparisonType {
     NotInRange = 0,
     InRange = 1,
 }
 
-struct NonVoid {
+pub struct NonVoid {
     size: VariableUint,
     file_offset: FileOffsetOperand,
 }
@@ -471,7 +575,7 @@ impl Serializable for NonVoid {
     }
 }
 // TODO Check size coherence upon creation
-struct ComparisonWithZero {
+pub struct ComparisonWithZero {
     signed_data: bool,
     comparison_type: QueryComparisonType,
     size: VariableUint,
@@ -493,12 +597,12 @@ impl Serializable for ComparisonWithZero {
             None => 0,
         };
         let signed_flag = if self.signed_data { 1 } else { 0 };
-        let offset = 0;
+        let mut offset = 0;
         out[0] =
             (query_op << 4) | (mask_flag << 3) | (signed_flag << 3) | self.comparison_type as u8;
         offset += 1;
         offset += self.size.serialize(&mut out[offset..]);
-        if let Some(mask) = self.mask {
+        if let Some(mask) = &self.mask {
             out[offset..].clone_from_slice(&mask);
             offset += mask.len();
         }
@@ -507,7 +611,7 @@ impl Serializable for ComparisonWithZero {
     }
 }
 // TODO Check size coherence upon creation
-struct ComparisonWithValue {
+pub struct ComparisonWithValue {
     signed_data: bool,
     comparison_type: QueryComparisonType,
     size: VariableUint,
@@ -533,12 +637,12 @@ impl Serializable for ComparisonWithValue {
             None => 0,
         };
         let signed_flag = if self.signed_data { 1 } else { 0 };
-        let offset = 0;
+        let mut offset = 0;
         out[0] =
             (query_op << 4) | (mask_flag << 3) | (signed_flag << 3) | self.comparison_type as u8;
         offset += 1;
         offset += self.size.serialize(&mut out[offset..]);
-        if let Some(mask) = self.mask {
+        if let Some(mask) = &self.mask {
             out[offset..].clone_from_slice(&mask);
             offset += mask.len();
         }
@@ -549,7 +653,7 @@ impl Serializable for ComparisonWithValue {
     }
 }
 // TODO Check size coherence upon creation
-struct ComparisonWithOtherFile {
+pub struct ComparisonWithOtherFile {
     signed_data: bool,
     comparison_type: QueryComparisonType,
     size: VariableUint,
@@ -575,12 +679,12 @@ impl Serializable for ComparisonWithOtherFile {
             None => 0,
         };
         let signed_flag = if self.signed_data { 1 } else { 0 };
-        let offset = 0;
+        let mut offset = 0;
         out[0] =
             (query_op << 4) | (mask_flag << 3) | (signed_flag << 3) | self.comparison_type as u8;
         offset += 1;
         offset += self.size.serialize(&mut out[offset..]);
-        if let Some(mask) = self.mask {
+        if let Some(mask) = &self.mask {
             out[offset..].clone_from_slice(&mask);
             offset += mask.len();
         }
@@ -591,7 +695,7 @@ impl Serializable for ComparisonWithOtherFile {
     }
 }
 // TODO Check size coherence upon creation (start, stop and bitmap)
-struct BitmapRangeComparison {
+pub struct BitmapRangeComparison {
     signed_data: bool,
     comparison_type: QueryRangeComparisonType,
     size: VariableUint,
@@ -609,7 +713,7 @@ impl Serializable for BitmapRangeComparison {
     }
     fn serialize(&self, out: &mut [u8]) -> usize {
         const query_op: u8 = 4;
-        let offset = 0;
+        let mut offset = 0;
         let signed_flag = if self.signed_data { 1 } else { 0 };
         out[0] = (query_op << 4) | (0 << 3) | (signed_flag << 3) | self.comparison_type as u8;
         offset += 1;
@@ -625,7 +729,7 @@ impl Serializable for BitmapRangeComparison {
     }
 }
 // TODO Check size coherence upon creation
-struct StringTokenSearch {
+pub struct StringTokenSearch {
     max_errors: u8,
     size: VariableUint,
     mask: Option<Box<[u8]>>,
@@ -649,11 +753,11 @@ impl Serializable for StringTokenSearch {
             Some(_) => 1,
             None => 0,
         };
-        let offset = 0;
+        let mut offset = 0;
         out[0] = (query_op << 4) | (mask_flag << 3) | (0 << 3) | self.max_errors;
         offset += 1;
         offset += self.size.serialize(&mut out[offset..]);
-        if let Some(mask) = self.mask {
+        if let Some(mask) = &self.mask {
             out[offset..].clone_from_slice(&mask);
             offset += mask.len();
         }
@@ -664,7 +768,7 @@ impl Serializable for StringTokenSearch {
     }
 }
 
-enum QueryOperand {
+pub enum QueryOperand {
     NonVoid(NonVoid),
     ComparisonWithZero(ComparisonWithZero),
     ComparisonWithArgument(ComparisonWithValue),
@@ -707,13 +811,13 @@ impl Serializable for QueryOperand {
     }
 }
 
-struct OverloadedIndirectInterface {
+pub struct OverloadedIndirectInterface {
     interface_file_id: FileIdOperand,
     addressee: Addressee,
 }
 impl_serialized!(OverloadedIndirectInterface, interface_file_id, addressee);
 
-struct NonOverloadedIndirectInterface {
+pub struct NonOverloadedIndirectInterface {
     interface_file_id: FileIdOperand,
     // ALP SPEC: Where is this defined? Is this ID specific?
     data: Box<[u8]>,
@@ -724,7 +828,7 @@ impl Serializable for NonOverloadedIndirectInterface {
         self.interface_file_id.serialized_size() + self.data.len()
     }
     fn serialize(&self, out: &mut [u8]) -> usize {
-        let offset = self.interface_file_id.serialize(out);
+        let mut offset = self.interface_file_id.serialize(out);
         out[offset..].clone_from_slice(&self.data);
         offset += self.data.len();
         // ALP SPEC: TODO: What should we do
@@ -732,7 +836,7 @@ impl Serializable for NonOverloadedIndirectInterface {
     }
 }
 
-enum IndirectInterface {
+pub enum IndirectInterface {
     Overloaded(OverloadedIndirectInterface),
     NonOverloaded(NonOverloadedIndirectInterface),
 }
@@ -760,15 +864,7 @@ pub struct Nop {
     group: bool,
     resp: bool,
 }
-impl Serializable for Nop {
-    fn serialized_size(&self) -> usize {
-        1
-    }
-    fn serialize(&self, out: &mut [u8]) -> usize {
-        out[0] = control_byte!(self.group, self.resp, OpCode::Nop);
-        1
-    }
-}
+impl_op_serialized!(Nop, group, resp);
 
 // Read
 pub struct ReadFileData {
@@ -776,29 +872,14 @@ pub struct ReadFileData {
     resp: bool,
     data: FileDataRequestOperand,
 }
-impl Serializable for ReadFileData {
-    fn serialized_size(&self) -> usize {
-        1 + self.data.serialized_size()
-    }
-    fn serialize(&self, out: &mut [u8]) -> usize {
-        out[0] = control_byte!(self.group, self.resp, OpCode::ReadFileData);
-        1 + self.data.serialize(&mut out[1..])
-    }
-}
+impl_op_serialized!(ReadFileData, group, resp, data);
+
 pub struct ReadFileProperties {
     group: bool,
     resp: bool,
     file_id: FileIdOperand,
 }
-impl Serializable for ReadFileProperties {
-    fn serialized_size(&self) -> usize {
-        1 + self.file_id.serialized_size()
-    }
-    fn serialize(&self, out: &mut [u8]) -> usize {
-        out[0] = control_byte!(self.group, self.resp, OpCode::ReadFileProperties);
-        1 + self.file_id.serialize(&mut out[1..])
-    }
-}
+impl_op_serialized!(ReadFileProperties, group, resp, file_id);
 
 // Write
 pub struct WriteFileData {
@@ -806,80 +887,49 @@ pub struct WriteFileData {
     resp: bool,
     file_data: FileDataOperand,
 }
-impl Serializable for WriteFileData {
-    fn serialized_size(&self) -> usize {
-        1 + self.file_data.serialized_size()
-    }
-    fn serialize(&self, out: &mut [u8]) -> usize {
-        todo!()
-    }
-}
+impl_op_serialized!(WriteFileData, group, resp, file_data);
+
 pub struct WriteFileDataFlush {
     group: bool,
     resp: bool,
     file_data: FileDataOperand,
 }
-impl Serializable for WriteFileDataFlush {
-    fn serialized_size(&self) -> usize {}
-    fn serialize(&self, out: &mut [u8]) -> usize {
-        todo!()
-    }
-}
+impl_op_serialized!(WriteFileDataFlush, group, resp, file_data);
+
 pub struct WriteFileProperties {
     group: bool,
     resp: bool,
     file_header: FileHeader,
 }
-impl Serializable for WriteFileProperties {
-    fn serialized_size(&self) -> usize {}
-    fn serialize(&self, out: &mut [u8]) -> usize {
-        todo!()
-    }
-}
+impl_op_serialized!(WriteFileProperties, group, resp, file_header);
+
 pub struct ActionQuery {
     group: bool,
     resp: bool,
     query: QueryOperand,
 }
-impl Serializable for ActionQuery {
-    fn serialized_size(&self) -> usize {}
-    fn serialize(&self, out: &mut [u8]) -> usize {
-        todo!()
-    }
-}
+impl_op_serialized!(ActionQuery, group, resp, query);
+
 pub struct BreakQuery {
     group: bool,
     resp: bool,
     query: QueryOperand,
 }
-impl Serializable for BreakQuery {
-    fn serialized_size(&self) -> usize {}
-    fn serialize(&self, out: &mut [u8]) -> usize {
-        todo!()
-    }
-}
+impl_op_serialized!(BreakQuery, group, resp, query);
+
 pub struct PermissionRequest {
     group: bool,
     resp: bool,
     permission: PermissionOperand,
 }
-impl Serializable for PermissionRequest {
-    fn serialized_size(&self) -> usize {}
-    fn serialize(&self, out: &mut [u8]) -> usize {
-        todo!()
-    }
-}
+impl_op_serialized!(PermissionRequest, group, resp, permission);
+
 pub struct VerifyChecksum {
     group: bool,
     resp: bool,
     query: QueryOperand,
 }
-impl Serializable for VerifyChecksum {
-    fn serialized_size(&self) -> usize {}
-    fn serialize(&self, out: &mut [u8]) -> usize {
-        todo!()
-    }
-}
+impl_op_serialized!(VerifyChecksum, group, resp, query);
 
 // Management
 pub struct ExistFile {
@@ -887,79 +937,50 @@ pub struct ExistFile {
     resp: bool,
     file_id: FileIdOperand,
 }
-impl Serializable for ExistFile {
-    fn serialized_size(&self) -> usize {}
-    fn serialize(&self, out: &mut [u8]) -> usize {
-        todo!()
-    }
-}
+impl_op_serialized!(ExistFile, group, resp, file_id);
+
 pub struct CreateNewFile {
     group: bool,
     resp: bool,
     file_header: FileHeader,
 }
-impl Serializable for CreateNewFile {
-    fn serialized_size(&self) -> usize {}
-    fn serialize(&self, out: &mut [u8]) -> usize {
-        todo!()
-    }
-}
+impl_op_serialized!(CreateNewFile, group, resp, file_header);
+
 pub struct DeleteFile {
     group: bool,
     resp: bool,
     file_id: FileIdOperand,
 }
-impl Serializable for DeleteFile {
-    fn serialized_size(&self) -> usize {}
-    fn serialize(&self, out: &mut [u8]) -> usize {
-        todo!()
-    }
-}
+impl_op_serialized!(DeleteFile, group, resp, file_id);
+
 pub struct RestoreFile {
     group: bool,
     resp: bool,
     file_id: FileIdOperand,
 }
-impl Serializable for RestoreFile {
-    fn serialized_size(&self) -> usize {}
-    fn serialize(&self, out: &mut [u8]) -> usize {
-        todo!()
-    }
-}
+impl_op_serialized!(RestoreFile, group, resp, file_id);
+
 pub struct FlushFile {
     group: bool,
     resp: bool,
     file_id: FileIdOperand,
 }
-impl Serializable for FlushFile {
-    fn serialized_size(&self) -> usize {}
-    fn serialize(&self, out: &mut [u8]) -> usize {
-        todo!()
-    }
-}
+impl_op_serialized!(FlushFile, group, resp, file_id);
+
 pub struct CopyFile {
     group: bool,
     resp: bool,
     source_file_id: FileIdOperand,
     dest_file_id: FileIdOperand,
 }
-impl Serializable for CopyFile {
-    fn serialized_size(&self) -> usize {}
-    fn serialize(&self, out: &mut [u8]) -> usize {
-        todo!()
-    }
-}
+impl_op_serialized!(CopyFile, group, resp, source_file_id, dest_file_id);
+
 pub struct ExecuteFile {
     group: bool,
     resp: bool,
     file_id: FileIdOperand,
 }
-impl Serializable for ExecuteFile {
-    fn serialized_size(&self) -> usize {}
-    fn serialize(&self, out: &mut [u8]) -> usize {
-        todo!()
-    }
-}
+impl_op_serialized!(ExecuteFile, group, resp, file_id);
 
 // Response
 pub struct ReturnFileData {
@@ -967,31 +988,47 @@ pub struct ReturnFileData {
     resp: bool,
     file_data: FileDataOperand,
 }
-impl Serializable for ReturnFileData {
-    fn serialized_size(&self) -> usize {}
-    fn serialize(&self, out: &mut [u8]) -> usize {
-        todo!()
-    }
-}
+impl_op_serialized!(ReturnFileData, group, resp, file_data);
+
 pub struct ReturnFileProperties {
     group: bool,
     resp: bool,
     file_header: FileHeader,
 }
-impl Serializable for ReturnFileProperties {
-    fn serialized_size(&self) -> usize {}
-    fn serialize(&self, out: &mut [u8]) -> usize {
-        todo!()
-    }
+impl_op_serialized!(ReturnFileProperties, group, resp, file_header);
+
+#[derive(Clone, Copy)]
+pub enum StatusType {
+    Action = 0,
+    Interface = 1,
 }
+
 pub enum Status {
+    // ALP SPEC: This is named status, but it should be named action status compared to the '2'
+    // other statuses.
     Action(StatusOperand),
     Interface(InterfaceStatus),
+    // ALP SPEC: Where are the stack errors?
 }
 impl Serializable for Status {
-    fn serialized_size(&self) -> usize {}
+    fn serialized_size(&self) -> usize {
+        1 + match self {
+            Status::Action(op) => op.serialized_size(),
+            Status::Interface(op) => op.serialized_size(),
+        }
+    }
     fn serialize(&self, out: &mut [u8]) -> usize {
-        todo!()
+        out[0] = OpCode::Status as u8
+            + ((match self {
+                Status::Action(_) => StatusType::Action,
+                Status::Interface(_) => StatusType::Interface,
+            } as u8)
+                << 6);
+        let out = &mut out[1..];
+        1 + match self {
+            Status::Action(op) => op.serialize(out),
+            Status::Interface(op) => op.serialize(out),
+        }
     }
 }
 pub struct ResponseTag {
@@ -1000,13 +1037,19 @@ pub struct ResponseTag {
     id: u8,
 }
 impl Serializable for ResponseTag {
-    fn serialized_size(&self) -> usize {}
+    fn serialized_size(&self) -> usize {
+        1 + 1
+    }
     fn serialize(&self, out: &mut [u8]) -> usize {
-        todo!()
+        out[0] = control_byte!(self.eop, self.err, OpCode::ResponseTag);
+        out[1] = self.id;
+
+        1 + 1
     }
 }
 
 // Special
+#[derive(Clone, Copy)]
 pub enum ChunkStep {
     Continue = 0,
     Start = 1,
@@ -1017,12 +1060,17 @@ pub struct Chunk {
     step: ChunkStep,
 }
 impl Serializable for Chunk {
-    fn serialized_size(&self) -> usize {}
+    fn serialized_size(&self) -> usize {
+        1
+    }
     fn serialize(&self, out: &mut [u8]) -> usize {
-        todo!()
+        out[0] = OpCode::Chunk as u8 + ((self.step as u8) << 6);
+        1
     }
 }
-enum LogicOp {
+
+#[derive(Clone, Copy)]
+pub enum LogicOp {
     Or = 0,
     Xor = 1,
     Nor = 2,
@@ -1032,9 +1080,12 @@ pub struct Logic {
     logic: LogicOp,
 }
 impl Serializable for Logic {
-    fn serialized_size(&self) -> usize {}
+    fn serialized_size(&self) -> usize {
+        1
+    }
     fn serialize(&self, out: &mut [u8]) -> usize {
-        todo!()
+        out[0] = OpCode::Logic as u8 + ((self.logic as u8) << 6);
+        1
     }
 }
 pub struct Forward {
@@ -1042,37 +1093,45 @@ pub struct Forward {
     conf: InterfaceConfiguration,
 }
 impl Serializable for Forward {
-    fn serialized_size(&self) -> usize {}
+    fn serialized_size(&self) -> usize {
+        1 + self.conf.serialized_size()
+    }
     fn serialize(&self, out: &mut [u8]) -> usize {
-        todo!()
+        out[0] = control_byte!(false, self.resp, OpCode::Forward);
+        1 + self.conf.serialize(&mut out[1..])
     }
 }
+
 pub struct IndirectForward {
     overload: bool,
     resp: bool,
     interface: IndirectInterface,
 }
-impl Serializable for IndirectForward {
-    fn serialized_size(&self) -> usize {}
-    fn serialize(&self, out: &mut [u8]) -> usize {
-        todo!()
-    }
-}
+impl_op_serialized!(IndirectForward, overload, resp, interface);
+
 pub struct RequestTag {
     eop: bool, // End of packet
+    id: u8,
 }
 impl Serializable for RequestTag {
-    fn serialized_size(&self) -> usize {}
+    fn serialized_size(&self) -> usize {
+        1 + 1
+    }
     fn serialize(&self, out: &mut [u8]) -> usize {
-        todo!()
+        out[0] = control_byte!(self.eop, false, OpCode::RequestTag);
+        out[1] = self.id;
+        1 + 1
     }
 }
+
 pub struct Extension {
     group: bool,
     resp: bool,
 }
 impl Serializable for Extension {
-    fn serialized_size(&self) -> usize {}
+    fn serialized_size(&self) -> usize {
+        todo!()
+    }
     fn serialize(&self, out: &mut [u8]) -> usize {
         todo!()
     }
@@ -1088,7 +1147,8 @@ pub enum Action {
 
     // Write
     WriteFileData(WriteFileData),
-    WriteFileDataFlush(WriteFileDataFlush),
+    // ALP SPEC: This is not specified even though it is implemented
+    // WriteFileDataFlush(WriteFileDataFlush),
     WriteFileProperties(WriteFileProperties),
     ActionQuery(ActionQuery),
     BreakQuery(BreakQuery),
@@ -1126,6 +1186,7 @@ impl Serializable for Action {
             Action::ReadFileData(x) => x.serialized_size(),
             Action::ReadFileProperties(x) => x.serialized_size(),
             Action::WriteFileData(x) => x.serialized_size(),
+            // Action::WriteFileDataFlush(x) => x.serialized_size(),
             Action::WriteFileProperties(x) => x.serialized_size(),
             Action::ActionQuery(x) => x.serialized_size(),
             Action::BreakQuery(x) => x.serialized_size(),
