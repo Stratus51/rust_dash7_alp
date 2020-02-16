@@ -127,6 +127,84 @@ pub enum OpCode {
 }
 
 // =================================================================================
+// D7a definitions
+// =================================================================================
+enum NlsMethod {
+    None = 0,
+    AesCtr = 1,
+    AesCbcMac128 = 2,
+    AesCbcMac64 = 3,
+    AesCbcMac32 = 4,
+    AesCcm128 = 5,
+    AesCcm64 = 6,
+    AesCcm32 = 7,
+}
+
+// ALP SPEC: Where is this defined?
+enum Address {
+    // D7A SPEC: It is not clear that the estimated reached has to be placed on the "ID" field.
+    Nbid(u8),
+    NoId,
+    Uid(Box<[u8; 8]>),
+    Vid(Box<[u8; 2]>),
+}
+struct Addressee {
+    nls_method: NlsMethod,
+    access_class: u8,
+    address: Address,
+}
+impl Serializable for Addressee {
+    fn serialized_size(&self) -> usize {
+        1 + 1
+            + match self.address {
+                Address::Nbid(_) => 1,
+                Address::NoId => 0,
+                Address::Uid(_) => 8,
+                Address::Vid(_) => 2,
+            }
+    }
+    fn serialize(&self, out: &mut [u8]) -> usize {
+        let (id_type, id): (u8, Box<[u8]>) = match self.address {
+            Address::Nbid(n) => (0, Box::new([n])),
+            Address::NoId => (1, Box::new([])),
+            Address::Uid(uid) => (2, uid.clone()),
+            Address::Vid(vid) => (3, vid.clone()),
+        };
+
+        out[0] = (id_type << 3) | (self.nls_method as u8);
+        out[1] = self.access_class;
+        out[2..].clone_from_slice(&id);
+        2 + id.len()
+    }
+}
+
+// =================================================================================
+// Alp Interfaces
+// =================================================================================
+enum InterfaceId {
+    Host = 0,
+    D7asp = 0xD7,
+}
+
+struct InterfaceConfiguration {}
+
+impl Serializable for InterfaceConfiguration {
+    fn serialized_size(&self) -> usize {}
+    fn serialize(&self, out: &mut [u8]) -> usize {
+        todo!()
+    }
+}
+
+struct InterfaceStatus {}
+
+impl Serializable for InterfaceStatus {
+    fn serialized_size(&self) -> usize {}
+    fn serialize(&self, out: &mut [u8]) -> usize {
+        todo!()
+    }
+}
+
+// =================================================================================
 // Operands
 // =================================================================================
 pub struct VariableUint {
@@ -417,7 +495,7 @@ impl Serializable for ComparisonWithZero {
         let signed_flag = if self.signed_data { 1 } else { 0 };
         let offset = 0;
         out[0] =
-            (query_op << 4) + (mask_flag << 3) + (signed_flag << 3) + self.comparison_type as u8;
+            (query_op << 4) | (mask_flag << 3) | (signed_flag << 3) | self.comparison_type as u8;
         offset += 1;
         offset += self.size.serialize(&mut out[offset..]);
         if let Some(mask) = self.mask {
@@ -457,7 +535,7 @@ impl Serializable for ComparisonWithValue {
         let signed_flag = if self.signed_data { 1 } else { 0 };
         let offset = 0;
         out[0] =
-            (query_op << 4) + (mask_flag << 3) + (signed_flag << 3) + self.comparison_type as u8;
+            (query_op << 4) | (mask_flag << 3) | (signed_flag << 3) | self.comparison_type as u8;
         offset += 1;
         offset += self.size.serialize(&mut out[offset..]);
         if let Some(mask) = self.mask {
@@ -499,7 +577,7 @@ impl Serializable for ComparisonWithOtherFile {
         let signed_flag = if self.signed_data { 1 } else { 0 };
         let offset = 0;
         out[0] =
-            (query_op << 4) + (mask_flag << 3) + (signed_flag << 3) + self.comparison_type as u8;
+            (query_op << 4) | (mask_flag << 3) | (signed_flag << 3) | self.comparison_type as u8;
         offset += 1;
         offset += self.size.serialize(&mut out[offset..]);
         if let Some(mask) = self.mask {
@@ -533,7 +611,7 @@ impl Serializable for BitmapRangeComparison {
         const query_op: u8 = 4;
         let offset = 0;
         let signed_flag = if self.signed_data { 1 } else { 0 };
-        out[0] = (query_op << 4) + (0 << 3) + (signed_flag << 3) + self.comparison_type as u8;
+        out[0] = (query_op << 4) | (0 << 3) | (signed_flag << 3) | self.comparison_type as u8;
         offset += 1;
         offset += self.size.serialize(&mut out[offset..]);
         out[offset..].clone_from_slice(&self.start[..]);
@@ -572,7 +650,7 @@ impl Serializable for StringTokenSearch {
             None => 0,
         };
         let offset = 0;
-        out[0] = (query_op << 4) + (mask_flag << 3) + (0 << 3) + self.max_errors;
+        out[0] = (query_op << 4) | (mask_flag << 3) | (0 << 3) | self.max_errors;
         offset += 1;
         offset += self.size.serialize(&mut out[offset..]);
         if let Some(mask) = self.mask {
@@ -629,30 +707,48 @@ impl Serializable for QueryOperand {
     }
 }
 
-struct IndirectInterface {}
+struct OverloadedIndirectInterface {
+    interface_file_id: FileIdOperand,
+    addressee: Addressee,
+}
+impl_serialized!(OverloadedIndirectInterface, interface_file_id, addressee);
+
+struct NonOverloadedIndirectInterface {
+    interface_file_id: FileIdOperand,
+    // ALP SPEC: Where is this defined? Is this ID specific?
+    data: Box<[u8]>,
+}
+
+impl Serializable for NonOverloadedIndirectInterface {
+    fn serialized_size(&self) -> usize {
+        self.interface_file_id.serialized_size() + self.data.len()
+    }
+    fn serialize(&self, out: &mut [u8]) -> usize {
+        let offset = self.interface_file_id.serialize(out);
+        out[offset..].clone_from_slice(&self.data);
+        offset += self.data.len();
+        // ALP SPEC: TODO: What should we do
+        todo!()
+    }
+}
+
+enum IndirectInterface {
+    Overloaded(OverloadedIndirectInterface),
+    NonOverloaded(NonOverloadedIndirectInterface),
+}
 
 impl Serializable for IndirectInterface {
-    fn serialized_size(&self) -> usize {}
-    fn serialize(&self, out: &mut [u8]) -> usize {
-        todo!()
+    fn serialized_size(&self) -> usize {
+        match self {
+            IndirectInterface::Overloaded(v) => v.serialized_size(),
+            IndirectInterface::NonOverloaded(v) => v.serialized_size(),
+        }
     }
-}
-
-struct InterfaceStatus {}
-
-impl Serializable for InterfaceStatus {
-    fn serialized_size(&self) -> usize {}
     fn serialize(&self, out: &mut [u8]) -> usize {
-        todo!()
-    }
-}
-
-struct InterfaceConfiguration {}
-
-impl Serializable for InterfaceConfiguration {
-    fn serialized_size(&self) -> usize {}
-    fn serialize(&self, out: &mut [u8]) -> usize {
-        todo!()
+        match self {
+            IndirectInterface::Overloaded(v) => v.serialize(out),
+            IndirectInterface::NonOverloaded(v) => v.serialize(out),
+        }
     }
 }
 
