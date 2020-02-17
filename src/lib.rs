@@ -155,9 +155,9 @@ pub enum Address {
     Vid(Box<[u8; 2]>),
 }
 pub struct Addressee {
-    nls_method: NlsMethod,
-    access_class: u8,
-    address: Address,
+    pub nls_method: NlsMethod,
+    pub access_class: u8,
+    pub address: Address,
 }
 impl Serializable for Addressee {
     fn serialized_size(&self) -> usize {
@@ -206,17 +206,17 @@ impl Serializable for D7aspInterfaceConfiguration {
 
 // ALP SPEC: Add link to D7a section (names do not even match)
 pub struct D7aspInterfaceStatus {
-    ch_header: u8,
-    ch_idx: u16,
-    rxlev: u8,
-    lb: u8,
-    snr: u8,
-    status: u8,
-    token: u8,
-    seq: u8,
-    resp_to: u8,
-    addressee: Addressee,
-    nls_state: Option<[u8; 5]>, // TODO Constrain this existence with addressee nls value
+    pub ch_header: u8,
+    pub ch_idx: u16,
+    pub rxlev: u8,
+    pub lb: u8,
+    pub snr: u8,
+    pub status: u8,
+    pub token: u8,
+    pub seq: u8,
+    pub resp_to: u8,
+    pub addressee: Addressee,
+    pub nls_state: Option<[u8; 5]>, // TODO Constrain this existence with addressee nls value
 }
 impl Serializable for D7aspInterfaceStatus {
     fn serialized_size(&self) -> usize {
@@ -247,12 +247,9 @@ impl Serializable for D7aspInterfaceStatus {
         out[i] = self.resp_to;
         i += 1;
         i += self.addressee.serialize(&mut out[i..]);
-        match self.nls_state {
-            Some(nls_state) => {
-                out[i..].clone_from_slice(&nls_state[i..]);
-                i += 5;
-            }
-            None => (),
+        if let Some(nls_state) = &self.nls_state {
+            out[i..].clone_from_slice(&nls_state[i..]);
+            i += 5;
         }
         i
     }
@@ -299,7 +296,7 @@ impl Serializable for InterfaceStatus {
             }
         }
     }
-    fn serialize(&self, out: &mut [u8]) -> usize {
+    fn serialize(&self, _out: &mut [u8]) -> usize {
         todo!()
     }
 }
@@ -308,7 +305,7 @@ impl Serializable for InterfaceStatus {
 // Operands
 // =================================================================================
 pub struct VariableUint {
-    value: u32,
+    pub value: u32,
 }
 const MAX_VARIABLE_UINT: u32 = 0x3F_FF_FF_FF;
 
@@ -339,9 +336,7 @@ impl VariableUint {
     }
 
     pub fn usize_is_valid(n: usize) -> Result<(), ()> {
-        u32::try_from(n)
-            .map_err(|_| ())
-            .and_then(|n| Self::is_valid(n))
+        u32::try_from(n).map_err(|_| ()).and_then(Self::is_valid)
     }
 
     fn unsafe_size(n: u32) -> u8 {
@@ -367,8 +362,8 @@ impl VariableUint {
     unsafe fn u32_serialize(n: u32, out: &mut [u8]) -> u8 {
         let u8_size = Self::unsafe_size(n);
         let size = u8_size as usize;
-        for i in 0..size {
-            out[i] = ((n >> ((size - 1 - i) * 8)) & 0xFF) as u8;
+        for (i, byte) in out.iter_mut().enumerate().take(size) {
+            *byte = ((n >> ((size - 1 - i) * 8)) & 0xFF) as u8;
         }
         out[0] |= (size as u8) << 6;
         u8_size
@@ -386,7 +381,7 @@ impl Serializable for VariableUint {
 }
 
 pub struct FileIdOperand {
-    file_id: u8,
+    pub file_id: u8,
 }
 impl Serializable for FileIdOperand {
     fn serialized_size(&self) -> usize {
@@ -399,19 +394,19 @@ impl Serializable for FileIdOperand {
 }
 
 pub struct FileOffsetOperand {
-    file_id: FileIdOperand,
-    offset: VariableUint,
+    pub file_id: FileIdOperand,
+    pub offset: VariableUint,
 }
 impl_serialized!(FileOffsetOperand, file_id, offset);
 
 pub struct FileDataRequestOperand {
-    file_offset: FileOffsetOperand,
-    size: VariableUint,
+    pub file_offset: FileOffsetOperand,
+    pub size: VariableUint,
 }
 impl_serialized!(FileDataRequestOperand, file_offset, size);
 
 pub struct DataOperand {
-    data: Box<[u8]>,
+    pub data: Box<[u8]>,
 }
 impl DataOperand {
     pub fn new(data: Box<[u8]>) -> Result<Self, ()> {
@@ -436,28 +431,28 @@ impl Serializable for DataOperand {
 }
 
 pub struct FileDataOperand {
-    file_offset: FileOffsetOperand,
-    data: DataOperand,
+    pub file_offset: FileOffsetOperand,
+    pub data: DataOperand,
 }
 impl_serialized!(FileDataOperand, file_offset, data);
 
 // TODO
 // ALP SPEC: Missing link to find definition in ALP spec
 pub struct FileProperties {
-    data: [u8; 12],
+    pub data: [u8; 12],
 }
 impl Serializable for FileProperties {
     fn serialized_size(&self) -> usize {
         12
     }
-    fn serialize(&self, out: &mut [u8]) -> usize {
+    fn serialize(&self, _out: &mut [u8]) -> usize {
         todo!()
     }
 }
 
 pub struct FileHeader {
-    file_id: FileIdOperand,
-    data: FileProperties,
+    pub file_id: FileIdOperand,
+    pub data: FileProperties,
 }
 impl_serialized!(FileHeader, file_id, data);
 
@@ -480,8 +475,8 @@ pub enum StatusCode {
     UnknownError = 0x80,
 }
 pub struct StatusOperand {
-    action_index: u8,
-    status: StatusCode,
+    pub action_index: u8,
+    pub status: StatusCode,
 }
 impl Serializable for StatusOperand {
     fn serialized_size(&self) -> usize {
@@ -540,8 +535,8 @@ impl Serializable for PermissionLevel {
 }
 
 pub struct PermissionOperand {
-    level: PermissionLevel,
-    permission: Permission,
+    pub level: PermissionLevel,
+    pub permission: Permission,
 }
 impl_serialized!(PermissionOperand, level, permission);
 
@@ -560,27 +555,35 @@ pub enum QueryRangeComparisonType {
     NotInRange = 0,
     InRange = 1,
 }
+pub enum QueryCode {
+    NonVoid = 0,
+    ComparisonWithZero = 1,
+    ComparisonWithValue = 2,
+    ComparisonWithOtherFile = 3,
+    BitmapRangeComparison = 4,
+    StringTokenSearch = 7,
+}
 
 pub struct NonVoid {
-    size: VariableUint,
-    file_offset: FileOffsetOperand,
+    pub size: VariableUint,
+    pub file_offset: FileOffsetOperand,
 }
 impl Serializable for NonVoid {
     fn serialized_size(&self) -> usize {
         1 + serialized_size!(self.size, self.file_offset)
     }
     fn serialize(&self, out: &mut [u8]) -> usize {
-        out[0] = 0;
+        out[0] = QueryCode::NonVoid as u8;
         1 + serialize_all!(&mut out[1..], self.size, self.file_offset)
     }
 }
 // TODO Check size coherence upon creation
 pub struct ComparisonWithZero {
-    signed_data: bool,
-    comparison_type: QueryComparisonType,
-    size: VariableUint,
-    mask: Option<Box<[u8]>>,
-    file_offset: FileOffsetOperand,
+    pub signed_data: bool,
+    pub comparison_type: QueryComparisonType,
+    pub size: VariableUint,
+    pub mask: Option<Box<[u8]>>,
+    pub file_offset: FileOffsetOperand,
 }
 impl Serializable for ComparisonWithZero {
     fn serialized_size(&self) -> usize {
@@ -591,15 +594,16 @@ impl Serializable for ComparisonWithZero {
         1 + self.size.serialized_size() + mask_size + self.file_offset.serialized_size()
     }
     fn serialize(&self, out: &mut [u8]) -> usize {
-        const query_op: u8 = 1;
         let mask_flag = match self.mask {
             Some(_) => 1,
             None => 0,
         };
         let signed_flag = if self.signed_data { 1 } else { 0 };
         let mut offset = 0;
-        out[0] =
-            (query_op << 4) | (mask_flag << 3) | (signed_flag << 3) | self.comparison_type as u8;
+        out[0] = ((QueryCode::ComparisonWithZero as u8) << 4)
+            | (mask_flag << 3)
+            | (signed_flag << 3)
+            | self.comparison_type as u8;
         offset += 1;
         offset += self.size.serialize(&mut out[offset..]);
         if let Some(mask) = &self.mask {
@@ -612,12 +616,12 @@ impl Serializable for ComparisonWithZero {
 }
 // TODO Check size coherence upon creation
 pub struct ComparisonWithValue {
-    signed_data: bool,
-    comparison_type: QueryComparisonType,
-    size: VariableUint,
-    mask: Option<Box<[u8]>>,
-    value: Box<[u8]>,
-    file_offset: FileOffsetOperand,
+    pub signed_data: bool,
+    pub comparison_type: QueryComparisonType,
+    pub size: VariableUint,
+    pub mask: Option<Box<[u8]>>,
+    pub value: Box<[u8]>,
+    pub file_offset: FileOffsetOperand,
 }
 impl Serializable for ComparisonWithValue {
     fn serialized_size(&self) -> usize {
@@ -631,15 +635,16 @@ impl Serializable for ComparisonWithValue {
             + self.file_offset.serialized_size()
     }
     fn serialize(&self, out: &mut [u8]) -> usize {
-        const query_op: u8 = 2;
         let mask_flag = match self.mask {
             Some(_) => 1,
             None => 0,
         };
         let signed_flag = if self.signed_data { 1 } else { 0 };
         let mut offset = 0;
-        out[0] =
-            (query_op << 4) | (mask_flag << 3) | (signed_flag << 3) | self.comparison_type as u8;
+        out[0] = ((QueryCode::ComparisonWithValue as u8) << 4)
+            | (mask_flag << 3)
+            | (signed_flag << 3)
+            | self.comparison_type as u8;
         offset += 1;
         offset += self.size.serialize(&mut out[offset..]);
         if let Some(mask) = &self.mask {
@@ -654,12 +659,12 @@ impl Serializable for ComparisonWithValue {
 }
 // TODO Check size coherence upon creation
 pub struct ComparisonWithOtherFile {
-    signed_data: bool,
-    comparison_type: QueryComparisonType,
-    size: VariableUint,
-    mask: Option<Box<[u8]>>,
-    file_offset_src: FileOffsetOperand,
-    file_offset_dst: FileOffsetOperand,
+    pub signed_data: bool,
+    pub comparison_type: QueryComparisonType,
+    pub size: VariableUint,
+    pub mask: Option<Box<[u8]>>,
+    pub file_offset_src: FileOffsetOperand,
+    pub file_offset_dst: FileOffsetOperand,
 }
 impl Serializable for ComparisonWithOtherFile {
     fn serialized_size(&self) -> usize {
@@ -673,15 +678,16 @@ impl Serializable for ComparisonWithOtherFile {
             + self.file_offset_dst.serialized_size()
     }
     fn serialize(&self, out: &mut [u8]) -> usize {
-        const query_op: u8 = 3;
         let mask_flag = match self.mask {
             Some(_) => 1,
             None => 0,
         };
         let signed_flag = if self.signed_data { 1 } else { 0 };
         let mut offset = 0;
-        out[0] =
-            (query_op << 4) | (mask_flag << 3) | (signed_flag << 3) | self.comparison_type as u8;
+        out[0] = ((QueryCode::ComparisonWithOtherFile as u8) << 4)
+            | (mask_flag << 3)
+            | (signed_flag << 3)
+            | self.comparison_type as u8;
         offset += 1;
         offset += self.size.serialize(&mut out[offset..]);
         if let Some(mask) = &self.mask {
@@ -696,13 +702,13 @@ impl Serializable for ComparisonWithOtherFile {
 }
 // TODO Check size coherence upon creation (start, stop and bitmap)
 pub struct BitmapRangeComparison {
-    signed_data: bool,
-    comparison_type: QueryRangeComparisonType,
-    size: VariableUint,
-    start: Box<[u8]>,
-    stop: Box<[u8]>,
-    bitmap: Box<[u8]>, // TODO Better type?
-    file_offset: FileOffsetOperand,
+    pub signed_data: bool,
+    pub comparison_type: QueryRangeComparisonType,
+    pub size: VariableUint,
+    pub start: Box<[u8]>,
+    pub stop: Box<[u8]>,
+    pub bitmap: Box<[u8]>, // TODO Better type?
+    pub file_offset: FileOffsetOperand,
 }
 impl Serializable for BitmapRangeComparison {
     fn serialized_size(&self) -> usize {
@@ -712,10 +718,12 @@ impl Serializable for BitmapRangeComparison {
             + self.file_offset.serialized_size()
     }
     fn serialize(&self, out: &mut [u8]) -> usize {
-        const query_op: u8 = 4;
         let mut offset = 0;
         let signed_flag = if self.signed_data { 1 } else { 0 };
-        out[0] = (query_op << 4) | (0 << 3) | (signed_flag << 3) | self.comparison_type as u8;
+        out[0] = ((QueryCode::BitmapRangeComparison as u8) << 4)
+            // | (0 << 3)
+            | (signed_flag << 3)
+            | self.comparison_type as u8;
         offset += 1;
         offset += self.size.serialize(&mut out[offset..]);
         out[offset..].clone_from_slice(&self.start[..]);
@@ -730,11 +738,11 @@ impl Serializable for BitmapRangeComparison {
 }
 // TODO Check size coherence upon creation
 pub struct StringTokenSearch {
-    max_errors: u8,
-    size: VariableUint,
-    mask: Option<Box<[u8]>>,
-    value: Box<[u8]>,
-    file_offset: FileOffsetOperand,
+    pub max_errors: u8,
+    pub size: VariableUint,
+    pub mask: Option<Box<[u8]>>,
+    pub value: Box<[u8]>,
+    pub file_offset: FileOffsetOperand,
 }
 impl Serializable for StringTokenSearch {
     fn serialized_size(&self) -> usize {
@@ -748,13 +756,15 @@ impl Serializable for StringTokenSearch {
             + self.file_offset.serialized_size()
     }
     fn serialize(&self, out: &mut [u8]) -> usize {
-        const query_op: u8 = 7;
         let mask_flag = match self.mask {
             Some(_) => 1,
             None => 0,
         };
         let mut offset = 0;
-        out[0] = (query_op << 4) | (mask_flag << 3) | (0 << 3) | self.max_errors;
+        out[0] = ((QueryCode::StringTokenSearch as u8) << 4)
+            | (mask_flag << 3)
+            // | (0 << 3)
+            | self.max_errors;
         offset += 1;
         offset += self.size.serialize(&mut out[offset..]);
         if let Some(mask) = &self.mask {
@@ -771,29 +781,17 @@ impl Serializable for StringTokenSearch {
 pub enum QueryOperand {
     NonVoid(NonVoid),
     ComparisonWithZero(ComparisonWithZero),
-    ComparisonWithArgument(ComparisonWithValue),
+    ComparisonWithValue(ComparisonWithValue),
     ComparisonWithOtherFile(ComparisonWithOtherFile),
     BitmapRangeComparison(BitmapRangeComparison),
     StringTokenSearch(StringTokenSearch),
-}
-impl QueryOperand {
-    fn id(&self) -> u8 {
-        match self {
-            QueryOperand::NonVoid(_) => 0,
-            QueryOperand::ComparisonWithZero(_) => 1,
-            QueryOperand::ComparisonWithArgument(_) => 2,
-            QueryOperand::ComparisonWithOtherFile(_) => 3,
-            QueryOperand::BitmapRangeComparison(_) => 4,
-            QueryOperand::StringTokenSearch(_) => 7,
-        }
-    }
 }
 impl Serializable for QueryOperand {
     fn serialized_size(&self) -> usize {
         match self {
             QueryOperand::NonVoid(v) => v.serialized_size(),
             QueryOperand::ComparisonWithZero(v) => v.serialized_size(),
-            QueryOperand::ComparisonWithArgument(v) => v.serialized_size(),
+            QueryOperand::ComparisonWithValue(v) => v.serialized_size(),
             QueryOperand::ComparisonWithOtherFile(v) => v.serialized_size(),
             QueryOperand::BitmapRangeComparison(v) => v.serialized_size(),
             QueryOperand::StringTokenSearch(v) => v.serialized_size(),
@@ -803,7 +801,7 @@ impl Serializable for QueryOperand {
         match self {
             QueryOperand::NonVoid(v) => v.serialize(out),
             QueryOperand::ComparisonWithZero(v) => v.serialize(out),
-            QueryOperand::ComparisonWithArgument(v) => v.serialize(out),
+            QueryOperand::ComparisonWithValue(v) => v.serialize(out),
             QueryOperand::ComparisonWithOtherFile(v) => v.serialize(out),
             QueryOperand::BitmapRangeComparison(v) => v.serialize(out),
             QueryOperand::StringTokenSearch(v) => v.serialize(out),
@@ -812,15 +810,15 @@ impl Serializable for QueryOperand {
 }
 
 pub struct OverloadedIndirectInterface {
-    interface_file_id: FileIdOperand,
-    addressee: Addressee,
+    pub interface_file_id: FileIdOperand,
+    pub addressee: Addressee,
 }
 impl_serialized!(OverloadedIndirectInterface, interface_file_id, addressee);
 
 pub struct NonOverloadedIndirectInterface {
-    interface_file_id: FileIdOperand,
+    pub interface_file_id: FileIdOperand,
     // ALP SPEC: Where is this defined? Is this ID specific?
-    data: Box<[u8]>,
+    pub data: Box<[u8]>,
 }
 
 impl Serializable for NonOverloadedIndirectInterface {
@@ -861,139 +859,139 @@ impl Serializable for IndirectInterface {
 // =================================================================================
 // Nop
 pub struct Nop {
-    group: bool,
-    resp: bool,
+    pub group: bool,
+    pub resp: bool,
 }
 impl_op_serialized!(Nop, group, resp);
 
 // Read
 pub struct ReadFileData {
-    group: bool,
-    resp: bool,
-    data: FileDataRequestOperand,
+    pub group: bool,
+    pub resp: bool,
+    pub data: FileDataRequestOperand,
 }
 impl_op_serialized!(ReadFileData, group, resp, data);
 
 pub struct ReadFileProperties {
-    group: bool,
-    resp: bool,
-    file_id: FileIdOperand,
+    pub group: bool,
+    pub resp: bool,
+    pub file_id: FileIdOperand,
 }
 impl_op_serialized!(ReadFileProperties, group, resp, file_id);
 
 // Write
 pub struct WriteFileData {
-    group: bool,
-    resp: bool,
-    file_data: FileDataOperand,
+    pub group: bool,
+    pub resp: bool,
+    pub file_data: FileDataOperand,
 }
 impl_op_serialized!(WriteFileData, group, resp, file_data);
 
 pub struct WriteFileDataFlush {
-    group: bool,
-    resp: bool,
-    file_data: FileDataOperand,
+    pub group: bool,
+    pub resp: bool,
+    pub file_data: FileDataOperand,
 }
 impl_op_serialized!(WriteFileDataFlush, group, resp, file_data);
 
 pub struct WriteFileProperties {
-    group: bool,
-    resp: bool,
-    file_header: FileHeader,
+    pub group: bool,
+    pub resp: bool,
+    pub file_header: FileHeader,
 }
 impl_op_serialized!(WriteFileProperties, group, resp, file_header);
 
 pub struct ActionQuery {
-    group: bool,
-    resp: bool,
-    query: QueryOperand,
+    pub group: bool,
+    pub resp: bool,
+    pub query: QueryOperand,
 }
 impl_op_serialized!(ActionQuery, group, resp, query);
 
 pub struct BreakQuery {
-    group: bool,
-    resp: bool,
-    query: QueryOperand,
+    pub group: bool,
+    pub resp: bool,
+    pub query: QueryOperand,
 }
 impl_op_serialized!(BreakQuery, group, resp, query);
 
 pub struct PermissionRequest {
-    group: bool,
-    resp: bool,
-    permission: PermissionOperand,
+    pub group: bool,
+    pub resp: bool,
+    pub permission: PermissionOperand,
 }
 impl_op_serialized!(PermissionRequest, group, resp, permission);
 
 pub struct VerifyChecksum {
-    group: bool,
-    resp: bool,
-    query: QueryOperand,
+    pub group: bool,
+    pub resp: bool,
+    pub query: QueryOperand,
 }
 impl_op_serialized!(VerifyChecksum, group, resp, query);
 
 // Management
 pub struct ExistFile {
-    group: bool,
-    resp: bool,
-    file_id: FileIdOperand,
+    pub group: bool,
+    pub resp: bool,
+    pub file_id: FileIdOperand,
 }
 impl_op_serialized!(ExistFile, group, resp, file_id);
 
 pub struct CreateNewFile {
-    group: bool,
-    resp: bool,
-    file_header: FileHeader,
+    pub group: bool,
+    pub resp: bool,
+    pub file_header: FileHeader,
 }
 impl_op_serialized!(CreateNewFile, group, resp, file_header);
 
 pub struct DeleteFile {
-    group: bool,
-    resp: bool,
-    file_id: FileIdOperand,
+    pub group: bool,
+    pub resp: bool,
+    pub file_id: FileIdOperand,
 }
 impl_op_serialized!(DeleteFile, group, resp, file_id);
 
 pub struct RestoreFile {
-    group: bool,
-    resp: bool,
-    file_id: FileIdOperand,
+    pub group: bool,
+    pub resp: bool,
+    pub file_id: FileIdOperand,
 }
 impl_op_serialized!(RestoreFile, group, resp, file_id);
 
 pub struct FlushFile {
-    group: bool,
-    resp: bool,
-    file_id: FileIdOperand,
+    pub group: bool,
+    pub resp: bool,
+    pub file_id: FileIdOperand,
 }
 impl_op_serialized!(FlushFile, group, resp, file_id);
 
 pub struct CopyFile {
-    group: bool,
-    resp: bool,
-    source_file_id: FileIdOperand,
-    dest_file_id: FileIdOperand,
+    pub group: bool,
+    pub resp: bool,
+    pub source_file_id: FileIdOperand,
+    pub dest_file_id: FileIdOperand,
 }
 impl_op_serialized!(CopyFile, group, resp, source_file_id, dest_file_id);
 
 pub struct ExecuteFile {
-    group: bool,
-    resp: bool,
-    file_id: FileIdOperand,
+    pub group: bool,
+    pub resp: bool,
+    pub file_id: FileIdOperand,
 }
 impl_op_serialized!(ExecuteFile, group, resp, file_id);
 
 // Response
 pub struct ReturnFileData {
-    group: bool,
-    resp: bool,
-    file_data: FileDataOperand,
+    pub group: bool,
+    pub resp: bool,
+    pub file_data: FileDataOperand,
 }
 impl_op_serialized!(ReturnFileData, group, resp, file_data);
 
 pub struct ReturnFileProperties {
-    group: bool,
-    resp: bool,
-    file_header: FileHeader,
+    pub group: bool,
+    pub resp: bool,
+    pub file_header: FileHeader,
 }
 impl_op_serialized!(ReturnFileProperties, group, resp, file_header);
 
@@ -1032,9 +1030,9 @@ impl Serializable for Status {
     }
 }
 pub struct ResponseTag {
-    eop: bool, // End of packet
-    err: bool,
-    id: u8,
+    pub eop: bool, // End of packet
+    pub err: bool,
+    pub id: u8,
 }
 impl Serializable for ResponseTag {
     fn serialized_size(&self) -> usize {
@@ -1057,7 +1055,7 @@ pub enum ChunkStep {
     StartEnd = 3,
 }
 pub struct Chunk {
-    step: ChunkStep,
+    pub step: ChunkStep,
 }
 impl Serializable for Chunk {
     fn serialized_size(&self) -> usize {
@@ -1077,7 +1075,7 @@ pub enum LogicOp {
     Nand = 3,
 }
 pub struct Logic {
-    logic: LogicOp,
+    pub logic: LogicOp,
 }
 impl Serializable for Logic {
     fn serialized_size(&self) -> usize {
@@ -1089,8 +1087,8 @@ impl Serializable for Logic {
     }
 }
 pub struct Forward {
-    resp: bool,
-    conf: InterfaceConfiguration,
+    pub resp: bool,
+    pub conf: InterfaceConfiguration,
 }
 impl Serializable for Forward {
     fn serialized_size(&self) -> usize {
@@ -1103,15 +1101,15 @@ impl Serializable for Forward {
 }
 
 pub struct IndirectForward {
-    overload: bool,
-    resp: bool,
-    interface: IndirectInterface,
+    pub overload: bool,
+    pub resp: bool,
+    pub interface: IndirectInterface,
 }
 impl_op_serialized!(IndirectForward, overload, resp, interface);
 
 pub struct RequestTag {
-    eop: bool, // End of packet
-    id: u8,
+    pub eop: bool, // End of packet
+    pub id: u8,
 }
 impl Serializable for RequestTag {
     fn serialized_size(&self) -> usize {
@@ -1125,14 +1123,14 @@ impl Serializable for RequestTag {
 }
 
 pub struct Extension {
-    group: bool,
-    resp: bool,
+    pub group: bool,
+    pub resp: bool,
 }
 impl Serializable for Extension {
     fn serialized_size(&self) -> usize {
         todo!()
     }
-    fn serialize(&self, out: &mut [u8]) -> usize {
+    fn serialize(&self, _out: &mut [u8]) -> usize {
         todo!()
     }
 }
@@ -1250,8 +1248,8 @@ pub struct Command {
     pub actions: Vec<Action>,
 }
 
-impl Command {
-    pub fn new() -> Self {
+impl Default for Command {
+    fn default() -> Self {
         Self { actions: vec![] }
     }
 }
