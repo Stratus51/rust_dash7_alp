@@ -149,7 +149,7 @@ pub enum NlsMethod {
 // ALP SPEC: Where is this defined?
 pub enum Address {
     // D7A SPEC: It is not clear that the estimated reached has to be placed on the "ID" field.
-    Nbid(u8),
+    NbId(u8),
     NoId,
     Uid(Box<[u8; 8]>),
     Vid(Box<[u8; 2]>),
@@ -163,7 +163,7 @@ impl Serializable for Addressee {
     fn serialized_size(&self) -> usize {
         1 + 1
             + match self.address {
-                Address::Nbid(_) => 1,
+                Address::NbId(_) => 1,
                 Address::NoId => 0,
                 Address::Uid(_) => 8,
                 Address::Vid(_) => 2,
@@ -171,17 +171,65 @@ impl Serializable for Addressee {
     }
     fn serialize(&self, out: &mut [u8]) -> usize {
         let (id_type, id): (u8, Box<[u8]>) = match &self.address {
-            Address::Nbid(n) => (0, Box::new([*n])),
+            Address::NbId(n) => (0, Box::new([*n])),
             Address::NoId => (1, Box::new([])),
             Address::Uid(uid) => (2, uid.clone()),
             Address::Vid(vid) => (3, vid.clone()),
         };
 
-        out[0] = (id_type << 3) | (self.nls_method as u8);
+        out[0] = (id_type << 4) | (self.nls_method as u8);
         out[1] = self.access_class;
         out[2..].clone_from_slice(&id);
         2 + id.len()
     }
+}
+#[test]
+fn test_addressee_nbid() {
+    assert_eq!(
+        Addressee {
+            nls_method: NlsMethod::None,
+            access_class: 0x00,
+            address: Address::NbId(0x15),
+        }
+        .serialize_to_box()[..],
+        [0x00, 0x00, 0x15]
+    )
+}
+#[test]
+fn test_addressee_noid() {
+    assert_eq!(
+        Addressee {
+            nls_method: NlsMethod::AesCbcMac128,
+            access_class: 0x24,
+            address: Address::NoId,
+        }
+        .serialize_to_box()[..],
+        [0x12, 0x24]
+    )
+}
+#[test]
+fn test_addressee_uid() {
+    assert_eq!(
+        Addressee {
+            nls_method: NlsMethod::AesCcm64,
+            access_class: 0x48,
+            address: Address::Uid(Box::new([0, 1, 2, 3, 4, 5, 6, 7])),
+        }
+        .serialize_to_box()[..],
+        [0x26, 0x48, 0, 1, 2, 3, 4, 5, 6, 7]
+    )
+}
+#[test]
+fn test_addressee_vid() {
+    assert_eq!(
+        Addressee {
+            nls_method: NlsMethod::AesCcm32,
+            access_class: 0xFF,
+            address: Address::Vid(Box::new([0xAB, 0xCD])),
+        }
+        .serialize_to_box()[..],
+        [0x37, 0xFF, 0xAB, 0xCD]
+    )
 }
 
 // ALP SPEC: Add link to D7a section
