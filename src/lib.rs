@@ -1,10 +1,11 @@
-use std::convert::TryFrom;
-
 #[cfg(test)]
 use hex_literal::hex;
 
 mod serializable;
-use serializable::Serializable;
+pub use serializable::Serializable;
+
+mod variable_uint;
+pub use variable_uint::VariableUint;
 
 // TODO Maybe using flat structures and modeling operands as macros would be much more ergonomic.
 // TODO Look into const function to replace some macros?
@@ -427,7 +428,7 @@ impl Serializable for InterfaceStatus {
         match self {
             InterfaceStatus::D7asp(itf) => itf.serialized_size(),
             InterfaceStatus::Unknown(data) => {
-                1 + VariableUint::unsafe_size(data.len() as u32) as usize
+                1 + unsafe { VariableUint::unsafe_size(data.len() as u32) as usize }
             }
         }
     }
@@ -439,82 +440,6 @@ impl Serializable for InterfaceStatus {
 // ===============================================================================
 // Operands
 // ===============================================================================
-pub struct VariableUint {
-    pub value: u32,
-}
-const MAX_VARIABLE_UINT: u32 = 0x3F_FF_FF_FF;
-
-impl VariableUint {
-    pub fn new(value: u32) -> Result<Self, ()> {
-        if value > MAX_VARIABLE_UINT {
-            Err(())
-        } else {
-            Ok(Self { value })
-        }
-    }
-
-    pub fn set(&mut self, value: u32) -> Result<(), ()> {
-        if value > MAX_VARIABLE_UINT {
-            Err(())
-        } else {
-            self.value = value;
-            Ok(())
-        }
-    }
-
-    pub fn is_valid(n: u32) -> Result<(), ()> {
-        if n > MAX_VARIABLE_UINT {
-            Err(())
-        } else {
-            Ok(())
-        }
-    }
-
-    pub fn usize_is_valid(n: usize) -> Result<(), ()> {
-        u32::try_from(n).map_err(|_| ()).and_then(Self::is_valid)
-    }
-
-    fn unsafe_size(n: u32) -> u8 {
-        if n < 0x3F {
-            0
-        } else if n < 0x3F_FF {
-            1
-        } else if n < 0x3F_FF_FF {
-            2
-        } else {
-            3
-        }
-    }
-
-    fn size(n: u32) -> Result<u8, ()> {
-        if n > MAX_VARIABLE_UINT {
-            Err(())
-        } else {
-            Ok(Self::unsafe_size(n))
-        }
-    }
-
-    unsafe fn u32_serialize(n: u32, out: &mut [u8]) -> u8 {
-        let u8_size = Self::unsafe_size(n);
-        let size = u8_size as usize;
-        for (i, byte) in out.iter_mut().enumerate().take(size) {
-            *byte = ((n >> ((size - 1 - i) * 8)) & 0xFF) as u8;
-        }
-        out[0] |= (size as u8) << 6;
-        u8_size
-    }
-}
-
-impl Serializable for VariableUint {
-    fn serialized_size(&self) -> usize {
-        Self::unsafe_size(self.value) as usize
-    }
-
-    fn serialize(&self, out: &mut [u8]) -> usize {
-        unsafe { Self::u32_serialize(self.value, out) as usize }
-    }
-}
-
 pub struct FileIdOperand {
     pub file_id: u8,
 }
