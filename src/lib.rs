@@ -458,6 +458,17 @@ pub struct FileOffsetOperand {
     pub offset: VariableUint,
 }
 impl_serialized!(FileOffsetOperand, file_id, offset);
+#[test]
+fn test_file_offset_operand() {
+    assert_eq!(
+        *FileOffsetOperand {
+            file_id: FileIdOperand { file_id: 2 },
+            offset: VariableUint::new(0x3F_FF).unwrap(),
+        }
+        .serialize_to_box(),
+        hex!("02 7F FF")
+    )
+}
 
 pub struct FileDataRequestOperand {
     pub file_offset: FileOffsetOperand,
