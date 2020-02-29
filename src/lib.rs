@@ -1,14 +1,17 @@
 use std::convert::TryFrom;
 
+#[cfg(test)]
+use hex_literal::hex;
+
 mod serializable;
 use serializable::Serializable;
 
 // TODO Maybe using flat structures and modeling operands as macros would be much more ergonomic.
 // TODO Look into const function to replace some macros?
 
-// =================================================================================
+// ===============================================================================
 // Macros
-// =================================================================================
+// ===============================================================================
 macro_rules! serialize_all {
     ($out: expr, $($x: expr),*) => {
         {
@@ -87,9 +90,9 @@ macro_rules! impl_op_serialized {
     };
 }
 
-// =================================================================================
+// ===============================================================================
 // Opcodes
-// =================================================================================
+// ===============================================================================
 pub enum OpCode {
     // Nop
     Nop = 0,
@@ -131,9 +134,9 @@ pub enum OpCode {
     Extension = 63,
 }
 
-// =================================================================================
+// ===============================================================================
 // D7a definitions
-// =================================================================================
+// ===============================================================================
 #[derive(Clone, Copy)]
 pub enum NlsMethod {
     None = 0,
@@ -179,7 +182,7 @@ impl Serializable for Addressee {
 
         out[0] = (id_type << 4) | (self.nls_method as u8);
         out[1] = self.access_class;
-        out[2..].clone_from_slice(&id);
+        out[2..2 + id.len()].clone_from_slice(&id);
         2 + id.len()
     }
 }
@@ -192,7 +195,7 @@ fn test_addressee_nbid() {
             address: Address::NbId(0x15),
         }
         .serialize_to_box()[..],
-        [0x00, 0x00, 0x15]
+        hex!("00 00 15")
     )
 }
 #[test]
@@ -204,7 +207,7 @@ fn test_addressee_noid() {
             address: Address::NoId,
         }
         .serialize_to_box()[..],
-        [0x12, 0x24]
+        hex!("12 24")
     )
 }
 #[test]
@@ -216,7 +219,7 @@ fn test_addressee_uid() {
             address: Address::Uid(Box::new([0, 1, 2, 3, 4, 5, 6, 7])),
         }
         .serialize_to_box()[..],
-        [0x26, 0x48, 0, 1, 2, 3, 4, 5, 6, 7]
+        hex!("26 48 0001020304050607")
     )
 }
 #[test]
@@ -228,16 +231,56 @@ fn test_addressee_vid() {
             address: Address::Vid(Box::new([0xAB, 0xCD])),
         }
         .serialize_to_box()[..],
-        [0x37, 0xFF, 0xAB, 0xCD]
+        hex!("37 FF AB CD")
+    )
+}
+
+#[derive(Clone, Copy)]
+pub enum RetryMode {
+    No = 0,
+}
+
+#[derive(Clone, Copy)]
+pub enum RespMode {
+    No = 0,
+    All = 1,
+    Any = 2,
+    RespNoRpt = 4,
+    RespOnData = 5,
+    RespPreferred = 6,
+}
+
+pub struct Qos {
+    pub retry: RetryMode,
+    pub resp: RespMode,
+}
+impl Serializable for Qos {
+    fn serialized_size(&self) -> usize {
+        1
+    }
+    fn serialize(&self, out: &mut [u8]) -> usize {
+        out[0] = ((self.retry as u8) << 3) + self.resp as u8;
+        1
+    }
+}
+#[test]
+fn test_qos() {
+    assert_eq!(
+        Qos {
+            retry: RetryMode::No,
+            resp: RespMode::RespNoRpt,
+        }
+        .serialize_to_box()[..],
+        hex!("04")
     )
 }
 
 // ALP SPEC: Add link to D7a section
 pub struct D7aspInterfaceConfiguration {
-    qos: u8,
-    to: u8,
-    te: u8,
-    addressee: Addressee,
+    pub qos: Qos, // TODO enum
+    pub to: u8,
+    pub te: u8,
+    pub addressee: Addressee,
 }
 
 impl Serializable for D7aspInterfaceConfiguration {
@@ -245,11 +288,31 @@ impl Serializable for D7aspInterfaceConfiguration {
         3 + self.addressee.serialized_size()
     }
     fn serialize(&self, out: &mut [u8]) -> usize {
-        out[0] = self.qos;
+        self.qos.serialize(out);
         out[1] = self.to;
         out[2] = self.te;
         3 + self.addressee.serialize(&mut out[3..])
     }
+}
+#[test]
+fn test_d7asp_interface_configuration() {
+    assert_eq!(
+        D7aspInterfaceConfiguration {
+            qos: Qos {
+                retry: RetryMode::No,
+                resp: RespMode::Any,
+            },
+            to: 0x23,
+            te: 0x34,
+            addressee: Addressee {
+                nls_method: NlsMethod::AesCcm32,
+                access_class: 0xFF,
+                address: Address::Vid(Box::new([0xAB, 0xCD])),
+            }
+        }
+        .serialize_to_box()[..],
+        hex!("02 23 34   37 FF ABCD")
+    )
 }
 
 // ALP SPEC: Add link to D7a section (names do not even match)
@@ -278,7 +341,7 @@ impl Serializable for D7aspInterfaceStatus {
         let mut i = 0;
         out[i] = self.ch_header;
         i += 1;
-        out[i..].clone_from_slice(&self.ch_idx.to_le_bytes());
+        out[i..(i + 2)].clone_from_slice(&self.ch_idx.to_le_bytes());
         i += 2;
         out[i] = self.rxlev;
         i += 1;
@@ -296,16 +359,40 @@ impl Serializable for D7aspInterfaceStatus {
         i += 1;
         i += self.addressee.serialize(&mut out[i..]);
         if let Some(nls_state) = &self.nls_state {
-            out[i..].clone_from_slice(&nls_state[i..]);
+            out[i..i + 5].clone_from_slice(&nls_state[..]);
             i += 5;
         }
         i
     }
 }
+#[test]
+fn test_d7asp_interface_status() {
+    assert_eq!(
+        D7aspInterfaceStatus {
+            ch_header: 1,
+            ch_idx: 0x0123,
+            rxlev: 2,
+            lb: 3,
+            snr: 4,
+            status: 5,
+            token: 6,
+            seq: 7,
+            resp_to: 8,
+            addressee: Addressee {
+                nls_method: NlsMethod::AesCcm32,
+                access_class: 0xFF,
+                address: Address::Vid(Box::new([0xAB, 0xCD])),
+            },
+            nls_state: Some(hex!("00 11 22 33 44")),
+        }
+        .serialize_to_box()[..],
+        hex!("01 2301 02 03 04 05 06 07 08   37 FF ABCD  0011223344")
+    )
+}
 
-// =================================================================================
+// ===============================================================================
 // Alp Interfaces
-// =================================================================================
+// ===============================================================================
 pub enum InterfaceId {
     Host = 0,
     D7asp = 0xD7,
@@ -349,9 +436,9 @@ impl Serializable for InterfaceStatus {
     }
 }
 
-// =================================================================================
+// ===============================================================================
 // Operands
-// =================================================================================
+// ===============================================================================
 pub struct VariableUint {
     pub value: u32,
 }
@@ -902,9 +989,9 @@ impl Serializable for IndirectInterface {
     }
 }
 
-// =================================================================================
+// ===============================================================================
 // Actions
-// =================================================================================
+// ===============================================================================
 // Nop
 pub struct Nop {
     pub group: bool,
@@ -1289,9 +1376,9 @@ impl Serializable for Action {
     }
 }
 
-// =================================================================================
+// ===============================================================================
 // Command
-// =================================================================================
+// ===============================================================================
 pub struct Command {
     pub actions: Vec<Action>,
 }
@@ -1311,16 +1398,5 @@ impl Serializable for Command {
             offset += action.serialize(&mut out[offset..]);
         }
         offset
-    }
-}
-
-// =================================================================================
-// Tests
-// =================================================================================
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
     }
 }
