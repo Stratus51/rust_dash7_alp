@@ -486,92 +486,31 @@ impl Serializable for InterfaceStatus {
 // ===============================================================================
 // Operands
 // ===============================================================================
-pub struct FileIdOperand {
-    pub file_id: u8,
-}
-impl Serializable for FileIdOperand {
-    fn serialized_size(&self) -> usize {
-        1
-    }
-    fn serialize(&self, out: &mut [u8]) -> usize {
-        out[0] = self.file_id;
-        1
-    }
+pub struct FileOffsetOperand {
+    pub id: u8,
+    pub offset: u32,
 }
 
-pub struct FileOffsetOperand {
-    pub file_id: FileIdOperand,
-    pub offset: VariableUint,
+impl Serializable for FileOffsetOperand {
+    fn serialized_size(&self) -> usize {
+        1 + unsafe_varint_serialize_sizes!(self.offset) as usize
+    }
+    fn serialize(&self, out: &mut [u8]) -> usize {
+        out[1] = self.id;
+        1 + 1 + unsafe_varint_serialize!(out[1..], self.offset)
+    }
 }
-impl_serialized!(FileOffsetOperand, file_id, offset);
 #[test]
 fn test_file_offset_operand() {
     assert_eq!(
         *FileOffsetOperand {
-            file_id: FileIdOperand { file_id: 2 },
-            offset: VariableUint::new(0x3F_FF).unwrap(),
+            id: 2,
+            offset: 0x3F_FF,
         }
         .serialize_to_box(),
         hex!("02 7F FF")
     )
 }
-
-pub struct FileDataRequestOperand {
-    pub file_offset: FileOffsetOperand,
-    pub size: VariableUint,
-}
-impl_serialized!(FileDataRequestOperand, file_offset, size);
-
-pub struct DataOperand {
-    pub data: Box<[u8]>,
-}
-impl DataOperand {
-    pub fn new(data: Box<[u8]>) -> Result<Self, ()> {
-        VariableUint::usize_is_valid(data.len()).map(|_| Self { data })
-    }
-    pub fn set(&mut self, data: Box<[u8]>) -> Result<(), ()> {
-        VariableUint::usize_is_valid(data.len()).map(|_| {
-            self.data = data;
-        })
-    }
-}
-
-impl Serializable for DataOperand {
-    fn serialized_size(&self) -> usize {
-        VariableUint::size(self.data.len() as u32).unwrap() as usize + self.data.len()
-    }
-    fn serialize(&self, out: &mut [u8]) -> usize {
-        let offset = unsafe { VariableUint::u32_serialize(self.data.len() as u32, out) as usize };
-        out[offset..].clone_from_slice(&self.data[..]);
-        offset + self.data.len()
-    }
-}
-
-pub struct FileDataOperand {
-    pub file_offset: FileOffsetOperand,
-    pub data: DataOperand,
-}
-impl_serialized!(FileDataOperand, file_offset, data);
-
-// TODO
-// ALP SPEC: Missing link to find definition in ALP spec
-pub struct FileProperties {
-    pub data: [u8; 12],
-}
-impl Serializable for FileProperties {
-    fn serialized_size(&self) -> usize {
-        12
-    }
-    fn serialize(&self, _out: &mut [u8]) -> usize {
-        todo!()
-    }
-}
-
-pub struct FileHeader {
-    pub file_id: FileIdOperand,
-    pub data: FileProperties,
-}
-impl_serialized!(FileHeader, file_id, data);
 
 #[derive(Copy, Clone)]
 pub enum StatusCode {
@@ -927,23 +866,33 @@ impl Serializable for QueryOperand {
 }
 
 pub struct OverloadedIndirectInterface {
-    pub interface_file_id: FileIdOperand,
+    pub interface_file_id: u8,
     pub addressee: Addressee,
 }
-impl_serialized!(OverloadedIndirectInterface, interface_file_id, addressee);
+
+impl Serializable for OverloadedIndirectInterface {
+    fn serialized_size(&self) -> usize {
+        1 + self.addressee.serialized_size()
+    }
+    fn serialize(&self, out: &mut [u8]) -> usize {
+        out[0] = self.interface_file_id;
+        1 + self.addressee.serialize(&mut out[1..])
+    }
+}
 
 pub struct NonOverloadedIndirectInterface {
-    pub interface_file_id: FileIdOperand,
+    pub interface_file_id: u8,
     // ALP SPEC: Where is this defined? Is this ID specific?
     pub data: Box<[u8]>,
 }
 
 impl Serializable for NonOverloadedIndirectInterface {
     fn serialized_size(&self) -> usize {
-        self.interface_file_id.serialized_size() + self.data.len()
+        1 + self.data.len()
     }
     fn serialize(&self, out: &mut [u8]) -> usize {
-        let mut offset = self.interface_file_id.serialize(out);
+        out[0] = self.interface_file_id;
+        let mut offset = 1;
         out[offset..].clone_from_slice(&self.data);
         offset += self.data.len();
         // ALP SPEC: TODO: What should we do
@@ -1063,6 +1012,8 @@ pub struct WriteFileProperties {
     pub group: bool,
     pub resp: bool,
     pub file_id: u8,
+    // TODO
+    // ALP SPEC: Missing link to find definition in ALP spec
     pub data: [u8; 12],
 }
 impl Serializable for WriteFileProperties {
@@ -1118,6 +1069,8 @@ pub struct CreateNewFile {
     pub group: bool,
     pub resp: bool,
     pub file_id: u8,
+    // TODO
+    // ALP SPEC: Missing link to find definition in ALP spec
     pub data: [u8; 12],
 }
 impl Serializable for CreateNewFile {
@@ -1197,6 +1150,8 @@ pub struct ReturnFileProperties {
     pub group: bool,
     pub resp: bool,
     pub file_id: u8,
+    // TODO
+    // ALP SPEC: Missing link to find definition in ALP spec
     pub data: [u8; 12],
 }
 impl Serializable for ReturnFileProperties {
