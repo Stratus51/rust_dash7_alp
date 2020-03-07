@@ -91,6 +91,52 @@ macro_rules! impl_op_serialized {
     };
 }
 
+macro_rules! unsafe_varint_serialize_sizes {
+    ( $($x: expr),* ) => {{
+        let mut ret = 0;
+            $(unsafe {
+                ret += VariableUint::unsafe_size($x);
+            })*
+        ret
+    }}
+}
+
+macro_rules! unsafe_varint_serialize {
+    ($out: expr, $($x: expr),*) => {
+        {
+            let mut offset: usize = 0;
+            $(unsafe {
+                offset += VariableUint::u32_serialize($x, &mut $out[offset..]) as usize;
+            })*
+            offset
+        }
+    }
+}
+
+macro_rules! count {
+    () => (0usize);
+    ( $x:tt $($xs:tt)* ) => (1usize + count!($($xs)*));
+}
+
+macro_rules! impl_simple_op {
+    ($name: ident, $flag7: ident, $flag6: ident, $($x: ident),* ) => {
+        impl Serializable for $name {
+            fn serialized_size(&self) -> usize {
+                1 + count!($( $x )*)
+            }
+            fn serialize(&self, out: &mut [u8]) -> usize {
+                out[0] = control_byte!(self.$flag7, self.$flag6, OpCode::$name);
+                let mut offset = 1;
+                $({
+                    out[offset] = self.$x;
+                    offset += 1;
+                })*
+                1 + offset
+            }
+        }
+    };
+}
+
 // ===============================================================================
 // Opcodes
 // ===============================================================================
@@ -901,7 +947,7 @@ impl Serializable for NonOverloadedIndirectInterface {
         out[offset..].clone_from_slice(&self.data);
         offset += self.data.len();
         // ALP SPEC: TODO: What should we do
-        todo!()
+        todo!("{}", offset)
     }
 }
 
@@ -936,41 +982,100 @@ pub struct Nop {
 impl_op_serialized!(Nop, group, resp);
 
 // Read
+// TODO Protect varint init
 pub struct ReadFileData {
     pub group: bool,
     pub resp: bool,
-    pub data: FileDataRequestOperand,
+    pub file_id: u8,
+    pub offset: u32,
+    pub size: u32,
 }
-impl_op_serialized!(ReadFileData, group, resp, data);
+
+impl Serializable for ReadFileData {
+    fn serialized_size(&self) -> usize {
+        1 + 1 + unsafe_varint_serialize_sizes!(self.offset, self.size) as usize
+    }
+    fn serialize(&self, out: &mut [u8]) -> usize {
+        out[0] = control_byte!(self.group, self.resp, OpCode::ReadFileData);
+        out[1] = self.file_id;
+        1 + 1 + unsafe_varint_serialize!(out[2..], self.offset, self.size)
+    }
+}
 
 pub struct ReadFileProperties {
     pub group: bool,
     pub resp: bool,
-    pub file_id: FileIdOperand,
+    pub file_id: u8,
 }
-impl_op_serialized!(ReadFileProperties, group, resp, file_id);
+impl_simple_op!(ReadFileProperties, group, resp, file_id);
 
 // Write
+// TODO Protect varint init, data consistency
 pub struct WriteFileData {
     pub group: bool,
     pub resp: bool,
-    pub file_data: FileDataOperand,
+    pub file_id: u8,
+    pub offset: u32,
+    pub data: Box<[u8]>,
 }
-impl_op_serialized!(WriteFileData, group, resp, file_data);
+impl Serializable for WriteFileData {
+    fn serialized_size(&self) -> usize {
+        1 + 1
+            + unsafe_varint_serialize_sizes!(self.offset, self.data.len() as u32) as usize
+            + self.data.len()
+    }
+    fn serialize(&self, out: &mut [u8]) -> usize {
+        out[0] = control_byte!(self.group, self.resp, OpCode::WriteFileData);
+        out[1] = self.file_id;
+        let mut offset = 2;
+        offset += unsafe_varint_serialize!(out[2..], self.offset, self.data.len() as u32) as usize;
+        out[offset..offset + self.data.len()].clone_from_slice(&self.data[..]);
+        offset += self.data.len();
+        offset
+    }
+}
 
 pub struct WriteFileDataFlush {
     pub group: bool,
     pub resp: bool,
-    pub file_data: FileDataOperand,
+    pub file_id: u8,
+    pub offset: u32,
+    pub data: Box<[u8]>,
 }
-impl_op_serialized!(WriteFileDataFlush, group, resp, file_data);
+impl Serializable for WriteFileDataFlush {
+    fn serialized_size(&self) -> usize {
+        1 + 1
+            + unsafe_varint_serialize_sizes!(self.offset, self.data.len() as u32) as usize
+            + self.data.len()
+    }
+    fn serialize(&self, out: &mut [u8]) -> usize {
+        out[0] = control_byte!(self.group, self.resp, OpCode::WriteFileDataFlush);
+        out[1] = self.file_id;
+        let mut offset = 2;
+        offset += unsafe_varint_serialize!(out[2..], self.offset, self.data.len() as u32) as usize;
+        out[offset..offset + self.data.len()].clone_from_slice(&self.data[..]);
+        offset += self.data.len();
+        offset
+    }
+}
 
 pub struct WriteFileProperties {
     pub group: bool,
     pub resp: bool,
-    pub file_header: FileHeader,
+    pub file_id: u8,
+    pub data: [u8; 12],
 }
-impl_op_serialized!(WriteFileProperties, group, resp, file_header);
+impl Serializable for WriteFileProperties {
+    fn serialized_size(&self) -> usize {
+        1 + 1 + 12
+    }
+    fn serialize(&self, out: &mut [u8]) -> usize {
+        out[0] = control_byte!(self.group, self.resp, OpCode::WriteFileProperties);
+        out[1] = self.file_id;
+        out[2..2 + 12].clone_from_slice(&self.data[..]);
+        1 + 1 + 12
+    }
+}
 
 pub struct ActionQuery {
     pub group: bool,
@@ -989,9 +1094,10 @@ impl_op_serialized!(BreakQuery, group, resp, query);
 pub struct PermissionRequest {
     pub group: bool,
     pub resp: bool,
-    pub permission: PermissionOperand,
+    pub level: PermissionLevel,
+    pub permission: Permission,
 }
-impl_op_serialized!(PermissionRequest, group, resp, permission);
+impl_op_serialized!(PermissionRequest, group, resp, level, permission);
 
 pub struct VerifyChecksum {
     pub group: bool,
@@ -1004,67 +1110,106 @@ impl_op_serialized!(VerifyChecksum, group, resp, query);
 pub struct ExistFile {
     pub group: bool,
     pub resp: bool,
-    pub file_id: FileIdOperand,
+    pub file_id: u8,
 }
-impl_op_serialized!(ExistFile, group, resp, file_id);
+impl_simple_op!(ExistFile, group, resp, file_id);
 
 pub struct CreateNewFile {
     pub group: bool,
     pub resp: bool,
-    pub file_header: FileHeader,
+    pub file_id: u8,
+    pub data: [u8; 12],
 }
-impl_op_serialized!(CreateNewFile, group, resp, file_header);
+impl Serializable for CreateNewFile {
+    fn serialized_size(&self) -> usize {
+        1 + 1 + 12
+    }
+    fn serialize(&self, out: &mut [u8]) -> usize {
+        out[0] = control_byte!(self.group, self.resp, OpCode::CreateNewFile);
+        out[1] = self.file_id;
+        out[2..2 + 12].clone_from_slice(&self.data[..]);
+        1 + 1 + 12
+    }
+}
 
 pub struct DeleteFile {
     pub group: bool,
     pub resp: bool,
-    pub file_id: FileIdOperand,
+    pub file_id: u8,
 }
-impl_op_serialized!(DeleteFile, group, resp, file_id);
+impl_simple_op!(DeleteFile, group, resp, file_id);
 
 pub struct RestoreFile {
     pub group: bool,
     pub resp: bool,
-    pub file_id: FileIdOperand,
+    pub file_id: u8,
 }
-impl_op_serialized!(RestoreFile, group, resp, file_id);
+impl_simple_op!(RestoreFile, group, resp, file_id);
 
 pub struct FlushFile {
     pub group: bool,
     pub resp: bool,
-    pub file_id: FileIdOperand,
+    pub file_id: u8,
 }
-impl_op_serialized!(FlushFile, group, resp, file_id);
+impl_simple_op!(FlushFile, group, resp, file_id);
 
 pub struct CopyFile {
     pub group: bool,
     pub resp: bool,
-    pub source_file_id: FileIdOperand,
-    pub dest_file_id: FileIdOperand,
+    pub source_file_id: u8,
+    pub dest_file_id: u8,
 }
-impl_op_serialized!(CopyFile, group, resp, source_file_id, dest_file_id);
+impl_simple_op!(CopyFile, group, resp, source_file_id, dest_file_id);
 
 pub struct ExecuteFile {
     pub group: bool,
     pub resp: bool,
-    pub file_id: FileIdOperand,
+    pub file_id: u8,
 }
-impl_op_serialized!(ExecuteFile, group, resp, file_id);
+impl_simple_op!(ExecuteFile, group, resp, file_id);
 
 // Response
 pub struct ReturnFileData {
     pub group: bool,
     pub resp: bool,
-    pub file_data: FileDataOperand,
+    pub file_id: u8,
+    pub offset: u32,
+    pub data: Box<[u8]>,
 }
-impl_op_serialized!(ReturnFileData, group, resp, file_data);
+impl Serializable for ReturnFileData {
+    fn serialized_size(&self) -> usize {
+        1 + 1
+            + unsafe_varint_serialize_sizes!(self.offset, self.data.len() as u32) as usize
+            + self.data.len()
+    }
+    fn serialize(&self, out: &mut [u8]) -> usize {
+        out[0] = control_byte!(self.group, self.resp, OpCode::WriteFileDataFlush);
+        out[1] = self.file_id;
+        let mut offset = 2;
+        offset += unsafe_varint_serialize!(out[2..], self.offset, self.data.len() as u32) as usize;
+        out[offset..offset + self.data.len()].clone_from_slice(&self.data[..]);
+        offset += self.data.len();
+        offset
+    }
+}
 
 pub struct ReturnFileProperties {
     pub group: bool,
     pub resp: bool,
-    pub file_header: FileHeader,
+    pub file_id: u8,
+    pub data: [u8; 12],
 }
-impl_op_serialized!(ReturnFileProperties, group, resp, file_header);
+impl Serializable for ReturnFileProperties {
+    fn serialized_size(&self) -> usize {
+        1 + 1 + 12
+    }
+    fn serialize(&self, out: &mut [u8]) -> usize {
+        out[0] = control_byte!(self.group, self.resp, OpCode::CreateNewFile);
+        out[1] = self.file_id;
+        out[2..2 + 12].clone_from_slice(&self.data[..]);
+        1 + 1 + 12
+    }
+}
 
 #[derive(Clone, Copy)]
 pub enum StatusType {
@@ -1105,17 +1250,7 @@ pub struct ResponseTag {
     pub err: bool,
     pub id: u8,
 }
-impl Serializable for ResponseTag {
-    fn serialized_size(&self) -> usize {
-        1 + 1
-    }
-    fn serialize(&self, out: &mut [u8]) -> usize {
-        out[0] = control_byte!(self.eop, self.err, OpCode::ResponseTag);
-        out[1] = self.id;
-
-        1 + 1
-    }
-}
+impl_simple_op!(ResponseTag, eop, err, id);
 
 // Special
 #[derive(Clone, Copy)]
