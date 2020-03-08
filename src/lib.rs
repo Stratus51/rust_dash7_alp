@@ -76,7 +76,7 @@ macro_rules! impl_op_serialized {
                 out[0] = control_byte!(self.$flag7, self.$flag6, OpCode::$name);
                 1
             }
-            fn deserialize(out: &mut [u8]) -> ParseResult<Self> {
+            fn deserialize(out: &[u8]) -> ParseResult<Self> {
                 if(out.is_empty()) {
                     Err(ParseError::MissingBytes(Some(1)))
                 } else {
@@ -165,7 +165,7 @@ macro_rules! impl_simple_op {
                 })*
                 1 + offset
             }
-            fn deserialize(out: &mut [u8]) -> ParseResult<Self> {
+            fn deserialize(out: &[u8]) -> ParseResult<Self> {
                 const size: usize = 1 + count!($( $x )*);
                 if(out.len() < size) {
                     Err(ParseError::MissingBytes(Some(size - out.len())))
@@ -192,7 +192,7 @@ macro_rules! impl_header_op {
                 out[2..2 + 12].clone_from_slice(&self.data[..]);
                 1 + 1 + 12
             }
-            fn deserialize(out: &mut [u8]) -> ParseResult<Self> {
+            fn deserialize(out: &[u8]) -> ParseResult<Self> {
                 const size: usize = 1 + 1 + 12;
                 if (out.len() < size) {
                     Err(ParseError::MissingBytes(Some(size - out.len())))
@@ -324,7 +324,7 @@ impl Serializable for Addressee {
         out[2..2 + id.len()].clone_from_slice(&id);
         2 + id.len()
     }
-    fn deserialize(out: &mut [u8]) -> ParseResult<Self> {
+    fn deserialize(out: &[u8]) -> ParseResult<Self> {
         const size: usize = 1 + 1;
         if out.len() < size {
             return Err(ParseError::MissingBytes(Some(size - out.len())));
@@ -464,7 +464,7 @@ impl Serializable for Qos {
         out[0] = ((self.retry as u8) << 3) + self.resp as u8;
         1
     }
-    fn deserialize(out: &mut [u8]) -> ParseResult<Self> {
+    fn deserialize(out: &[u8]) -> ParseResult<Self> {
         if out.is_empty() {
             return Err(ParseError::MissingBytes(Some(1)));
         }
@@ -507,12 +507,17 @@ impl Serializable for D7aspInterfaceConfiguration {
         out[2] = self.te;
         3 + self.addressee.serialize(&mut out[3..])
     }
-    fn deserialize(out: &mut [u8]) -> ParseResult<Self> {
+    fn deserialize(out: &[u8]) -> ParseResult<Self> {
         if out.len() < 3 {
             return Err(ParseError::MissingBytes(Some(3 - out.len())));
         }
         Ok(ParseValue {
-            value: Self {},
+            value: Self {
+                qos: Qos::deserialize(out)?.value,
+                to: out[1],
+                te: out[2],
+                addressee: Addressee::deserialize(&out[3..])?,
+            },
             data_read: 1,
         })
     }

@@ -1,6 +1,6 @@
 pub struct ParseValue<T> {
-    value: T,
-    data_read: usize,
+    pub value: T,
+    pub data_read: usize,
 }
 pub enum ParseError {
     MissingBytes(Option<usize>),
@@ -11,7 +11,7 @@ pub type ParseResult<T> = Result<ParseValue<T>, ParseError>;
 pub trait Serializable {
     fn serialized_size(&self) -> usize;
     fn serialize(&self, out: &mut [u8]) -> usize;
-    fn deserialize(out: &mut [u8]) -> ParseResult<Self>
+    fn deserialize(out: &[u8]) -> ParseResult<Self>
     where
         Self: std::marker::Sized;
     fn serialize_to_box(&self) -> Box<[u8]> {

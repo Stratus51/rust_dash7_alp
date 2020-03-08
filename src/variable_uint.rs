@@ -72,7 +72,7 @@ impl VariableUint {
         u8_size
     }
 
-    pub fn u32_deserialize(out: &mut [u8]) -> ParseResult<u32> {
+    pub fn u32_deserialize(out: &[u8]) -> ParseResult<u32> {
         if out.len() < 1 {
             return Err(ParseError::MissingBytes(Some(1)));
         }
@@ -101,7 +101,7 @@ impl Serializable for VariableUint {
         unsafe { Self::u32_serialize(self.value, out) as usize }
     }
 
-    fn deserialize(out: &mut [u8]) -> ParseResult<Self> {
+    fn deserialize(out: &[u8]) -> ParseResult<Self> {
         Self::u32_deserialize(out).map(|ParseValue { value, data_read }| ParseValue {
             value: Self { value },
             data_read,
