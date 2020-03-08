@@ -3,6 +3,7 @@ use hex_literal::hex;
 
 mod serializable;
 pub use serializable::Serializable;
+pub use serializable::{ParseError, ParseResult, ParseValue};
 
 mod variable_uint;
 pub use variable_uint::VariableUint;
@@ -75,6 +76,19 @@ macro_rules! impl_op_serialized {
                 out[0] = control_byte!(self.$flag7, self.$flag6, OpCode::$name);
                 1
             }
+            fn deserialize(out: &mut [u8]) -> ParseResult<Self> {
+                if(out.is_empty()) {
+                    Err(ParseError::MissingBytes(Some(1)))
+                } else {
+                    Ok(ParseValue {
+                        value: Self {
+                            $flag6: out[0] & 0x40 != 0,
+                            $flag7: out[0] & 0x80 != 0,
+                        },
+                        data_read: 1,
+                    })
+                }
+            }
         }
     };
     ($name: ident, $flag7: ident, $flag6: ident, $($x: ident),* ) => {
@@ -118,6 +132,24 @@ macro_rules! count {
     ( $x:tt $($xs:tt)* ) => (1usize + count!($($xs)*));
 }
 
+macro_rules! build_simple_op {
+    ($name: ident, $out: expr, $flag7: ident, $flag6: ident, $x1: ident, $x2: ident) => {
+        $name {
+            $flag6: $out[0] & 0x40 != 0,
+            $flag7: $out[0] & 0x80 != 0,
+            $x1: $out[1],
+            $x2: $out[2],
+        }
+    };
+    ($name: ident, $out: expr, $flag7: ident, $flag6: ident, $x: ident) => {
+        $name {
+            $flag6: $out[0] & 0x40 != 0,
+            $flag7: $out[0] & 0x80 != 0,
+            $x: $out[1],
+        }
+    };
+}
+
 macro_rules! impl_simple_op {
     ($name: ident, $flag7: ident, $flag6: ident, $($x: ident),* ) => {
         impl Serializable for $name {
@@ -132,6 +164,51 @@ macro_rules! impl_simple_op {
                     offset += 1;
                 })*
                 1 + offset
+            }
+            fn deserialize(out: &mut [u8]) -> ParseResult<Self> {
+                const size: usize = 1 + count!($( $x )*);
+                if(out.len() < size) {
+                    Err(ParseError::MissingBytes(Some(size - out.len())))
+                } else {
+                    Ok(ParseValue {
+                        value: build_simple_op!($name, out, $flag7, $flag6, $($x),*),
+                        data_read: size,
+                    })
+                }
+            }
+        }
+    };
+}
+
+macro_rules! impl_header_op {
+    ($name: ident, $flag7: ident, $flag6: ident, $file_id: ident, $file_header: ident) => {
+        impl Serializable for $name {
+            fn serialized_size(&self) -> usize {
+                1 + 1 + 12
+            }
+            fn serialize(&self, out: &mut [u8]) -> usize {
+                out[0] = control_byte!(self.group, self.resp, OpCode::$name);
+                out[1] = self.file_id;
+                out[2..2 + 12].clone_from_slice(&self.data[..]);
+                1 + 1 + 12
+            }
+            fn deserialize(out: &mut [u8]) -> ParseResult<Self> {
+                const size: usize = 1 + 1 + 12;
+                if (out.len() < size) {
+                    Err(ParseError::MissingBytes(Some(size - out.len())))
+                } else {
+                    let header = [0; 12];
+                    header.clone_from_slice(&out[2..2 + 12]);
+                    Ok(ParseValue {
+                        value: Self {
+                            $flag6: out[0] & 0x40 != 0,
+                            $flag7: out[0] & 0x80 != 0,
+                            $file_id: out[1],
+                            $file_header: header,
+                        },
+                        data_read: size,
+                    })
+                }
             }
         }
     };
@@ -195,6 +272,21 @@ pub enum NlsMethod {
     AesCcm64 = 6,
     AesCcm32 = 7,
 }
+impl NlsMethod {
+    fn from(n: u8) -> NlsMethod {
+        match n {
+            0 => NlsMethod::None,
+            1 => NlsMethod::AesCtr,
+            2 => NlsMethod::AesCbcMac128,
+            3 => NlsMethod::AesCbcMac64,
+            4 => NlsMethod::AesCbcMac32,
+            5 => NlsMethod::AesCcm128,
+            6 => NlsMethod::AesCcm64,
+            7 => NlsMethod::AesCcm32,
+            _ => panic!("Unknown nls method {}", n),
+        }
+    }
+}
 
 // ALP SPEC: Where is this defined?
 pub enum Address {
@@ -231,6 +323,46 @@ impl Serializable for Addressee {
         out[1] = self.access_class;
         out[2..2 + id.len()].clone_from_slice(&id);
         2 + id.len()
+    }
+    fn deserialize(out: &mut [u8]) -> ParseResult<Self> {
+        const size: usize = 1 + 1;
+        if out.len() < size {
+            return Err(ParseError::MissingBytes(Some(size - out.len())));
+        }
+        let id_type = (out[0] & 0x30) >> 4;
+        let nls_method = NlsMethod::from(out[0] & 0x0F);
+        Ok(ParseValue {
+            value: Self {
+                nls_method,
+                access_class: out[1],
+                address: match id_type {
+                    0 => {
+                        if out.len() < 3 {
+                            return Err(ParseError::MissingBytes(Some(1)));
+                        }
+                        Address::NbId(out[3])
+                    }
+                    1 => Address::NoId,
+                    2 => {
+                        if out.len() < 2 + 8 {
+                            return Err(ParseError::MissingBytes(Some(2 + 8 - out.len())));
+                        }
+                        let data = Box::new([0u8; 8]);
+                        data.clone_from_slice(&out[2..2 + 8]);
+                        Address::Uid(data)
+                    }
+                    3 => {
+                        if out.len() < 2 + 2 {
+                            return Err(ParseError::MissingBytes(Some(2 + 2 - out.len())));
+                        }
+                        let data = Box::new([0u8; 2]);
+                        data.clone_from_slice(&out[2..2 + 2]);
+                        Address::Vid(data)
+                    }
+                },
+            },
+            data_read: size,
+        })
     }
 }
 #[test]
@@ -286,6 +418,15 @@ fn test_addressee_vid() {
 pub enum RetryMode {
     No = 0,
 }
+impl RetryMode {
+    fn from(n: u8) -> Self {
+        match n {
+            0 => RetryMode::No,
+            // TODO Don't panic. Return Result instead.
+            x => panic!("Unknown RetryMode {}", x),
+        }
+    }
+}
 
 #[derive(Clone, Copy)]
 pub enum RespMode {
@@ -295,6 +436,20 @@ pub enum RespMode {
     RespNoRpt = 4,
     RespOnData = 5,
     RespPreferred = 6,
+}
+impl RespMode {
+    fn from(n: u8) -> Self {
+        match n {
+            0 => RespMode::No,
+            1 => RespMode::All,
+            2 => RespMode::Any,
+            4 => RespMode::RespNoRpt,
+            5 => RespMode::RespOnData,
+            6 => RespMode::RespPreferred,
+            // TODO Don't panic. Return Result instead.
+            x => panic!("Unknown RetryMode {}", x),
+        }
+    }
 }
 
 pub struct Qos {
@@ -308,6 +463,18 @@ impl Serializable for Qos {
     fn serialize(&self, out: &mut [u8]) -> usize {
         out[0] = ((self.retry as u8) << 3) + self.resp as u8;
         1
+    }
+    fn deserialize(out: &mut [u8]) -> ParseResult<Self> {
+        if out.is_empty() {
+            return Err(ParseError::MissingBytes(Some(1)));
+        }
+        Ok(ParseValue {
+            value: Self {
+                retry: RetryMode::from(out[0] & 0x38 >> 3),
+                resp: RespMode::from(out[0] & 0x07),
+            },
+            data_read: 1,
+        })
     }
 }
 #[test]
@@ -324,7 +491,7 @@ fn test_qos() {
 
 // ALP SPEC: Add link to D7a section
 pub struct D7aspInterfaceConfiguration {
-    pub qos: Qos, // TODO enum
+    pub qos: Qos,
     pub to: u8,
     pub te: u8,
     pub addressee: Addressee,
@@ -332,13 +499,22 @@ pub struct D7aspInterfaceConfiguration {
 
 impl Serializable for D7aspInterfaceConfiguration {
     fn serialized_size(&self) -> usize {
-        3 + self.addressee.serialized_size()
+        self.qos.serialized_size() + 2 + self.addressee.serialized_size()
     }
     fn serialize(&self, out: &mut [u8]) -> usize {
         self.qos.serialize(out);
         out[1] = self.to;
         out[2] = self.te;
         3 + self.addressee.serialize(&mut out[3..])
+    }
+    fn deserialize(out: &mut [u8]) -> ParseResult<Self> {
+        if out.len() < 3 {
+            return Err(ParseError::MissingBytes(Some(3 - out.len())));
+        }
+        Ok(ParseValue {
+            value: Self {},
+            data_read: 1,
+        })
     }
 }
 #[test]
@@ -589,12 +765,6 @@ impl Serializable for PermissionLevel {
         1
     }
 }
-
-pub struct PermissionOperand {
-    pub level: PermissionLevel,
-    pub permission: Permission,
-}
-impl_serialized!(PermissionOperand, level, permission);
 
 #[derive(Clone, Copy)]
 pub enum QueryComparisonType {
@@ -1016,17 +1186,7 @@ pub struct WriteFileProperties {
     // ALP SPEC: Missing link to find definition in ALP spec
     pub data: [u8; 12],
 }
-impl Serializable for WriteFileProperties {
-    fn serialized_size(&self) -> usize {
-        1 + 1 + 12
-    }
-    fn serialize(&self, out: &mut [u8]) -> usize {
-        out[0] = control_byte!(self.group, self.resp, OpCode::WriteFileProperties);
-        out[1] = self.file_id;
-        out[2..2 + 12].clone_from_slice(&self.data[..]);
-        1 + 1 + 12
-    }
-}
+impl_header_op!(WriteFileProperties, group, resp, file_id, data);
 
 pub struct ActionQuery {
     pub group: bool,
@@ -1073,17 +1233,7 @@ pub struct CreateNewFile {
     // ALP SPEC: Missing link to find definition in ALP spec
     pub data: [u8; 12],
 }
-impl Serializable for CreateNewFile {
-    fn serialized_size(&self) -> usize {
-        1 + 1 + 12
-    }
-    fn serialize(&self, out: &mut [u8]) -> usize {
-        out[0] = control_byte!(self.group, self.resp, OpCode::CreateNewFile);
-        out[1] = self.file_id;
-        out[2..2 + 12].clone_from_slice(&self.data[..]);
-        1 + 1 + 12
-    }
-}
+impl_header_op!(CreateNewFile, group, resp, file_id, data);
 
 pub struct DeleteFile {
     pub group: bool,

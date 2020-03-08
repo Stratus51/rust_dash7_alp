@@ -1,4 +1,5 @@
 use crate::Serializable;
+use crate::{ParseError, ParseResult, ParseValue};
 use std::convert::TryFrom;
 
 #[cfg(test)]
@@ -60,6 +61,7 @@ impl VariableUint {
         }
     }
 
+    // TODO Is this serialization correct? Check the SPEC!
     pub unsafe fn u32_serialize(n: u32, out: &mut [u8]) -> u8 {
         let u8_size = Self::unsafe_size(n);
         let size = u8_size as usize;
@@ -68,6 +70,25 @@ impl VariableUint {
         }
         out[0] |= ((size - 1) as u8) << 6;
         u8_size
+    }
+
+    pub fn u32_deserialize(out: &mut [u8]) -> ParseResult<u32> {
+        if out.len() < 1 {
+            return Err(ParseError::MissingBytes(Some(1)));
+        }
+        let size = ((out[0] & 0xC0 >> 6) + 1) as usize;
+        if out.len() < size as usize {
+            return Err(ParseError::MissingBytes(Some(size as usize - out.len())));
+        }
+        let mut ret = 0u32;
+        ret = (out[0] & 0x3F) as u32;
+        for i in 1..size {
+            ret = (ret << 8) + out[i] as u32;
+        }
+        Ok(ParseValue {
+            value: ret,
+            data_read: size,
+        })
     }
 }
 
@@ -78,6 +99,13 @@ impl Serializable for VariableUint {
 
     fn serialize(&self, out: &mut [u8]) -> usize {
         unsafe { Self::u32_serialize(self.value, out) as usize }
+    }
+
+    fn deserialize(out: &mut [u8]) -> ParseResult<Self> {
+        Self::u32_deserialize(out).map(|ParseValue { value, data_read }| ParseValue {
+            value: Self { value },
+            data_read,
+        })
     }
 }
 
