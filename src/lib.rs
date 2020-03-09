@@ -511,14 +511,22 @@ impl Serializable for D7aspInterfaceConfiguration {
         if out.len() < 3 {
             return Err(ParseError::MissingBytes(Some(3 - out.len())));
         }
+        let ParseValue {
+            value: qos,
+            data_read: qos_size,
+        } = Qos::deserialize(out)?;
+        let ParseValue {
+            value: addressee,
+            data_read: addressee_size,
+        } = Addressee::deserialize(&out[3..])?;
         Ok(ParseValue {
             value: Self {
-                qos: Qos::deserialize(out)?.value,
+                qos,
                 to: out[1],
                 te: out[2],
-                addressee: Addressee::deserialize(&out[3..])?,
+                addressee,
             },
-            data_read: 1,
+            data_read: qos_size + 2 + addressee_size,
         })
     }
 }
@@ -592,6 +600,50 @@ impl Serializable for D7aspInterfaceStatus {
         }
         i
     }
+    fn deserialize(out: &[u8]) -> ParseResult<Self> {
+        if out.len() < 10 {
+            return Err(ParseError::MissingBytes(Some(10 - out.len())));
+        }
+        let ParseValue {
+            value: addressee,
+            data_read: addressee_size,
+        } = Addressee::deserialize(&out[10..])?;
+        let offset = 10 + addressee_size;
+        let nls_state = match addressee.nls_method {
+            NlsMethod::None => None,
+            _ => {
+                if out.len() < offset + 5 {
+                    return Err(ParseError::MissingBytes(Some(offset + 5 - out.len())));
+                } else {
+                    let nls_state = [0u8; 5];
+                    nls_state.clone_from_slice(&out[offset..offset + 5]);
+                    Some(nls_state)
+                }
+            }
+        };
+        let size = offset
+            + match &nls_state {
+                Some(_) => 5,
+                None => 0,
+            };
+        Ok(ParseValue {
+            value: Self {
+                ch_header: out[0],
+                // TODO SPEC Check endianess
+                ch_idx: ((out[1] as u16) << 8) + out[2] as u16,
+                rxlev: out[3],
+                lb: out[4],
+                snr: out[5],
+                status: out[6],
+                token: out[7],
+                seq: out[8],
+                resp_to: out[9],
+                addressee,
+                nls_state,
+            },
+            data_read: size,
+        })
+    }
 }
 #[test]
 fn test_d7asp_interface_status() {
@@ -625,6 +677,16 @@ pub enum InterfaceId {
     Host = 0,
     D7asp = 0xD7,
 }
+impl InterfaceId {
+    fn from(n: u8) -> Self {
+        match n {
+            0 => InterfaceId::Host,
+            0xD7 => InterfaceId::D7asp,
+            // TODO Return result instead
+            _ => panic!("Unknown interface ID {}", n),
+        }
+    }
+}
 
 pub enum InterfaceConfiguration {
     D7asp(D7aspInterfaceConfiguration),
@@ -643,24 +705,66 @@ impl Serializable for InterfaceConfiguration {
             InterfaceConfiguration::D7asp(v) => v.serialize(&mut out[1..]),
         }
     }
+    fn deserialize(out: &[u8]) -> ParseResult<Self> {
+        if out.is_empty() {
+            return Err(ParseError::MissingBytes(Some(1)));
+        }
+        match InterfaceId::from(out[0]) {
+            InterfaceId::D7asp => {
+                let ParseValue { value, data_read } =
+                    D7aspInterfaceConfiguration::deserialize(&out[1..])?;
+                Ok(ParseValue {
+                    value: InterfaceConfiguration::D7asp(value),
+                    data_read: data_read + 1,
+                })
+            }
+            InterfaceId::Host => panic!("Unknown structure for interface configuration 'Host'"),
+        }
+    }
 }
 
 pub enum InterfaceStatus {
     D7asp(D7aspInterfaceStatus),
     // TODO Protect with size limit (< VariableUint max size)
-    Unknown(Box<[u8]>),
+    Unknown { id: u8, data: Box<[u8]> },
 }
 impl Serializable for InterfaceStatus {
     fn serialized_size(&self) -> usize {
         match self {
             InterfaceStatus::D7asp(itf) => itf.serialized_size(),
-            InterfaceStatus::Unknown(data) => {
+            InterfaceStatus::Unknown { id, data } => {
                 1 + unsafe { VariableUint::unsafe_size(data.len() as u32) as usize }
             }
         }
     }
-    fn serialize(&self, _out: &mut [u8]) -> usize {
-        todo!()
+    fn serialize(&self, out: &mut [u8]) -> usize {
+        out[0] = match self {
+            InterfaceStatus::D7asp(_) => InterfaceId::D7asp as u8,
+            InterfaceStatus::Unknown { id, data } => *id,
+        };
+        1 + match self {
+            InterfaceStatus::D7asp(v) => v.serialize(&mut out[1..]),
+            InterfaceStatus::Unknown { id, data } => {
+                out[1..1 + data.len()].clone_from_slice(data);
+                data.len()
+            }
+        }
+    }
+    fn deserialize(out: &[u8]) -> ParseResult<Self> {
+        if out.is_empty() {
+            return Err(ParseError::MissingBytes(Some(1)));
+        }
+        match InterfaceId::from(out[0]) {
+            InterfaceId::D7asp => {
+                let ParseValue { value, data_read } = D7aspInterfaceStatus::deserialize(&out[1..])?;
+                Ok(ParseValue {
+                    value: InterfaceStatus::D7asp(value),
+                    data_read: data_read + 1,
+                })
+            }
+            InterfaceId::Host => panic!("Unknown structure for interface configuration 'Host'"),
+            x => panic!("Unknown interface id: {}", x as u8),
+        }
     }
 }
 
@@ -677,8 +781,21 @@ impl Serializable for FileOffsetOperand {
         1 + unsafe_varint_serialize_sizes!(self.offset) as usize
     }
     fn serialize(&self, out: &mut [u8]) -> usize {
-        out[1] = self.id;
-        1 + 1 + unsafe_varint_serialize!(out[1..], self.offset)
+        out[0] = self.id;
+        1 + unsafe_varint_serialize!(out[1..], self.offset)
+    }
+    fn deserialize(out: &[u8]) -> ParseResult<Self> {
+        if out.len() < 2 {
+            return Err(ParseError::MissingBytes(Some(2 - out.len())));
+        }
+        let ParseValue {
+            value: offset,
+            data_read,
+        } = VariableUint::u32_deserialize(&out[1..])?;
+        Ok(ParseValue {
+            value: Self { id: out[0], offset },
+            data_read: 1 + data_read,
+        })
     }
 }
 #[test]
@@ -710,6 +827,30 @@ pub enum StatusCode {
     OperandIncomplete = 0xF5,
     OperandWrongFormat = 0xF4,
     UnknownError = 0x80,
+    // TODO Add and unknown type to prevent parsing error?
+}
+impl StatusCode {
+    fn from(n: u8) -> Self {
+        match n {
+            1 => StatusCode::Received,
+            0 => StatusCode::Ok,
+            0xFF => StatusCode::FileIdMissing,
+            0xFE => StatusCode::CreateFileIdAlreadyExist,
+            0xFD => StatusCode::FileIsNotRestorable,
+            0xFC => StatusCode::InsufficientPermission,
+            0xFB => StatusCode::CreateFileLengthOverflow,
+            0xFA => StatusCode::CreateFileAllocationOverflow,
+            0xF9 => StatusCode::WriteOffsetOverflow,
+            0xF8 => StatusCode::WriteDataOverflow,
+            0xF7 => StatusCode::WriteStorageUnavailable,
+            0xF6 => StatusCode::UnknownOperation,
+            0xF5 => StatusCode::OperandIncomplete,
+            0xF4 => StatusCode::OperandWrongFormat,
+            0x80 => StatusCode::UnknownError,
+            // TODO Add and unknown type to prevent parsing error?
+            x => panic!("Unknown Status Code {}", x),
+        }
+    }
 }
 pub struct StatusOperand {
     pub action_index: u8,
@@ -723,6 +864,18 @@ impl Serializable for StatusOperand {
         out[0] = self.action_index;
         out[1] = self.status as u8;
         2
+    }
+    fn deserialize(out: &[u8]) -> ParseResult<Self> {
+        if out.len() < 2 {
+            return Err(ParseError::MissingBytes(Some(2 - out.len())));
+        }
+        Ok(ParseValue {
+            value: Self {
+                action_index: out[0],
+                status: StatusCode::from(out[1]),
+            },
+            data_read: 2,
+        })
     }
 }
 
@@ -754,12 +907,31 @@ impl Serializable for Permission {
             }
         }
     }
+    fn deserialize(out: &[u8]) -> ParseResult<Self> {
+        if out.is_empty() {
+            return Err(ParseError::MissingBytes(Some(1)));
+        }
+        match out[0] {
+            42 => {
+                let mut token = [0; 8];
+                token.clone_from_slice(&out[1..1 + 8]);
+                Ok(ParseValue {
+                    value: Permission::Dash7(token),
+                    data_read: 1 + 8,
+                })
+            }
+            // TODO ParseError
+            x => panic!("Unknown authentication ID {}", x),
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
 pub enum PermissionLevel {
+    // TODO SPEC: Isn't that Guest instead of user?
     User = 0,
     Root = 1,
+    // TODO SPEC: Does something else exist?
 }
 impl Serializable for PermissionLevel {
     fn serialized_size(&self) -> usize {
@@ -768,6 +940,20 @@ impl Serializable for PermissionLevel {
     fn serialize(&self, out: &mut [u8]) -> usize {
         out[0] = *self as u8;
         1
+    }
+    fn deserialize(out: &[u8]) -> ParseResult<Self> {
+        if out.is_empty() {
+            return Err(ParseError::MissingBytes(Some(1)));
+        }
+        Ok(ParseValue {
+            value: match out[0] {
+                0 => PermissionLevel::User,
+                1 => PermissionLevel::Root,
+                // TODO ParseError
+                x => panic!("Unknown permission level {}", x),
+            },
+            data_read: 1,
+        })
     }
 }
 
@@ -780,11 +966,33 @@ pub enum QueryComparisonType {
     GreaterThan = 4,
     GreaterThanOrEqual = 5,
 }
+impl QueryComparisonType {
+    fn from(n: u8) -> Self {
+        match n {
+            0 => QueryComparisonType::Inequal,
+            1 => QueryComparisonType::Equal,
+            2 => QueryComparisonType::LessThan,
+            3 => QueryComparisonType::LessThanOrEqual,
+            4 => QueryComparisonType::GreaterThan,
+            5 => QueryComparisonType::GreaterThanOrEqual,
+            x => panic!("Unknown query comparison type {}", x),
+        }
+    }
+}
 
 #[derive(Clone, Copy)]
 pub enum QueryRangeComparisonType {
     NotInRange = 0,
     InRange = 1,
+}
+impl QueryRangeComparisonType {
+    fn from(n: u8) -> Self {
+        match n {
+            0 => QueryRangeComparisonType::NotInRange,
+            1 => QueryRangeComparisonType::InRange,
+            x => panic!("Unknown query range comparison type {}", x),
+        }
+    }
 }
 pub enum QueryCode {
     NonVoid = 0,
@@ -794,25 +1002,58 @@ pub enum QueryCode {
     BitmapRangeComparison = 4,
     StringTokenSearch = 7,
 }
+impl QueryCode {
+    fn from(n: u8) -> Self {
+        match n {
+            0 => QueryCode::NonVoid,
+            1 => QueryCode::ComparisonWithZero,
+            2 => QueryCode::ComparisonWithValue,
+            3 => QueryCode::ComparisonWithOtherFile,
+            4 => QueryCode::BitmapRangeComparison,
+            7 => QueryCode::StringTokenSearch,
+            x => panic!("Unknown query code {}", x),
+        }
+    }
+}
 
 pub struct NonVoid {
-    pub size: VariableUint,
-    pub file_offset: FileOffsetOperand,
+    pub size: u32,
+    pub file: FileOffsetOperand,
 }
 impl Serializable for NonVoid {
     fn serialized_size(&self) -> usize {
-        1 + serialized_size!(self.size, self.file_offset)
+        1 + serialized_size!(self.size, self.file)
     }
     fn serialize(&self, out: &mut [u8]) -> usize {
         out[0] = QueryCode::NonVoid as u8;
-        1 + serialize_all!(&mut out[1..], self.size, self.file_offset)
+        let mut offset = 1;
+        offset += VariableUint::u32_serialize(self.size, &mut out[offset..]) as usize;
+        offset += self.file.serialize(&mut out[offset..]);
+        offset
+    }
+    fn deserialize(out: &[u8]) -> ParseResult<Self> {
+        if out.len() < 3 {
+            return Err(ParseError::MissingBytes(Some(3 - out.len())));
+        }
+        let ParseValue {
+            value: size,
+            data_read: size_size,
+        } = VariableUint::u32_deserialize(out)?;
+        let ParseValue {
+            value: file,
+            data_read: file_size,
+        } = FileOffsetOperand::deserialize(out)?;
+        Ok(ParseValue {
+            value: Self { size, file },
+            data_read: size_size + file_size,
+        })
     }
 }
 // TODO Check size coherence upon creation
 pub struct ComparisonWithZero {
     pub signed_data: bool,
     pub comparison_type: QueryComparisonType,
-    pub size: VariableUint,
+    pub size: u32,
     pub mask: Option<Box<[u8]>>,
     pub file_offset: FileOffsetOperand,
 }
@@ -831,8 +1072,8 @@ impl Serializable for ComparisonWithZero {
         };
         let signed_flag = if self.signed_data { 1 } else { 0 };
         let mut offset = 0;
-        out[0] = ((QueryCode::ComparisonWithZero as u8) << 4)
-            | (mask_flag << 3)
+        out[0] = ((QueryCode::ComparisonWithZero as u8) << 5)
+            | (mask_flag << 4)
             | (signed_flag << 3)
             | self.comparison_type as u8;
         offset += 1;
@@ -843,6 +1084,18 @@ impl Serializable for ComparisonWithZero {
         }
         offset += self.file_offset.serialize(&mut out[offset..]);
         offset
+    }
+    fn deserialize(out: &[u8]) -> ParseResult<Self> {
+        if out.len() < 1 + 1 + 2 {
+            return Err(ParseError::MissingBytes(Some(1 + 1 + 2 - out.len())));
+        }
+        let mask_flag = out[0] & (1 << 4) != 0;
+        let signed_flag = out[0] & (1 << 3) != 0;
+        let comparison_type = QueryComparisonType::from(out[0] & 0x07);
+        let ParseValue {
+            value: size,
+            data_read: size_size,
+        } = VariableUint::u32_deserialize(&out[1..])?;
     }
 }
 // TODO Check size coherence upon creation
