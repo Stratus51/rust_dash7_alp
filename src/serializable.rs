@@ -2,6 +2,16 @@ pub struct ParseValue<T> {
     pub value: T,
     pub data_read: usize,
 }
+impl<T> ParseValue<T> {
+    pub fn map<R, F: Fn(T) -> R>(self, f: F) -> ParseValue<R> {
+        let ParseValue { value, data_read } = self;
+        ParseValue {
+            value: f(value),
+            data_read,
+        }
+    }
+}
+
 pub enum ParseError {
     MissingBytes(Option<usize>),
 }
