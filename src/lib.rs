@@ -260,6 +260,52 @@ pub enum OpCode {
     RequestTag = 52,
     Extension = 63,
 }
+impl OpCode {
+    fn from(n: u8) -> Self {
+        match n {
+            // Nop
+            0 => OpCode::Nop,
+
+            // Read
+            1 => OpCode::ReadFileData,
+            2 => OpCode::ReadFileProperties,
+
+            // Write
+            4 => OpCode::WriteFileData,
+            5 => OpCode::WriteFileDataFlush,
+            6 => OpCode::WriteFileProperties,
+            8 => OpCode::ActionQuery,
+            9 => OpCode::BreakQuery,
+            10 => OpCode::PermissionRequest,
+            11 => OpCode::VerifyChecksum,
+
+            // Management
+            16 => OpCode::ExistFile,
+            17 => OpCode::CreateNewFile,
+            18 => OpCode::DeleteFile,
+            19 => OpCode::RestoreFile,
+            20 => OpCode::FlushFile,
+            23 => OpCode::CopyFile,
+            31 => OpCode::ExecuteFile,
+
+            // Response
+            32 => OpCode::ReturnFileData,
+            33 => OpCode::ReturnFileProperties,
+            34 => OpCode::Status,
+            35 => OpCode::ResponseTag,
+
+            // Special
+            48 => OpCode::Chunk,
+            49 => OpCode::Logic,
+            50 => OpCode::Forward,
+            51 => OpCode::IndirectForward,
+            52 => OpCode::RequestTag,
+            63 => OpCode::Extension,
+            // TODO Return proper result
+            x => panic!("Unknown opcode {}", x),
+        }
+    }
+}
 
 // ===============================================================================
 // D7a definitions
@@ -2143,6 +2189,19 @@ impl Serializable for RequestTag {
         out[1] = self.id;
         1 + 1
     }
+    fn deserialize(out: &[u8]) -> ParseResult<Self> {
+        let min_size = 1 + 1;
+        if out.len() < min_size {
+            return Err(ParseError::MissingBytes(Some(min_size - out.len())));
+        }
+        Ok(ParseValue {
+            value: Self {
+                eop: out[0] & 0x80 != 0,
+                id: out[1],
+            },
+            data_read: 2,
+        })
+    }
 }
 
 pub struct Extension {
@@ -2154,6 +2213,9 @@ impl Serializable for Extension {
         todo!()
     }
     fn serialize(&self, _out: &mut [u8]) -> usize {
+        todo!()
+    }
+    fn deserialize(out: &[u8]) -> ParseResult<Self> {
         todo!()
     }
 }
@@ -2261,6 +2323,72 @@ impl Serializable for Action {
             Action::RequestTag(x) => x.serialize(out),
             Action::Extension(x) => x.serialize(out),
         }
+    }
+    fn deserialize(out: &[u8]) -> ParseResult<Self> {
+        if out.is_empty() {
+            return Err(ParseError::MissingBytes(Some(1)));
+        }
+        let opcode = OpCode::from(out[0] & 0x3F);
+        Ok(match opcode {
+            OpCode::Nop => Nop::deserialize(&out)?.map_value(|v| Action::Nop(v)),
+            OpCode::ReadFileData => {
+                ReadFileData::deserialize(&out)?.map_value(|v| Action::ReadFileData(v))
+            }
+            OpCode::ReadFileProperties => {
+                ReadFileProperties::deserialize(&out)?.map_value(|v| Action::ReadFileProperties(v))
+            }
+            OpCode::WriteFileData => {
+                WriteFileData::deserialize(&out)?.map_value(|v| Action::WriteFileData(v))
+            }
+            OpCode::WriteFileProperties => WriteFileProperties::deserialize(&out)?
+                .map_value(|v| Action::WriteFileProperties(v)),
+            OpCode::ActionQuery => {
+                ActionQuery::deserialize(&out)?.map_value(|v| Action::ActionQuery(v))
+            }
+            OpCode::BreakQuery => {
+                BreakQuery::deserialize(&out)?.map_value(|v| Action::BreakQuery(v))
+            }
+            OpCode::PermissionRequest => {
+                PermissionRequest::deserialize(&out)?.map_value(|v| Action::PermissionRequest(v))
+            }
+            OpCode::VerifyChecksum => {
+                VerifyChecksum::deserialize(&out)?.map_value(|v| Action::VerifyChecksum(v))
+            }
+            OpCode::ExistFile => ExistFile::deserialize(&out)?.map_value(|v| Action::ExistFile(v)),
+            OpCode::CreateNewFile => {
+                CreateNewFile::deserialize(&out)?.map_value(|v| Action::CreateNewFile(v))
+            }
+            OpCode::DeleteFile => {
+                DeleteFile::deserialize(&out)?.map_value(|v| Action::DeleteFile(v))
+            }
+            OpCode::RestoreFile => {
+                RestoreFile::deserialize(&out)?.map_value(|v| Action::RestoreFile(v))
+            }
+            OpCode::FlushFile => FlushFile::deserialize(&out)?.map_value(|v| Action::FlushFile(v)),
+            OpCode::CopyFile => CopyFile::deserialize(&out)?.map_value(|v| Action::CopyFile(v)),
+            OpCode::ExecuteFile => {
+                ExecuteFile::deserialize(&out)?.map_value(|v| Action::ExecuteFile(v))
+            }
+            OpCode::ReturnFileData => {
+                ReturnFileData::deserialize(&out)?.map_value(|v| Action::ReturnFileData(v))
+            }
+            OpCode::ReturnFileProperties => ReturnFileProperties::deserialize(&out)?
+                .map_value(|v| Action::ReturnFileProperties(v)),
+            OpCode::Status => Status::deserialize(&out)?.map_value(|v| Action::Status(v)),
+            OpCode::ResponseTag => {
+                ResponseTag::deserialize(&out)?.map_value(|v| Action::ResponseTag(v))
+            }
+            OpCode::Chunk => Chunk::deserialize(&out)?.map_value(|v| Action::Chunk(v)),
+            OpCode::Logic => Logic::deserialize(&out)?.map_value(|v| Action::Logic(v)),
+            OpCode::Forward => Forward::deserialize(&out)?.map_value(|v| Action::Forward(v)),
+            OpCode::IndirectForward => {
+                IndirectForward::deserialize(&out)?.map_value(|v| Action::IndirectForward(v))
+            }
+            OpCode::RequestTag => {
+                RequestTag::deserialize(&out)?.map_value(|v| Action::RequestTag(v))
+            }
+            OpCode::Extension => Extension::deserialize(&out)?.map_value(|v| Action::Extension(v)),
+        })
     }
 }
 
