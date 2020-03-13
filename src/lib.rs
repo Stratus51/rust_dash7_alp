@@ -8,11 +8,14 @@ pub use serializable::{ParseError, ParseResult, ParseValue};
 mod variable_uint;
 pub use variable_uint::VariableUint;
 
-// TODO Maybe using flat structures and modeling operands as macros would be much more ergonomic.
 // TODO Look into const function to replace some macros?
 // TODO Use uninitialized memory where possible
 // TODO Int enums: fn from(): find a way to avoid double value definition
+// TODO Int enums: optim: find a way to cast from int to enum instead of callbing a matching
+// function (much more resource intensive)
 // TODO Optimize min size calculation (fold it into the upper OP when possible)
+// TODO usize is target dependent. In other words, on a 16 bit processor, we will run into
+// troubles if we were to convert u32 to usize (even if a 64Ko payload seems a bit big).
 
 // ===============================================================================
 // Macros
@@ -259,9 +262,22 @@ macro_rules! impl_header_op {
     };
 }
 
+#[cfg(test)]
+fn test_item<T: Serializable + std::fmt::Debug + std::cmp::PartialEq>(item: T, data: &[u8]) {
+    assert_eq!(item.serialize_to_box()[..], *data);
+    assert_eq!(
+        T::deserialize(&data).expect("should be parsed without error"),
+        ParseValue {
+            value: item,
+            data_read: data.len(),
+        }
+    );
+}
+
 // ===============================================================================
 // Opcodes
 // ===============================================================================
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum OpCode {
     // Nop
     Nop = 0,
@@ -352,7 +368,7 @@ impl OpCode {
 // ===============================================================================
 // D7a definitions
 // ===============================================================================
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum NlsMethod {
     None = 0,
     AesCtr = 1,
@@ -380,6 +396,7 @@ impl NlsMethod {
 }
 
 // ALP SPEC: Where is this defined?
+#[derive(Clone, Debug, PartialEq)]
 pub enum Address {
     // D7A SPEC: It is not clear that the estimated reached has to be placed on the "ID" field.
     NbId(u8),
@@ -387,6 +404,7 @@ pub enum Address {
     Uid(Box<[u8; 8]>),
     Vid(Box<[u8; 2]>),
 }
+#[derive(Clone, Debug, PartialEq)]
 pub struct Addressee {
     pub nls_method: NlsMethod,
     pub access_class: u8,
@@ -422,12 +440,13 @@ impl Serializable for Addressee {
         }
         let id_type = (out[0] & 0x30) >> 4;
         let nls_method = NlsMethod::from(out[0] & 0x0F);
+        let access_class = out[1];
         let (address, address_size) = match id_type {
             0 => {
                 if out.len() < 3 {
                     return Err(ParseError::MissingBytes(Some(1)));
                 }
-                (Address::NbId(out[3]), 1)
+                (Address::NbId(out[2]), 1)
             }
             1 => (Address::NoId, 0),
             2 => {
@@ -451,63 +470,59 @@ impl Serializable for Addressee {
         Ok(ParseValue {
             value: Self {
                 nls_method,
-                access_class: out[1],
+                access_class,
                 address,
             },
-            data_read: 1 + address_size,
+            data_read: SIZE + address_size,
         })
     }
 }
 #[test]
 fn test_addressee_nbid() {
-    assert_eq!(
+    test_item(
         Addressee {
             nls_method: NlsMethod::None,
             access_class: 0x00,
             address: Address::NbId(0x15),
-        }
-        .serialize_to_box()[..],
-        hex!("00 00 15")
+        },
+        &hex!("00 00 15"),
     )
 }
 #[test]
 fn test_addressee_noid() {
-    assert_eq!(
+    test_item(
         Addressee {
             nls_method: NlsMethod::AesCbcMac128,
             access_class: 0x24,
             address: Address::NoId,
-        }
-        .serialize_to_box()[..],
-        hex!("12 24")
+        },
+        &hex!("12 24"),
     )
 }
 #[test]
 fn test_addressee_uid() {
-    assert_eq!(
+    test_item(
         Addressee {
             nls_method: NlsMethod::AesCcm64,
             access_class: 0x48,
             address: Address::Uid(Box::new([0, 1, 2, 3, 4, 5, 6, 7])),
-        }
-        .serialize_to_box()[..],
-        hex!("26 48 0001020304050607")
+        },
+        &hex!("26 48 0001020304050607"),
     )
 }
 #[test]
 fn test_addressee_vid() {
-    assert_eq!(
+    test_item(
         Addressee {
             nls_method: NlsMethod::AesCcm32,
             access_class: 0xFF,
             address: Address::Vid(Box::new([0xAB, 0xCD])),
-        }
-        .serialize_to_box()[..],
-        hex!("37 FF AB CD")
+        },
+        &hex!("37 FF AB CD"),
     )
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum RetryMode {
     No = 0,
 }
@@ -521,7 +536,7 @@ impl RetryMode {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum RespMode {
     No = 0,
     All = 1,
@@ -545,6 +560,7 @@ impl RespMode {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Qos {
     pub retry: RetryMode,
     pub resp: RespMode,
@@ -563,7 +579,7 @@ impl Serializable for Qos {
         }
         Ok(ParseValue {
             value: Self {
-                retry: RetryMode::from(out[0] & 0x38 >> 3),
+                retry: RetryMode::from((out[0] & 0x38) >> 3),
                 resp: RespMode::from(out[0] & 0x07),
             },
             data_read: 1,
@@ -572,17 +588,17 @@ impl Serializable for Qos {
 }
 #[test]
 fn test_qos() {
-    assert_eq!(
+    test_item(
         Qos {
             retry: RetryMode::No,
             resp: RespMode::RespNoRpt,
-        }
-        .serialize_to_box()[..],
-        hex!("04")
+        },
+        &hex!("04"),
     )
 }
 
 // ALP SPEC: Add link to D7a section
+#[derive(Clone, Debug, PartialEq)]
 pub struct D7aspInterfaceConfiguration {
     pub qos: Qos,
     pub to: u8,
@@ -625,7 +641,7 @@ impl Serializable for D7aspInterfaceConfiguration {
 }
 #[test]
 fn test_d7asp_interface_configuration() {
-    assert_eq!(
+    test_item(
         D7aspInterfaceConfiguration {
             qos: Qos {
                 retry: RetryMode::No,
@@ -637,16 +653,17 @@ fn test_d7asp_interface_configuration() {
                 nls_method: NlsMethod::AesCcm32,
                 access_class: 0xFF,
                 address: Address::Vid(Box::new([0xAB, 0xCD])),
-            }
-        }
-        .serialize_to_box()[..],
-        hex!("02 23 34   37 FF ABCD")
+            },
+        },
+        &hex!("02 23 34   37 FF ABCD"),
     )
 }
 
 // ALP SPEC: Add link to D7a section (names do not even match)
+#[derive(Clone, Debug, PartialEq)]
 pub struct D7aspInterfaceStatus {
     pub ch_header: u8,
+    // ALP SPEC: The endianesse of this variable is not specified in section 9.2.12
     pub ch_idx: u16,
     pub rxlev: u8,
     pub lb: u8,
@@ -670,7 +687,8 @@ impl Serializable for D7aspInterfaceStatus {
         let mut i = 0;
         out[i] = self.ch_header;
         i += 1;
-        out[i..(i + 2)].clone_from_slice(&self.ch_idx.to_le_bytes()); // TODO Check
+        // TODO SPEC Endianness unspecified
+        out[i..(i + 2)].clone_from_slice(&self.ch_idx.to_le_bytes());
         i += 2;
         out[i] = self.rxlev;
         i += 1;
@@ -722,8 +740,8 @@ impl Serializable for D7aspInterfaceStatus {
         Ok(ParseValue {
             value: Self {
                 ch_header: out[0],
-                // TODO SPEC Check endianess
-                ch_idx: ((out[1] as u16) << 8) + out[2] as u16,
+                // TODO SPEC Endianness unspecified
+                ch_idx: ((out[2] as u16) << 8) + out[1] as u16,
                 rxlev: out[3],
                 lb: out[4],
                 snr: out[5],
@@ -740,7 +758,7 @@ impl Serializable for D7aspInterfaceStatus {
 }
 #[test]
 fn test_d7asp_interface_status() {
-    assert_eq!(
+    test_item(
         D7aspInterfaceStatus {
             ch_header: 1,
             ch_idx: 0x0123,
@@ -757,15 +775,15 @@ fn test_d7asp_interface_status() {
                 address: Address::Vid(Box::new([0xAB, 0xCD])),
             },
             nls_state: Some(hex!("00 11 22 33 44")),
-        }
-        .serialize_to_box()[..],
-        hex!("01 2301 02 03 04 05 06 07 08   37 FF ABCD  0011223344")
+        },
+        &hex!("01 2301 02 03 04 05 06 07 08   37 FF ABCD  0011223344"),
     )
 }
 
 // ===============================================================================
 // Alp Interfaces
 // ===============================================================================
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum InterfaceId {
     Host = 0,
     D7asp = 0xD7,
@@ -781,6 +799,7 @@ impl InterfaceId {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
 pub enum InterfaceConfiguration {
     D7asp(D7aspInterfaceConfiguration),
 }
@@ -816,6 +835,7 @@ impl Serializable for InterfaceConfiguration {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
 pub enum InterfaceStatus {
     D7asp(D7aspInterfaceStatus),
     // TODO Protect with size limit (< VariableUint max size)
@@ -849,22 +869,49 @@ impl Serializable for InterfaceStatus {
         if out.is_empty() {
             return Err(ParseError::MissingBytes(Some(1)));
         }
-        match InterfaceId::from(out[0]) {
-            InterfaceId::D7asp => {
-                let ParseValue { value, data_read } = D7aspInterfaceStatus::deserialize(&out[1..])?;
-                Ok(ParseValue {
-                    value: InterfaceStatus::D7asp(value),
-                    data_read: data_read + 1,
-                })
+        const HOST: u8 = InterfaceId::Host as u8;
+        const D7ASP: u8 = InterfaceId::D7asp as u8;
+        let mut offset = 1;
+        let value = match out[0] {
+            HOST => InterfaceStatus::Host,
+            D7ASP => {
+                let ParseValue {
+                    data_read: size_size,
+                    ..
+                } = VariableUint::u32_deserialize(&out[offset..])?;
+                offset += size_size;
+                let ParseValue { value, data_read } =
+                    D7aspInterfaceStatus::deserialize(&out[offset..])?;
+                offset += data_read;
+                InterfaceStatus::D7asp(value)
             }
-            InterfaceId::Host => panic!("Unknown structure for interface configuration 'Host'"),
-        }
+            id => {
+                let ParseValue {
+                    value: size,
+                    data_read: size_size,
+                } = VariableUint::u32_deserialize(&out[offset..])?;
+                let size = size as usize;
+                offset += size_size;
+                if out.len() < offset + size {
+                    return Err(ParseError::MissingBytes(Some(offset + size - out.len())));
+                }
+                let mut data = vec![0u8; size].into_boxed_slice();
+                data.clone_from_slice(&out[offset..size]);
+                offset += size;
+                InterfaceStatus::Unknown { id, data }
+            }
+        };
+        Ok(ParseValue {
+            value,
+            data_read: offset,
+        })
     }
 }
 
 // ===============================================================================
 // Operands
 // ===============================================================================
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FileOffsetOperand {
     pub id: u8,
     pub offset: u32,
@@ -904,7 +951,7 @@ fn test_file_offset_operand() {
     )
 }
 
-#[derive(Copy, Clone)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum StatusCode {
     Received = 1,
     Ok = 0,
@@ -946,6 +993,7 @@ impl StatusCode {
         }
     }
 }
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct StatusOperand {
     pub action_index: u8,
     pub status: StatusCode,
@@ -974,6 +1022,7 @@ impl Serializable for StatusOperand {
 }
 
 // ALP SPEC: where is this defined? Link?
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Permission {
     Dash7([u8; 8]), // TODO Check
 }
@@ -1022,7 +1071,7 @@ impl Serializable for Permission {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum PermissionLevel {
     // TODO SPEC: Isn't that Guest instead of user?
     User = 0,
@@ -1053,7 +1102,7 @@ impl Serializable for PermissionLevel {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum QueryComparisonType {
     Inequal = 0,
     Equal = 1,
@@ -1076,7 +1125,7 @@ impl QueryComparisonType {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum QueryRangeComparisonType {
     NotInRange = 0,
     InRange = 1,
@@ -1090,6 +1139,7 @@ impl QueryRangeComparisonType {
         }
     }
 }
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum QueryCode {
     NonVoid = 0,
     ComparisonWithZero = 1,
@@ -1112,6 +1162,7 @@ impl QueryCode {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct NonVoid {
     // TODO Protect
     pub size: u32,
@@ -1146,7 +1197,9 @@ impl Serializable for NonVoid {
         })
     }
 }
+
 // TODO Check size coherence upon creation
+#[derive(Clone, Debug, PartialEq)]
 pub struct ComparisonWithZero {
     pub signed_data: bool,
     pub comparison_type: QueryComparisonType,
@@ -1222,7 +1275,9 @@ impl Serializable for ComparisonWithZero {
         })
     }
 }
+
 // TODO Check size coherence upon creation
+#[derive(Clone, Debug, PartialEq)]
 pub struct ComparisonWithValue {
     pub signed_data: bool,
     pub comparison_type: QueryComparisonType,
@@ -1306,7 +1361,9 @@ impl Serializable for ComparisonWithValue {
         })
     }
 }
+
 // TODO Check size coherence upon creation
+#[derive(Clone, Debug, PartialEq)]
 pub struct ComparisonWithOtherFile {
     pub signed_data: bool,
     pub comparison_type: QueryComparisonType,
@@ -1392,7 +1449,9 @@ impl Serializable for ComparisonWithOtherFile {
         })
     }
 }
+
 // TODO Check size coherence upon creation (start, stop and bitmap)
+#[derive(Clone, Debug, PartialEq)]
 pub struct BitmapRangeComparison {
     pub signed_data: bool,
     pub comparison_type: QueryRangeComparisonType,
@@ -1475,7 +1534,9 @@ impl Serializable for BitmapRangeComparison {
         })
     }
 }
+
 // TODO Check size coherence upon creation
+#[derive(Clone, Debug, PartialEq)]
 pub struct StringTokenSearch {
     pub max_errors: u8,
     // TODO Protect
@@ -1556,6 +1617,7 @@ impl Serializable for StringTokenSearch {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
 pub enum QueryOperand {
     NonVoid(NonVoid),
     ComparisonWithZero(ComparisonWithZero),
@@ -1605,6 +1667,7 @@ impl Serializable for QueryOperand {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct OverloadedIndirectInterface {
     pub interface_file_id: u8,
     pub addressee: Addressee,
@@ -1638,6 +1701,7 @@ impl Serializable for OverloadedIndirectInterface {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct NonOverloadedIndirectInterface {
     pub interface_file_id: u8,
     // ALP SPEC: Where is this defined? Is this ID specific?
@@ -1662,6 +1726,7 @@ impl Serializable for NonOverloadedIndirectInterface {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
 pub enum IndirectInterface {
     Overloaded(OverloadedIndirectInterface),
     NonOverloaded(NonOverloadedIndirectInterface),
@@ -1697,6 +1762,7 @@ impl Serializable for IndirectInterface {
 // Actions
 // ===============================================================================
 // Nop
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Nop {
     pub group: bool,
     pub resp: bool,
@@ -1705,6 +1771,7 @@ impl_op_serialized!(Nop, group, resp);
 
 // Read
 // TODO Protect varint init
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ReadFileData {
     pub group: bool,
     pub resp: bool,
@@ -1756,6 +1823,7 @@ impl Serializable for ReadFileData {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ReadFileProperties {
     pub group: bool,
     pub resp: bool,
@@ -1765,6 +1833,7 @@ impl_simple_op!(ReadFileProperties, group, resp, file_id);
 
 // Write
 // TODO Protect varint init, data consistency
+#[derive(Clone, Debug, PartialEq)]
 pub struct WriteFileData {
     pub group: bool,
     pub resp: bool,
@@ -1824,6 +1893,7 @@ impl Serializable for WriteFileData {
     }
 }
 
+// #[derive(Clone, Copy, Debug, PartialEq)]
 // pub struct WriteFileDataFlush {
 //     pub group: bool,
 //     pub resp: bool,
@@ -1883,6 +1953,7 @@ impl Serializable for WriteFileData {
 //     }
 // }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct WriteFileProperties {
     pub group: bool,
     pub resp: bool,
@@ -1893,6 +1964,7 @@ pub struct WriteFileProperties {
 }
 impl_header_op!(WriteFileProperties, group, resp, file_id, data);
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct ActionQuery {
     pub group: bool,
     pub resp: bool,
@@ -1900,6 +1972,7 @@ pub struct ActionQuery {
 }
 impl_op_serialized!(ActionQuery, group, resp, query, QueryOperand);
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct BreakQuery {
     pub group: bool,
     pub resp: bool,
@@ -1907,6 +1980,7 @@ pub struct BreakQuery {
 }
 impl_op_serialized!(BreakQuery, group, resp, query, QueryOperand);
 
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PermissionRequest {
     pub group: bool,
     pub resp: bool,
@@ -1923,6 +1997,7 @@ impl_op_serialized!(
     Permission
 );
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct VerifyChecksum {
     pub group: bool,
     pub resp: bool,
@@ -1931,6 +2006,7 @@ pub struct VerifyChecksum {
 impl_op_serialized!(VerifyChecksum, group, resp, query, QueryOperand);
 
 // Management
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ExistFile {
     pub group: bool,
     pub resp: bool,
@@ -1938,6 +2014,7 @@ pub struct ExistFile {
 }
 impl_simple_op!(ExistFile, group, resp, file_id);
 
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CreateNewFile {
     pub group: bool,
     pub resp: bool,
@@ -1948,6 +2025,7 @@ pub struct CreateNewFile {
 }
 impl_header_op!(CreateNewFile, group, resp, file_id, data);
 
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DeleteFile {
     pub group: bool,
     pub resp: bool,
@@ -1955,6 +2033,7 @@ pub struct DeleteFile {
 }
 impl_simple_op!(DeleteFile, group, resp, file_id);
 
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RestoreFile {
     pub group: bool,
     pub resp: bool,
@@ -1962,6 +2041,7 @@ pub struct RestoreFile {
 }
 impl_simple_op!(RestoreFile, group, resp, file_id);
 
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FlushFile {
     pub group: bool,
     pub resp: bool,
@@ -1969,6 +2049,7 @@ pub struct FlushFile {
 }
 impl_simple_op!(FlushFile, group, resp, file_id);
 
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CopyFile {
     pub group: bool,
     pub resp: bool,
@@ -1977,6 +2058,7 @@ pub struct CopyFile {
 }
 impl_simple_op!(CopyFile, group, resp, source_file_id, dest_file_id);
 
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ExecuteFile {
     pub group: bool,
     pub resp: bool,
@@ -1985,6 +2067,7 @@ pub struct ExecuteFile {
 impl_simple_op!(ExecuteFile, group, resp, file_id);
 
 // Response
+#[derive(Clone, Debug, PartialEq)]
 pub struct ReturnFileData {
     pub group: bool,
     pub resp: bool,
@@ -2044,6 +2127,7 @@ impl Serializable for ReturnFileData {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ReturnFileProperties {
     pub group: bool,
     pub resp: bool,
@@ -2054,7 +2138,7 @@ pub struct ReturnFileProperties {
 }
 impl_header_op!(ReturnFileProperties, group, resp, file_id, data);
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum StatusType {
     Action = 0,
     Interface = 1,
@@ -2070,6 +2154,7 @@ impl StatusType {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
 pub enum Status {
     // ALP SPEC: This is named status, but it should be named action status compared to the '2'
     // other statuses.
@@ -2110,6 +2195,7 @@ impl Serializable for Status {
         })
     }
 }
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ResponseTag {
     pub eop: bool, // End of packet
     pub err: bool,
@@ -2118,7 +2204,7 @@ pub struct ResponseTag {
 impl_simple_op!(ResponseTag, eop, err, id);
 
 // Special
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ChunkStep {
     Continue = 0,
     Start = 1,
@@ -2137,6 +2223,7 @@ impl ChunkStep {
         }
     }
 }
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Chunk {
     pub step: ChunkStep,
 }
@@ -2161,7 +2248,7 @@ impl Serializable for Chunk {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum LogicOp {
     Or = 0,
     Xor = 1,
@@ -2180,6 +2267,7 @@ impl LogicOp {
         }
     }
 }
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Logic {
     pub logic: LogicOp,
 }
@@ -2203,6 +2291,7 @@ impl Serializable for Logic {
         })
     }
 }
+#[derive(Clone, Debug, PartialEq)]
 pub struct Forward {
     pub resp: bool,
     pub conf: InterfaceConfiguration,
@@ -2234,6 +2323,7 @@ impl Serializable for Forward {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct IndirectForward {
     // TODO This is an error: overload is determined by the interface variant. Modify accordingly.
     pub overload: bool,
@@ -2248,6 +2338,7 @@ impl_op_serialized!(
     IndirectInterface
 );
 
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RequestTag {
     pub eop: bool, // End of packet
     pub id: u8,
@@ -2276,6 +2367,7 @@ impl Serializable for RequestTag {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Extension {
     pub group: bool,
     pub resp: bool,
@@ -2292,6 +2384,7 @@ impl Serializable for Extension {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
 pub enum Action {
     // Nop
     Nop(Nop),
@@ -2459,9 +2552,11 @@ impl Serializable for Action {
 // ===============================================================================
 // Command
 // ===============================================================================
+#[derive(Clone, Debug, PartialEq)]
 pub struct Command {
     pub actions: Vec<Action>,
 }
+#[derive(Clone, Debug, PartialEq)]
 pub struct CommandParseError {
     pub actions: Vec<Action>,
     pub error: ParseError,

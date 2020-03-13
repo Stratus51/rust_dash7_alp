@@ -1,5 +1,7 @@
+#[derive(Clone, Debug, PartialEq)]
 pub struct ParseValue<T> {
     pub value: T,
+    // TODO Rename: data_size? size?
     pub data_read: usize,
 }
 impl<T> ParseValue<T> {
@@ -17,6 +19,7 @@ impl<T> ParseValue<T> {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
 pub enum ParseError {
     MissingBytes(Option<usize>),
 }
