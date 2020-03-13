@@ -41,20 +41,6 @@ macro_rules! serialized_size {
     }
 }
 
-// Derive replacement (proc-macro would not allow this to be a normal lib)
-macro_rules! impl_serialized {
-    ( $name: ident, $($x: ident),* ) => {
-        impl Serializable for $name {
-            fn serialized_size(&self) -> usize {
-                serialized_size!($({ &self.$x }),*)
-            }
-            fn serialize(&self, out: &mut [u8]) -> usize {
-                serialize_all!(out, $({ &self.$x }),*)
-            }
-        }
-    }
-}
-
 macro_rules! control_byte {
     ($flag7: expr, $flag6: expr, $op_code: expr) => {{
         let mut ctrl = $op_code as u8;
@@ -68,7 +54,7 @@ macro_rules! control_byte {
     }};
 }
 
-// TODO
+// Derive replacement (proc-macro would not allow this to be a normal lib)
 macro_rules! impl_op_serialized {
     ($name: ident, $flag7: ident, $flag6: ident) => {
         impl Serializable for $name {
@@ -80,7 +66,7 @@ macro_rules! impl_op_serialized {
                 1
             }
             fn deserialize(out: &[u8]) -> ParseResult<Self> {
-                if(out.is_empty()) {
+                if (out.is_empty()) {
                     Err(ParseError::MissingBytes(Some(1)))
                 } else {
                     Ok(ParseValue {
@@ -94,15 +80,71 @@ macro_rules! impl_op_serialized {
             }
         }
     };
-    ($name: ident, $flag7: ident, $flag6: ident, $($x: ident),* ) => {
+    ($name: ident, $flag7: ident, $flag6: ident, $op1: ident, $op1_type: ident) => {
         impl Serializable for $name {
             fn serialized_size(&self) -> usize {
-                1 +
-                serialized_size!($(self.$x),*)
+                1 + serialized_size!(self.$op1)
             }
             fn serialize(&self, out: &mut [u8]) -> usize {
                 out[0] = control_byte!(self.$flag7, self.$flag6, OpCode::$name);
-                1 + serialize_all!(out, $({ &self.$x }),*)
+                1 + serialize_all!(out, &self.$op1)
+            }
+            fn deserialize(out: &[u8]) -> ParseResult<Self> {
+                if (out.is_empty()) {
+                    Err(ParseError::MissingBytes(Some(1)))
+                } else {
+                    let mut offset = 1;
+                    let ParseValue {
+                        value: op1,
+                        data_read: op1_size,
+                    } = $op1_type::deserialize(&out[offset..])?;
+                    offset += op1_size;
+                    Ok(ParseValue {
+                        value: Self {
+                            $flag6: out[0] & 0x40 != 0,
+                            $flag7: out[0] & 0x80 != 0,
+                            $op1: op1,
+                        },
+                        data_read: offset,
+                    })
+                }
+            }
+        }
+    };
+    ($name: ident, $flag7: ident, $flag6: ident, $op1: ident, $op1_type: ident, $op2: ident, $op2_type: ident) => {
+        impl Serializable for $name {
+            fn serialized_size(&self) -> usize {
+                1 + serialized_size!(self.$op1, self.$op2)
+            }
+            fn serialize(&self, out: &mut [u8]) -> usize {
+                out[0] = control_byte!(self.$flag7, self.$flag6, OpCode::$name);
+                1 + serialize_all!(out, &self.$op1, self.$op2)
+            }
+            fn deserialize(out: &[u8]) -> ParseResult<Self> {
+                if (out.is_empty()) {
+                    Err(ParseError::MissingBytes(Some(1)))
+                } else {
+                    let mut offset = 1;
+                    let ParseValue {
+                        value: op1,
+                        data_read: op1_size,
+                    } = $op1_type::deserialize(&out[offset..])?;
+                    offset += op1_size;
+                    let ParseValue {
+                        value: op2,
+                        data_read: op2_size,
+                    } = $op2_type::deserialize(&out[offset..])?;
+                    offset += op2_size;
+                    Ok(ParseValue {
+                        value: Self {
+                            $flag6: out[0] & 0x40 != 0,
+                            $flag7: out[0] & 0x80 != 0,
+                            $op1: op1,
+                            $op2: op2,
+                        },
+                        data_read: offset,
+                    })
+                }
             }
         }
     };
@@ -169,13 +211,13 @@ macro_rules! impl_simple_op {
                 1 + offset
             }
             fn deserialize(out: &[u8]) -> ParseResult<Self> {
-                const size: usize = 1 + count!($( $x )*);
-                if(out.len() < size) {
-                    Err(ParseError::MissingBytes(Some(size - out.len())))
+                const SIZE: usize = 1 + count!($( $x )*);
+                if(out.len() < SIZE) {
+                    Err(ParseError::MissingBytes(Some(SIZE - out.len())))
                 } else {
                     Ok(ParseValue {
                         value: build_simple_op!($name, out, $flag7, $flag6, $($x),*),
-                        data_read: size,
+                        data_read: SIZE,
                     })
                 }
             }
@@ -196,11 +238,11 @@ macro_rules! impl_header_op {
                 1 + 1 + 12
             }
             fn deserialize(out: &[u8]) -> ParseResult<Self> {
-                const size: usize = 1 + 1 + 12;
-                if (out.len() < size) {
-                    Err(ParseError::MissingBytes(Some(size - out.len())))
+                const SIZE: usize = 1 + 1 + 12;
+                if (out.len() < SIZE) {
+                    Err(ParseError::MissingBytes(Some(SIZE - out.len())))
                 } else {
-                    let header = [0; 12];
+                    let mut header = [0; 12];
                     header.clone_from_slice(&out[2..2 + 12]);
                     Ok(ParseValue {
                         value: Self {
@@ -209,7 +251,7 @@ macro_rules! impl_header_op {
                             $file_id: out[1],
                             $file_header: header,
                         },
-                        data_read: size,
+                        data_read: SIZE,
                     })
                 }
             }
@@ -230,7 +272,7 @@ pub enum OpCode {
 
     // Write
     WriteFileData = 4,
-    WriteFileDataFlush = 5,
+    // WriteFileDataFlush = 5, // TODO This is not specified
     WriteFileProperties = 6,
     ActionQuery = 8,
     BreakQuery = 9,
@@ -272,7 +314,7 @@ impl OpCode {
 
             // Write
             4 => OpCode::WriteFileData,
-            5 => OpCode::WriteFileDataFlush,
+            // 5 => OpCode::WriteFileDataFlush, // TODO
             6 => OpCode::WriteFileProperties,
             8 => OpCode::ActionQuery,
             9 => OpCode::BreakQuery,
@@ -374,43 +416,45 @@ impl Serializable for Addressee {
         2 + id.len()
     }
     fn deserialize(out: &[u8]) -> ParseResult<Self> {
-        const size: usize = 1 + 1;
-        if out.len() < size {
-            return Err(ParseError::MissingBytes(Some(size - out.len())));
+        const SIZE: usize = 1 + 1;
+        if out.len() < SIZE {
+            return Err(ParseError::MissingBytes(Some(SIZE - out.len())));
         }
         let id_type = (out[0] & 0x30) >> 4;
         let nls_method = NlsMethod::from(out[0] & 0x0F);
+        let (address, address_size) = match id_type {
+            0 => {
+                if out.len() < 3 {
+                    return Err(ParseError::MissingBytes(Some(1)));
+                }
+                (Address::NbId(out[3]), 1)
+            }
+            1 => (Address::NoId, 0),
+            2 => {
+                if out.len() < 2 + 8 {
+                    return Err(ParseError::MissingBytes(Some(2 + 8 - out.len())));
+                }
+                let mut data = Box::new([0u8; 8]);
+                data.clone_from_slice(&out[2..2 + 8]);
+                (Address::Uid(data), 8)
+            }
+            3 => {
+                if out.len() < 2 + 2 {
+                    return Err(ParseError::MissingBytes(Some(2 + 2 - out.len())));
+                }
+                let mut data = Box::new([0u8; 2]);
+                data.clone_from_slice(&out[2..2 + 2]);
+                (Address::Vid(data), 2)
+            }
+            x => panic!("Impossible id_type = {}", x),
+        };
         Ok(ParseValue {
             value: Self {
                 nls_method,
                 access_class: out[1],
-                address: match id_type {
-                    0 => {
-                        if out.len() < 3 {
-                            return Err(ParseError::MissingBytes(Some(1)));
-                        }
-                        Address::NbId(out[3])
-                    }
-                    1 => Address::NoId,
-                    2 => {
-                        if out.len() < 2 + 8 {
-                            return Err(ParseError::MissingBytes(Some(2 + 8 - out.len())));
-                        }
-                        let data = Box::new([0u8; 8]);
-                        data.clone_from_slice(&out[2..2 + 8]);
-                        Address::Uid(data)
-                    }
-                    3 => {
-                        if out.len() < 2 + 2 {
-                            return Err(ParseError::MissingBytes(Some(2 + 2 - out.len())));
-                        }
-                        let data = Box::new([0u8; 2]);
-                        data.clone_from_slice(&out[2..2 + 2]);
-                        Address::Vid(data)
-                    }
-                },
+                address,
             },
-            data_read: size,
+            data_read: 1 + address_size,
         })
     }
 }
@@ -626,7 +670,7 @@ impl Serializable for D7aspInterfaceStatus {
         let mut i = 0;
         out[i] = self.ch_header;
         i += 1;
-        out[i..(i + 2)].clone_from_slice(&self.ch_idx.to_le_bytes());
+        out[i..(i + 2)].clone_from_slice(&self.ch_idx.to_le_bytes()); // TODO Check
         i += 2;
         out[i] = self.rxlev;
         i += 1;
@@ -664,7 +708,7 @@ impl Serializable for D7aspInterfaceStatus {
                 if out.len() < offset + 5 {
                     return Err(ParseError::MissingBytes(Some(offset + 5 - out.len())));
                 } else {
-                    let nls_state = [0u8; 5];
+                    let mut nls_state = [0u8; 5];
                     nls_state.clone_from_slice(&out[offset..offset + 5]);
                     Some(nls_state)
                 }
@@ -781,7 +825,7 @@ impl Serializable for InterfaceStatus {
     fn serialized_size(&self) -> usize {
         match self {
             InterfaceStatus::D7asp(itf) => itf.serialized_size(),
-            InterfaceStatus::Unknown { id, data } => {
+            InterfaceStatus::Unknown { data, .. } => {
                 1 + unsafe { VariableUint::unsafe_size(data.len() as u32) as usize }
             }
         }
@@ -789,15 +833,17 @@ impl Serializable for InterfaceStatus {
     fn serialize(&self, out: &mut [u8]) -> usize {
         out[0] = match self {
             InterfaceStatus::D7asp(_) => InterfaceId::D7asp as u8,
-            InterfaceStatus::Unknown { id, data } => *id,
+            InterfaceStatus::Unknown { id, .. } => *id,
         };
-        1 + match self {
+        let mut offset = 1;
+        offset += match self {
             InterfaceStatus::D7asp(v) => v.serialize(&mut out[1..]),
-            InterfaceStatus::Unknown { id, data } => {
-                out[1..1 + data.len()].clone_from_slice(data);
+            InterfaceStatus::Unknown { data, .. } => {
+                out[offset..offset + data.len()].clone_from_slice(data);
                 data.len()
             }
-        }
+        };
+        offset
     }
     fn deserialize(out: &[u8]) -> ParseResult<Self> {
         if out.is_empty() {
@@ -812,7 +858,6 @@ impl Serializable for InterfaceStatus {
                 })
             }
             InterfaceId::Host => panic!("Unknown structure for interface configuration 'Host'"),
-            x => panic!("Unknown interface id: {}", x as u8),
         }
     }
 }
@@ -960,13 +1005,15 @@ impl Serializable for Permission {
         if out.is_empty() {
             return Err(ParseError::MissingBytes(Some(1)));
         }
+        let mut offset = 1;
         match out[0] {
             42 => {
                 let mut token = [0; 8];
-                token.clone_from_slice(&out[1..1 + 8]);
+                token.clone_from_slice(&out[offset..offset + 8]);
+                offset += 8;
                 Ok(ParseValue {
                     value: Permission::Dash7(token),
-                    data_read: 1 + 8,
+                    data_read: offset,
                 })
             }
             // TODO ParseError
@@ -1066,17 +1113,18 @@ impl QueryCode {
 }
 
 pub struct NonVoid {
+    // TODO Protect
     pub size: u32,
     pub file: FileOffsetOperand,
 }
 impl Serializable for NonVoid {
     fn serialized_size(&self) -> usize {
-        1 + serialized_size!(self.size, self.file)
+        1 + unsafe { VariableUint::unsafe_size(self.size) } as usize + self.file.serialized_size()
     }
     fn serialize(&self, out: &mut [u8]) -> usize {
         out[0] = QueryCode::NonVoid as u8;
         let mut offset = 1;
-        offset += VariableUint::u32_serialize(self.size, &mut out[offset..]) as usize;
+        offset += unsafe { VariableUint::u32_serialize(self.size, &mut out[offset..]) } as usize;
         offset += self.file.serialize(&mut out[offset..]);
         offset
     }
@@ -1102,7 +1150,8 @@ impl Serializable for NonVoid {
 pub struct ComparisonWithZero {
     pub signed_data: bool,
     pub comparison_type: QueryComparisonType,
-    pub size: u32, // TODO Enforce correctness
+    // TODO Protect
+    pub size: u32,
     pub mask: Option<Box<[u8]>>,
     pub file: FileOffsetOperand,
 }
@@ -1128,7 +1177,7 @@ impl Serializable for ComparisonWithZero {
             | (signed_flag << 3)
             | self.comparison_type as u8;
         offset += 1;
-        offset += VariableUint::u32_serialize(self.size, &mut out[offset..]) as usize;
+        offset += unsafe { VariableUint::u32_serialize(self.size, &mut out[offset..]) } as usize;
         if let Some(mask) = &self.mask {
             out[offset..].clone_from_slice(&mask);
             offset += mask.len();
@@ -1149,7 +1198,7 @@ impl Serializable for ComparisonWithZero {
         } = VariableUint::u32_deserialize(&out[1..])?;
         let mut offset = 1 + size_size;
         let mask = if mask_flag {
-            let data = vec![0u8; size as usize].into_boxed_slice();
+            let mut data = vec![0u8; size as usize].into_boxed_slice();
             data.clone_from_slice(&out[offset..offset + size as usize]);
             offset += size as usize;
             Some(data)
@@ -1177,6 +1226,7 @@ impl Serializable for ComparisonWithZero {
 pub struct ComparisonWithValue {
     pub signed_data: bool,
     pub comparison_type: QueryComparisonType,
+    // TODO Protect
     pub size: u32,
     pub mask: Option<Box<[u8]>>,
     pub value: Box<[u8]>,
@@ -1205,7 +1255,7 @@ impl Serializable for ComparisonWithValue {
             | (signed_flag << 3)
             | self.comparison_type as u8;
         offset += 1;
-        offset += VariableUint::u32_serialize(self.size, &mut out[offset..]) as usize;
+        offset += unsafe { VariableUint::u32_serialize(self.size, &mut out[offset..]) } as usize;
         if let Some(mask) = &self.mask {
             out[offset..].clone_from_slice(&mask);
             offset += mask.len();
@@ -1228,14 +1278,14 @@ impl Serializable for ComparisonWithValue {
         } = VariableUint::u32_deserialize(&out[1..])?;
         let mut offset = 1 + size_size;
         let mask = if mask_flag {
-            let data = vec![0u8; size as usize].into_boxed_slice();
+            let mut data = vec![0u8; size as usize].into_boxed_slice();
             data.clone_from_slice(&out[offset..offset + size as usize]);
             offset += size as usize;
             Some(data)
         } else {
             None
         };
-        let value = vec![0u8; size as usize].into_boxed_slice();
+        let mut value = vec![0u8; size as usize].into_boxed_slice();
         value.clone_from_slice(&out[offset..offset + size as usize]);
         offset += size as usize;
         let ParseValue {
@@ -1260,6 +1310,7 @@ impl Serializable for ComparisonWithValue {
 pub struct ComparisonWithOtherFile {
     pub signed_data: bool,
     pub comparison_type: QueryComparisonType,
+    // TODO Protect
     pub size: u32,
     pub mask: Option<Box<[u8]>>,
     pub file_src: FileOffsetOperand,
@@ -1288,7 +1339,7 @@ impl Serializable for ComparisonWithOtherFile {
             | (signed_flag << 3)
             | self.comparison_type as u8;
         offset += 1;
-        offset += VariableUint::u32_serialize(self.size, &mut out[offset..]) as usize;
+        offset += unsafe { VariableUint::u32_serialize(self.size, &mut out[offset..]) } as usize;
         if let Some(mask) = &self.mask {
             out[offset..].clone_from_slice(&mask);
             offset += mask.len();
@@ -1311,7 +1362,7 @@ impl Serializable for ComparisonWithOtherFile {
         } = VariableUint::u32_deserialize(&out[1..])?;
         let mut offset = 1 + size_size;
         let mask = if mask_flag {
-            let data = vec![0u8; size as usize].into_boxed_slice();
+            let mut data = vec![0u8; size as usize].into_boxed_slice();
             data.clone_from_slice(&out[offset..offset + size as usize]);
             offset += size as usize;
             Some(data)
@@ -1345,9 +1396,10 @@ impl Serializable for ComparisonWithOtherFile {
 pub struct BitmapRangeComparison {
     pub signed_data: bool,
     pub comparison_type: QueryRangeComparisonType,
+    // TODO Protect
     pub size: u32,
     // TODO In theory, start and stop can be huge array thus impossible to cast into any trivial
-    // number. How we deal with this.
+    // number. How do we deal with this.
     pub start: Box<[u8]>,
     pub stop: Box<[u8]>,
     pub bitmap: Box<[u8]>, // TODO Better type?
@@ -1368,7 +1420,7 @@ impl Serializable for BitmapRangeComparison {
             | (signed_flag << 3)
             | self.comparison_type as u8;
         offset += 1;
-        offset += VariableUint::u32_serialize(self.size, &mut out[offset..]) as usize;
+        offset += unsafe { VariableUint::u32_serialize(self.size, &mut out[offset..]) } as usize;
         out[offset..].clone_from_slice(&self.start[..]);
         offset += self.start.len();
         out[offset..].clone_from_slice(&self.stop[..]);
@@ -1394,10 +1446,10 @@ impl Serializable for BitmapRangeComparison {
             data_read: file_size,
         } = FileOffsetOperand::deserialize(&out[offset..])?;
         offset += file_size;
-        let start = vec![0u8; size as usize].into_boxed_slice();
+        let mut start = vec![0u8; size as usize].into_boxed_slice();
         start.clone_from_slice(&out[offset..offset + size as usize]);
         offset += size as usize;
-        let stop = vec![0u8; size as usize].into_boxed_slice();
+        let mut stop = vec![0u8; size as usize].into_boxed_slice();
         stop.clone_from_slice(&out[offset..offset + size as usize]);
         // TODO How do we deal with start and stop?
         if true {
@@ -1406,7 +1458,7 @@ impl Serializable for BitmapRangeComparison {
         let start_n = start[0];
         let stop_n = stop[0];
         let bitmap_size = (stop_n - start_n + 6) / 8; // ALP SPEC: Thanks for the calculation
-        let bitmap = vec![0u8; bitmap_size as usize].into_boxed_slice();
+        let mut bitmap = vec![0u8; bitmap_size as usize].into_boxed_slice();
         bitmap.clone_from_slice(&out[offset..offset + bitmap_size as usize]);
         offset += bitmap_size as usize;
         Ok(ParseValue {
@@ -1426,6 +1478,7 @@ impl Serializable for BitmapRangeComparison {
 // TODO Check size coherence upon creation
 pub struct StringTokenSearch {
     pub max_errors: u8,
+    // TODO Protect
     pub size: u32,
     pub mask: Option<Box<[u8]>>,
     pub value: Box<[u8]>,
@@ -1453,7 +1506,7 @@ impl Serializable for StringTokenSearch {
             // | (0 << 3)
             | self.max_errors;
         offset += 1;
-        offset += VariableUint::u32_serialize(self.size, &mut out[offset..]) as usize;
+        offset += unsafe { VariableUint::u32_serialize(self.size, &mut out[offset..]) } as usize;
         if let Some(mask) = &self.mask {
             out[offset..].clone_from_slice(&mask);
             offset += mask.len();
@@ -1475,14 +1528,14 @@ impl Serializable for StringTokenSearch {
         } = VariableUint::u32_deserialize(&out[1..])?;
         let mut offset = 1 + size_size;
         let mask = if mask_flag {
-            let data = vec![0u8; size as usize].into_boxed_slice();
+            let mut data = vec![0u8; size as usize].into_boxed_slice();
             data.clone_from_slice(&out[offset..offset + size as usize]);
             offset += size as usize;
             Some(data)
         } else {
             None
         };
-        let value = vec![0u8; size as usize].into_boxed_slice();
+        let mut value = vec![0u8; size as usize].into_boxed_slice();
         value.clone_from_slice(&out[offset..offset + size as usize]);
         offset += size as usize;
         let ParseValue {
@@ -1534,19 +1587,20 @@ impl Serializable for QueryOperand {
     }
     fn deserialize(out: &[u8]) -> ParseResult<Self> {
         Ok(match QueryCode::from(out[0] >> 5) {
-            QueryCode::NonVoid => {
-                NonVoid::deserialize(out)?.map_value(|v| QueryOperand::NonVoid(v))
+            QueryCode::NonVoid => NonVoid::deserialize(out)?.map_value(QueryOperand::NonVoid),
+            QueryCode::ComparisonWithZero => {
+                ComparisonWithZero::deserialize(out)?.map_value(QueryOperand::ComparisonWithZero)
             }
-            QueryCode::ComparisonWithZero => ComparisonWithZero::deserialize(out)?
-                .map_value(|v| QueryOperand::ComparisonWithZero(v)),
-            QueryCode::ComparisonWithValue => ComparisonWithValue::deserialize(out)?
-                .map_value(|v| QueryOperand::ComparisonWithValue(v)),
+            QueryCode::ComparisonWithValue => {
+                ComparisonWithValue::deserialize(out)?.map_value(QueryOperand::ComparisonWithValue)
+            }
             QueryCode::ComparisonWithOtherFile => ComparisonWithOtherFile::deserialize(out)?
-                .map_value(|v| QueryOperand::ComparisonWithOtherFile(v)),
+                .map_value(QueryOperand::ComparisonWithOtherFile),
             QueryCode::BitmapRangeComparison => BitmapRangeComparison::deserialize(out)?
-                .map_value(|v| QueryOperand::BitmapRangeComparison(v)),
-            QueryCode::StringTokenSearch => StringTokenSearch::deserialize(out)?
-                .map_value(|v| QueryOperand::StringTokenSearch(v)),
+                .map_value(QueryOperand::BitmapRangeComparison),
+            QueryCode::StringTokenSearch => {
+                StringTokenSearch::deserialize(out)?.map_value(QueryOperand::StringTokenSearch)
+            }
         })
     }
 }
@@ -1631,11 +1685,10 @@ impl Serializable for IndirectInterface {
             return Err(ParseError::MissingBytes(Some(1)));
         }
         Ok(if out[0] & 0x80 != 0 {
-            OverloadedIndirectInterface::deserialize(out)?
-                .map_value(|v| IndirectInterface::Overloaded(v))
+            OverloadedIndirectInterface::deserialize(out)?.map_value(IndirectInterface::Overloaded)
         } else {
             NonOverloadedIndirectInterface::deserialize(out)?
-                .map_value(|v| IndirectInterface::NonOverloaded(v))
+                .map_value(IndirectInterface::NonOverloaded)
         })
     }
 }
@@ -1656,7 +1709,9 @@ pub struct ReadFileData {
     pub group: bool,
     pub resp: bool,
     pub file_id: u8,
+    // TODO Protect
     pub offset: u32,
+    // TODO Protect
     pub size: u32,
 }
 
@@ -1714,6 +1769,7 @@ pub struct WriteFileData {
     pub group: bool,
     pub resp: bool,
     pub file_id: u8,
+    // TODO Protect
     pub offset: u32,
     pub data: Box<[u8]>,
 }
@@ -1768,63 +1824,64 @@ impl Serializable for WriteFileData {
     }
 }
 
-pub struct WriteFileDataFlush {
-    pub group: bool,
-    pub resp: bool,
-    pub file_id: u8,
-    pub offset: u32,
-    pub data: Box<[u8]>,
-}
-impl Serializable for WriteFileDataFlush {
-    fn serialized_size(&self) -> usize {
-        1 + 1
-            + unsafe_varint_serialize_sizes!(self.offset, self.data.len() as u32) as usize
-            + self.data.len()
-    }
-    fn serialize(&self, out: &mut [u8]) -> usize {
-        out[0] = control_byte!(self.group, self.resp, OpCode::WriteFileDataFlush);
-        out[1] = self.file_id;
-        let mut offset = 2;
-        offset += unsafe_varint_serialize!(out[2..], self.offset, self.data.len() as u32) as usize;
-        out[offset..offset + self.data.len()].clone_from_slice(&self.data[..]);
-        offset += self.data.len();
-        offset
-    }
-    fn deserialize(out: &[u8]) -> ParseResult<Self> {
-        let min_size = 1 + 1 + 1 + 1;
-        if out.len() < min_size {
-            return Err(ParseError::MissingBytes(Some(min_size - out.len())));
-        }
-        let group = out[0] & 0x80 != 0;
-        let resp = out[0] & 0x40 != 0;
-        let file_id = out[1];
-        let mut off = 2;
-        let ParseValue {
-            value: offset,
-            data_read: offset_size,
-        } = VariableUint::u32_deserialize(&out[off..])?;
-        off += offset_size;
-        let ParseValue {
-            value: size,
-            data_read: size_size,
-        } = VariableUint::u32_deserialize(&out[off..])?;
-        off += size_size;
-        let size = size as usize;
-        let mut data = vec![0u8; size].into_boxed_slice();
-        data.clone_from_slice(&out[off..off + size]);
-        off += size;
-        Ok(ParseValue {
-            value: Self {
-                group,
-                resp,
-                file_id,
-                offset,
-                data,
-            },
-            data_read: off,
-        })
-    }
-}
+// pub struct WriteFileDataFlush {
+//     pub group: bool,
+//     pub resp: bool,
+//     pub file_id: u8,
+//     // TODO Protect
+//     pub offset: u32,
+//     pub data: Box<[u8]>,
+// }
+// impl Serializable for WriteFileDataFlush {
+//     fn serialized_size(&self) -> usize {
+//         1 + 1
+//             + unsafe_varint_serialize_sizes!(self.offset, self.data.len() as u32) as usize
+//             + self.data.len()
+//     }
+//     fn serialize(&self, out: &mut [u8]) -> usize {
+//         out[0] = control_byte!(self.group, self.resp, OpCode::WriteFileDataFlush);
+//         out[1] = self.file_id;
+//         let mut offset = 2;
+//         offset += unsafe_varint_serialize!(out[2..], self.offset, self.data.len() as u32) as usize;
+//         out[offset..offset + self.data.len()].clone_from_slice(&self.data[..]);
+//         offset += self.data.len();
+//         offset
+//     }
+//     fn deserialize(out: &[u8]) -> ParseResult<Self> {
+//         let min_size = 1 + 1 + 1 + 1;
+//         if out.len() < min_size {
+//             return Err(ParseError::MissingBytes(Some(min_size - out.len())));
+//         }
+//         let group = out[0] & 0x80 != 0;
+//         let resp = out[0] & 0x40 != 0;
+//         let file_id = out[1];
+//         let mut off = 2;
+//         let ParseValue {
+//             value: offset,
+//             data_read: offset_size,
+//         } = VariableUint::u32_deserialize(&out[off..])?;
+//         off += offset_size;
+//         let ParseValue {
+//             value: size,
+//             data_read: size_size,
+//         } = VariableUint::u32_deserialize(&out[off..])?;
+//         off += size_size;
+//         let size = size as usize;
+//         let mut data = vec![0u8; size].into_boxed_slice();
+//         data.clone_from_slice(&out[off..off + size]);
+//         off += size;
+//         Ok(ParseValue {
+//             value: Self {
+//                 group,
+//                 resp,
+//                 file_id,
+//                 offset,
+//                 data,
+//             },
+//             data_read: off,
+//         })
+//     }
+// }
 
 pub struct WriteFileProperties {
     pub group: bool,
@@ -1841,14 +1898,14 @@ pub struct ActionQuery {
     pub resp: bool,
     pub query: QueryOperand,
 }
-impl_op_serialized!(ActionQuery, group, resp, query);
+impl_op_serialized!(ActionQuery, group, resp, query, QueryOperand);
 
 pub struct BreakQuery {
     pub group: bool,
     pub resp: bool,
     pub query: QueryOperand,
 }
-impl_op_serialized!(BreakQuery, group, resp, query);
+impl_op_serialized!(BreakQuery, group, resp, query, QueryOperand);
 
 pub struct PermissionRequest {
     pub group: bool,
@@ -1856,14 +1913,22 @@ pub struct PermissionRequest {
     pub level: PermissionLevel,
     pub permission: Permission,
 }
-impl_op_serialized!(PermissionRequest, group, resp, level, permission);
+impl_op_serialized!(
+    PermissionRequest,
+    group,
+    resp,
+    level,
+    PermissionLevel,
+    permission,
+    Permission
+);
 
 pub struct VerifyChecksum {
     pub group: bool,
     pub resp: bool,
     pub query: QueryOperand,
 }
-impl_op_serialized!(VerifyChecksum, group, resp, query);
+impl_op_serialized!(VerifyChecksum, group, resp, query, QueryOperand);
 
 // Management
 pub struct ExistFile {
@@ -1924,6 +1989,7 @@ pub struct ReturnFileData {
     pub group: bool,
     pub resp: bool,
     pub file_id: u8,
+    // TODO Protect
     pub offset: u32,
     pub data: Box<[u8]>,
 }
@@ -1934,7 +2000,7 @@ impl Serializable for ReturnFileData {
             + self.data.len()
     }
     fn serialize(&self, out: &mut [u8]) -> usize {
-        out[0] = control_byte!(self.group, self.resp, OpCode::WriteFileDataFlush);
+        out[0] = control_byte!(self.group, self.resp, OpCode::ReadFileData);
         out[1] = self.file_id;
         let mut offset = 2;
         offset += unsafe_varint_serialize!(out[2..], self.offset, self.data.len() as u32) as usize;
@@ -2174,7 +2240,13 @@ pub struct IndirectForward {
     pub resp: bool,
     pub interface: IndirectInterface,
 }
-impl_op_serialized!(IndirectForward, overload, resp, interface);
+impl_op_serialized!(
+    IndirectForward,
+    overload,
+    resp,
+    interface,
+    IndirectInterface
+);
 
 pub struct RequestTag {
     pub eop: bool, // End of packet
@@ -2215,7 +2287,7 @@ impl Serializable for Extension {
     fn serialize(&self, _out: &mut [u8]) -> usize {
         todo!()
     }
-    fn deserialize(out: &[u8]) -> ParseResult<Self> {
+    fn deserialize(_out: &[u8]) -> ParseResult<Self> {
         todo!()
     }
 }
@@ -2300,6 +2372,7 @@ impl Serializable for Action {
             Action::ReadFileData(x) => x.serialize(out),
             Action::ReadFileProperties(x) => x.serialize(out),
             Action::WriteFileData(x) => x.serialize(out),
+            // Action::WriteFileDataFlush(x) => x.serialize(out),
             Action::WriteFileProperties(x) => x.serialize(out),
             Action::ActionQuery(x) => x.serialize(out),
             Action::BreakQuery(x) => x.serialize(out),
@@ -2330,64 +2403,55 @@ impl Serializable for Action {
         }
         let opcode = OpCode::from(out[0] & 0x3F);
         Ok(match opcode {
-            OpCode::Nop => Nop::deserialize(&out)?.map_value(|v| Action::Nop(v)),
+            OpCode::Nop => Nop::deserialize(&out)?.map_value(Action::Nop),
             OpCode::ReadFileData => {
-                ReadFileData::deserialize(&out)?.map_value(|v| Action::ReadFileData(v))
+                ReadFileData::deserialize(&out)?.map_value(Action::ReadFileData)
             }
             OpCode::ReadFileProperties => {
-                ReadFileProperties::deserialize(&out)?.map_value(|v| Action::ReadFileProperties(v))
+                ReadFileProperties::deserialize(&out)?.map_value(Action::ReadFileProperties)
             }
             OpCode::WriteFileData => {
-                WriteFileData::deserialize(&out)?.map_value(|v| Action::WriteFileData(v))
+                WriteFileData::deserialize(&out)?.map_value(Action::WriteFileData)
             }
-            OpCode::WriteFileProperties => WriteFileProperties::deserialize(&out)?
-                .map_value(|v| Action::WriteFileProperties(v)),
-            OpCode::ActionQuery => {
-                ActionQuery::deserialize(&out)?.map_value(|v| Action::ActionQuery(v))
+            // OpCode::WriteFileDataFlush => {
+            //     WriteFileDataFlush::deserialize(&out)?.map_value( Action::WriteFileDataFlush)
+            // }
+            OpCode::WriteFileProperties => {
+                WriteFileProperties::deserialize(&out)?.map_value(Action::WriteFileProperties)
             }
-            OpCode::BreakQuery => {
-                BreakQuery::deserialize(&out)?.map_value(|v| Action::BreakQuery(v))
-            }
+            OpCode::ActionQuery => ActionQuery::deserialize(&out)?.map_value(Action::ActionQuery),
+            OpCode::BreakQuery => BreakQuery::deserialize(&out)?.map_value(Action::BreakQuery),
             OpCode::PermissionRequest => {
-                PermissionRequest::deserialize(&out)?.map_value(|v| Action::PermissionRequest(v))
+                PermissionRequest::deserialize(&out)?.map_value(Action::PermissionRequest)
             }
             OpCode::VerifyChecksum => {
-                VerifyChecksum::deserialize(&out)?.map_value(|v| Action::VerifyChecksum(v))
+                VerifyChecksum::deserialize(&out)?.map_value(Action::VerifyChecksum)
             }
-            OpCode::ExistFile => ExistFile::deserialize(&out)?.map_value(|v| Action::ExistFile(v)),
+            OpCode::ExistFile => ExistFile::deserialize(&out)?.map_value(Action::ExistFile),
             OpCode::CreateNewFile => {
-                CreateNewFile::deserialize(&out)?.map_value(|v| Action::CreateNewFile(v))
+                CreateNewFile::deserialize(&out)?.map_value(Action::CreateNewFile)
             }
-            OpCode::DeleteFile => {
-                DeleteFile::deserialize(&out)?.map_value(|v| Action::DeleteFile(v))
-            }
-            OpCode::RestoreFile => {
-                RestoreFile::deserialize(&out)?.map_value(|v| Action::RestoreFile(v))
-            }
-            OpCode::FlushFile => FlushFile::deserialize(&out)?.map_value(|v| Action::FlushFile(v)),
-            OpCode::CopyFile => CopyFile::deserialize(&out)?.map_value(|v| Action::CopyFile(v)),
-            OpCode::ExecuteFile => {
-                ExecuteFile::deserialize(&out)?.map_value(|v| Action::ExecuteFile(v))
-            }
+            OpCode::DeleteFile => DeleteFile::deserialize(&out)?.map_value(Action::DeleteFile),
+            OpCode::RestoreFile => RestoreFile::deserialize(&out)?.map_value(Action::RestoreFile),
+            OpCode::FlushFile => FlushFile::deserialize(&out)?.map_value(Action::FlushFile),
+            OpCode::CopyFile => CopyFile::deserialize(&out)?.map_value(Action::CopyFile),
+            OpCode::ExecuteFile => ExecuteFile::deserialize(&out)?.map_value(Action::ExecuteFile),
             OpCode::ReturnFileData => {
-                ReturnFileData::deserialize(&out)?.map_value(|v| Action::ReturnFileData(v))
+                ReturnFileData::deserialize(&out)?.map_value(Action::ReturnFileData)
             }
-            OpCode::ReturnFileProperties => ReturnFileProperties::deserialize(&out)?
-                .map_value(|v| Action::ReturnFileProperties(v)),
-            OpCode::Status => Status::deserialize(&out)?.map_value(|v| Action::Status(v)),
-            OpCode::ResponseTag => {
-                ResponseTag::deserialize(&out)?.map_value(|v| Action::ResponseTag(v))
+            OpCode::ReturnFileProperties => {
+                ReturnFileProperties::deserialize(&out)?.map_value(Action::ReturnFileProperties)
             }
-            OpCode::Chunk => Chunk::deserialize(&out)?.map_value(|v| Action::Chunk(v)),
-            OpCode::Logic => Logic::deserialize(&out)?.map_value(|v| Action::Logic(v)),
-            OpCode::Forward => Forward::deserialize(&out)?.map_value(|v| Action::Forward(v)),
+            OpCode::Status => Status::deserialize(&out)?.map_value(Action::Status),
+            OpCode::ResponseTag => ResponseTag::deserialize(&out)?.map_value(Action::ResponseTag),
+            OpCode::Chunk => Chunk::deserialize(&out)?.map_value(Action::Chunk),
+            OpCode::Logic => Logic::deserialize(&out)?.map_value(Action::Logic),
+            OpCode::Forward => Forward::deserialize(&out)?.map_value(Action::Forward),
             OpCode::IndirectForward => {
-                IndirectForward::deserialize(&out)?.map_value(|v| Action::IndirectForward(v))
+                IndirectForward::deserialize(&out)?.map_value(Action::IndirectForward)
             }
-            OpCode::RequestTag => {
-                RequestTag::deserialize(&out)?.map_value(|v| Action::RequestTag(v))
-            }
-            OpCode::Extension => Extension::deserialize(&out)?.map_value(|v| Action::Extension(v)),
+            OpCode::RequestTag => RequestTag::deserialize(&out)?.map_value(Action::RequestTag),
+            OpCode::Extension => Extension::deserialize(&out)?.map_value(Action::Extension),
         })
     }
 }
@@ -2398,10 +2462,36 @@ impl Serializable for Action {
 pub struct Command {
     pub actions: Vec<Action>,
 }
+pub struct CommandParseError {
+    pub actions: Vec<Action>,
+    pub error: ParseError,
+}
 
 impl Default for Command {
     fn default() -> Self {
         Self { actions: vec![] }
+    }
+}
+impl Command {
+    fn partial_deserialize(out: &[u8]) -> Result<ParseValue<Command>, CommandParseError> {
+        let mut actions = vec![];
+        let mut offset = 0;
+        loop {
+            if out.is_empty() {
+                break;
+            }
+            match Action::deserialize(&out[offset..]) {
+                Ok(ParseValue { value, data_read }) => {
+                    actions.push(value);
+                    offset += data_read;
+                }
+                Err(error) => return Err(CommandParseError { actions, error }),
+            }
+        }
+        Ok(ParseValue {
+            value: Self { actions },
+            data_read: offset,
+        })
     }
 }
 impl Serializable for Command {
@@ -2414,5 +2504,8 @@ impl Serializable for Command {
             offset += action.serialize(&mut out[offset..]);
         }
         offset
+    }
+    fn deserialize(out: &[u8]) -> ParseResult<Self> {
+        Self::partial_deserialize(out).map_err(|v| v.error)
     }
 }

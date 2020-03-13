@@ -41,6 +41,11 @@ impl VariableUint {
         u32::try_from(n).map_err(|_| ()).and_then(Self::is_valid)
     }
 
+    /// # Safety
+    /// Only call this on u32 that are less than 0x3F_FF_FF_FF.
+    ///
+    /// Calling this on a large integer will return a size of 4 which
+    /// is technically incorrect because the integer is non-encodable.
     pub unsafe fn unsafe_size(n: u32) -> u8 {
         if n <= 0x3F {
             1
@@ -62,6 +67,11 @@ impl VariableUint {
     }
 
     // TODO Is this serialization correct? Check the SPEC!
+    /// # Safety
+    /// Only call this on u32 that are less than 0x3F_FF_FF_FF.
+    ///
+    /// Calling this on a large integer will return an unpredictable
+    /// result (it won't crash).
     pub unsafe fn u32_serialize(n: u32, out: &mut [u8]) -> u8 {
         let u8_size = Self::unsafe_size(n);
         let size = u8_size as usize;
@@ -73,17 +83,16 @@ impl VariableUint {
     }
 
     pub fn u32_deserialize(out: &[u8]) -> ParseResult<u32> {
-        if out.len() < 1 {
+        if out.is_empty() {
             return Err(ParseError::MissingBytes(Some(1)));
         }
         let size = ((out[0] & 0xC0 >> 6) + 1) as usize;
         if out.len() < size as usize {
             return Err(ParseError::MissingBytes(Some(size as usize - out.len())));
         }
-        let mut ret = 0u32;
-        ret = (out[0] & 0x3F) as u32;
-        for i in 1..size {
-            ret = (ret << 8) + out[i] as u32;
+        let mut ret = (out[0] & 0x3F) as u32;
+        for byte in out.iter().take(size).skip(1) {
+            ret = (ret << 8) + *byte as u32;
         }
         Ok(ParseValue {
             value: ret,
