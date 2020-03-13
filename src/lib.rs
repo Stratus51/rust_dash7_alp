@@ -788,79 +788,119 @@ pub enum InterfaceId {
     Host = 0,
     D7asp = 0xD7,
 }
-impl InterfaceId {
-    fn from(n: u8) -> Self {
-        match n {
-            0 => InterfaceId::Host,
-            0xD7 => InterfaceId::D7asp,
-            // TODO Return result instead
-            _ => panic!("Unknown interface ID {}", n),
-        }
-    }
-}
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum InterfaceConfiguration {
+    // TODO: ALP SPEC: Is this specified?
+    Host,
     D7asp(D7aspInterfaceConfiguration),
 }
 impl Serializable for InterfaceConfiguration {
     fn serialized_size(&self) -> usize {
-        match self {
+        1 + match self {
+            InterfaceConfiguration::Host => 0,
             InterfaceConfiguration::D7asp(v) => v.serialized_size(),
         }
     }
     fn serialize(&self, out: &mut [u8]) -> usize {
-        out[0] = match self {
-            InterfaceConfiguration::D7asp(_) => InterfaceId::D7asp,
-        } as u8;
-        1 + match self {
-            InterfaceConfiguration::D7asp(v) => v.serialize(&mut out[1..]),
+        match self {
+            InterfaceConfiguration::Host => {
+                out[0] = InterfaceId::Host as u8;
+                1
+            }
+            InterfaceConfiguration::D7asp(v) => {
+                out[0] = InterfaceId::D7asp as u8;
+                1 + v.serialize(&mut out[1..])
+            }
         }
     }
     fn deserialize(out: &[u8]) -> ParseResult<Self> {
         if out.is_empty() {
             return Err(ParseError::MissingBytes(Some(1)));
         }
-        match InterfaceId::from(out[0]) {
-            InterfaceId::D7asp => {
+        const HOST: u8 = InterfaceId::Host as u8;
+        const D7ASP: u8 = InterfaceId::D7asp as u8;
+        Ok(match out[0] {
+            HOST => ParseValue {
+                value: InterfaceConfiguration::Host,
+                data_read: 1,
+            },
+            D7ASP => {
                 let ParseValue { value, data_read } =
                     D7aspInterfaceConfiguration::deserialize(&out[1..])?;
-                Ok(ParseValue {
+                ParseValue {
                     value: InterfaceConfiguration::D7asp(value),
                     data_read: data_read + 1,
-                })
+                }
             }
-            InterfaceId::Host => panic!("Unknown structure for interface configuration 'Host'"),
-        }
+            // TODO Return an error instead of panic
+            id => panic!("Unknown interface ID {}", id),
+        })
     }
+}
+#[test]
+fn test_interface_configuration_d7asp() {
+    test_item(
+        InterfaceConfiguration::D7asp(D7aspInterfaceConfiguration {
+            qos: Qos {
+                retry: RetryMode::No,
+                resp: RespMode::Any,
+            },
+            to: 0x23,
+            te: 0x34,
+            addressee: Addressee {
+                nls_method: NlsMethod::AesCcm32,
+                access_class: 0xFF,
+                address: Address::Vid(Box::new([0xAB, 0xCD])),
+            },
+        }),
+        &hex!("D7   02 23 34   37 FF ABCD"),
+    )
+}
+#[test]
+fn test_interface_configuration_host() {
+    test_item(InterfaceConfiguration::Host, &hex!("00"))
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum InterfaceStatus {
+    // TODO
+    Host,
     D7asp(D7aspInterfaceStatus),
     // TODO Protect with size limit (< VariableUint max size)
     Unknown { id: u8, data: Box<[u8]> },
 }
 impl Serializable for InterfaceStatus {
     fn serialized_size(&self) -> usize {
-        match self {
+        let data_size = match self {
+            InterfaceStatus::Host => 0,
             InterfaceStatus::D7asp(itf) => itf.serialized_size(),
-            InterfaceStatus::Unknown { data, .. } => {
-                1 + unsafe { VariableUint::unsafe_size(data.len() as u32) as usize }
-            }
-        }
+            InterfaceStatus::Unknown { data, .. } => data.len(),
+        };
+        1 + unsafe { VariableUint::unsafe_size(data_size as u32) as usize } + data_size
     }
     fn serialize(&self, out: &mut [u8]) -> usize {
-        out[0] = match self {
-            InterfaceStatus::D7asp(_) => InterfaceId::D7asp as u8,
-            InterfaceStatus::Unknown { id, .. } => *id,
-        };
         let mut offset = 1;
-        offset += match self {
-            InterfaceStatus::D7asp(v) => v.serialize(&mut out[1..]),
-            InterfaceStatus::Unknown { data, .. } => {
+        match self {
+            InterfaceStatus::Host => {
+                out[0] = InterfaceId::Host as u8;
+                out[1] = 0;
+                offset += 1;
+            }
+            InterfaceStatus::D7asp(v) => {
+                out[0] = InterfaceId::D7asp as u8;
+                let size = v.serialized_size() as u32;
+                let size_size = unsafe { VariableUint::u32_serialize(size, &mut out[offset..]) };
+                offset += size_size as usize;
+                offset += v.serialize(&mut out[offset..]);
+            }
+            InterfaceStatus::Unknown { id, data } => {
+                out[0] = *id;
+                let size = data.len() as u32;
+                let size_size = unsafe { VariableUint::u32_serialize(size, &mut out[offset..]) };
+                offset += size_size as usize;
                 out[offset..offset + data.len()].clone_from_slice(data);
-                data.len()
+                offset += data.len();
             }
         };
         offset
@@ -873,15 +913,19 @@ impl Serializable for InterfaceStatus {
         const D7ASP: u8 = InterfaceId::D7asp as u8;
         let mut offset = 1;
         let value = match out[0] {
-            HOST => InterfaceStatus::Host,
+            HOST => {
+                offset += 1;
+                InterfaceStatus::Host
+            }
             D7ASP => {
                 let ParseValue {
+                    value: size,
                     data_read: size_size,
-                    ..
                 } = VariableUint::u32_deserialize(&out[offset..])?;
+                let size = size as usize;
                 offset += size_size;
                 let ParseValue { value, data_read } =
-                    D7aspInterfaceStatus::deserialize(&out[offset..])?;
+                    D7aspInterfaceStatus::deserialize(&out[offset..offset + size])?;
                 offset += data_read;
                 InterfaceStatus::D7asp(value)
             }
@@ -906,6 +950,33 @@ impl Serializable for InterfaceStatus {
             data_read: offset,
         })
     }
+}
+#[test]
+fn test_interface_status_d7asp() {
+    test_item(
+        InterfaceStatus::D7asp(D7aspInterfaceStatus {
+            ch_header: 1,
+            ch_idx: 0x0123,
+            rxlev: 2,
+            lb: 3,
+            snr: 4,
+            status: 5,
+            token: 6,
+            seq: 7,
+            resp_to: 8,
+            addressee: Addressee {
+                nls_method: NlsMethod::AesCcm32,
+                access_class: 0xFF,
+                address: Address::Vid(Box::new([0xAB, 0xCD])),
+            },
+            nls_state: Some(hex!("00 11 22 33 44")),
+        }),
+        &hex!("D7 13    01 2301 02 03 04 05 06 07 08   37 FF ABCD  0011223344"),
+    )
+}
+#[test]
+fn test_interface_status_host() {
+    test_item(InterfaceStatus::Host, &hex!("00 00"))
 }
 
 // ===============================================================================
@@ -1028,7 +1099,7 @@ pub enum Permission {
 }
 
 impl Permission {
-    fn id(&self) -> u8 {
+    fn id(self) -> u8 {
         match self {
             Permission::Dash7(_) => 42,
         }
