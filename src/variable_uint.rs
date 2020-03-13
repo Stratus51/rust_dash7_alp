@@ -86,7 +86,7 @@ impl VariableUint {
         if out.is_empty() {
             return Err(ParseError::MissingBytes(Some(1)));
         }
-        let size = ((out[0] & 0xC0 >> 6) + 1) as usize;
+        let size = ((out[0] >> 6) + 1) as usize;
         if out.len() < size as usize {
             return Err(ParseError::MissingBytes(Some(size as usize - out.len())));
         }
