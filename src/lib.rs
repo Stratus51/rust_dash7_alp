@@ -16,6 +16,9 @@ pub use variable_uint::VariableUint;
 // TODO Optimize min size calculation (fold it into the upper OP when possible)
 // TODO usize is target dependent. In other words, on a 16 bit processor, we will run into
 // troubles if we were to convert u32 to usize (even if a 64Ko payload seems a bit big).
+// TODO Slice copies still check length consistency dynamically. Is there a way to get rid of that
+// while testing it at compile/test time?
+// TODO is {out = &out[offset..]; out[..size]} more efficient than {out[offset..offset+size]} ?
 
 // ===============================================================================
 // Macros
@@ -288,7 +291,9 @@ pub enum OpCode {
 
     // Write
     WriteFileData = 4,
-    // WriteFileDataFlush = 5, // TODO This is not specified
+    // TODO ALP SPEC: This is out of spec. Can't write + flush already do that job. Is it worth
+    //  saving 2 bytes by taking an opcode?
+    // WriteFileDataFlush = 5,
     WriteFileProperties = 6,
     ActionQuery = 8,
     BreakQuery = 9,
@@ -1012,13 +1017,12 @@ impl Serializable for FileOffsetOperand {
 }
 #[test]
 fn test_file_offset_operand() {
-    assert_eq!(
-        *FileOffsetOperand {
+    test_item(
+        FileOffsetOperand {
             id: 2,
             offset: 0x3F_FF,
-        }
-        .serialize_to_box(),
-        hex!("02 7F FF")
+        },
+        &hex!("02 7F FF"),
     )
 }
 
@@ -1066,7 +1070,7 @@ impl StatusCode {
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct StatusOperand {
-    pub action_index: u8,
+    pub action_id: u8,
     pub status: StatusCode,
 }
 impl Serializable for StatusOperand {
@@ -1074,7 +1078,7 @@ impl Serializable for StatusOperand {
         1 + 1
     }
     fn serialize(&self, out: &mut [u8]) -> usize {
-        out[0] = self.action_index;
+        out[0] = self.action_id;
         out[1] = self.status as u8;
         2
     }
@@ -1084,18 +1088,28 @@ impl Serializable for StatusOperand {
         }
         Ok(ParseValue {
             value: Self {
-                action_index: out[0],
+                action_id: out[0],
                 status: StatusCode::from(out[1]),
             },
             data_read: 2,
         })
     }
 }
+#[test]
+fn test_status_operand() {
+    test_item(
+        StatusOperand {
+            action_id: 2,
+            status: StatusCode::UnknownOperation,
+        },
+        &hex!("02 F6"),
+    )
+}
 
 // ALP SPEC: where is this defined? Link?
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Permission {
-    Dash7([u8; 8]), // TODO Check
+    Dash7([u8; 8]), // TODO ALP SPEC Check
 }
 
 impl Permission {
@@ -1254,19 +1268,32 @@ impl Serializable for NonVoid {
         if out.len() < 3 {
             return Err(ParseError::MissingBytes(Some(3 - out.len())));
         }
+        let mut offset = 1;
         let ParseValue {
             value: size,
             data_read: size_size,
-        } = VariableUint::u32_deserialize(out)?;
+        } = VariableUint::u32_deserialize(&out[offset..])?;
+        offset += size_size;
         let ParseValue {
             value: file,
             data_read: file_size,
-        } = FileOffsetOperand::deserialize(out)?;
+        } = FileOffsetOperand::deserialize(&out[offset..])?;
+        offset += file_size;
         Ok(ParseValue {
             value: Self { size, file },
-            data_read: size_size + file_size,
+            data_read: offset,
         })
     }
+}
+#[test]
+fn test_non_void_query_operand() {
+    test_item(
+        NonVoid {
+            size: 4,
+            file: FileOffsetOperand { id: 5, offset: 6 },
+        },
+        &hex!("00 04  05 06"),
+    )
 }
 
 // TODO Check size coherence upon creation
@@ -1303,7 +1330,7 @@ impl Serializable for ComparisonWithZero {
         offset += 1;
         offset += unsafe { VariableUint::u32_serialize(self.size, &mut out[offset..]) } as usize;
         if let Some(mask) = &self.mask {
-            out[offset..].clone_from_slice(&mask);
+            out[offset..offset + (self.size as usize)].clone_from_slice(&mask);
             offset += mask.len();
         }
         offset += self.file.serialize(&mut out[offset..]);
@@ -1346,6 +1373,19 @@ impl Serializable for ComparisonWithZero {
         })
     }
 }
+#[test]
+fn test_comparison_with_zero_operand() {
+    test_item(
+        ComparisonWithZero {
+            signed_data: true,
+            comparison_type: QueryComparisonType::Inequal,
+            size: 3,
+            mask: Some(vec![0, 1, 2].into_boxed_slice()),
+            file: FileOffsetOperand { id: 4, offset: 5 },
+        },
+        &hex!("38 03  000102  04 05"),
+    )
+}
 
 // TODO Check size coherence upon creation
 #[derive(Clone, Debug, PartialEq)]
@@ -1376,17 +1416,17 @@ impl Serializable for ComparisonWithValue {
         };
         let signed_flag = if self.signed_data { 1 } else { 0 };
         let mut offset = 0;
-        out[0] = ((QueryCode::ComparisonWithValue as u8) << 4)
-            | (mask_flag << 3)
+        out[0] = ((QueryCode::ComparisonWithValue as u8) << 5)
+            | (mask_flag << 4)
             | (signed_flag << 3)
             | self.comparison_type as u8;
         offset += 1;
         offset += unsafe { VariableUint::u32_serialize(self.size, &mut out[offset..]) } as usize;
         if let Some(mask) = &self.mask {
-            out[offset..].clone_from_slice(&mask);
+            out[offset..offset + self.size as usize].clone_from_slice(&mask);
             offset += mask.len();
         }
-        out[offset..].clone_from_slice(&self.value[..]);
+        out[offset..offset + self.size as usize].clone_from_slice(&self.value[..]);
         offset += self.value.len();
         offset += self.file.serialize(&mut out[offset..]);
         offset
@@ -1432,6 +1472,20 @@ impl Serializable for ComparisonWithValue {
         })
     }
 }
+#[test]
+fn test_comparison_with_value_operand() {
+    test_item(
+        ComparisonWithValue {
+            signed_data: false,
+            comparison_type: QueryComparisonType::Equal,
+            size: 3,
+            mask: None,
+            value: vec![9, 9, 9].into_boxed_slice(),
+            file: FileOffsetOperand { id: 4, offset: 5 },
+        },
+        &hex!("41 03   090909  04 05"),
+    )
+}
 
 // TODO Check size coherence upon creation
 #[derive(Clone, Debug, PartialEq)]
@@ -1462,14 +1516,14 @@ impl Serializable for ComparisonWithOtherFile {
         };
         let signed_flag = if self.signed_data { 1 } else { 0 };
         let mut offset = 0;
-        out[0] = ((QueryCode::ComparisonWithOtherFile as u8) << 4)
-            | (mask_flag << 3)
+        out[0] = ((QueryCode::ComparisonWithOtherFile as u8) << 5)
+            | (mask_flag << 4)
             | (signed_flag << 3)
             | self.comparison_type as u8;
         offset += 1;
         offset += unsafe { VariableUint::u32_serialize(self.size, &mut out[offset..]) } as usize;
         if let Some(mask) = &self.mask {
-            out[offset..].clone_from_slice(&mask);
+            out[offset..offset + self.size as usize].clone_from_slice(&mask);
             offset += mask.len();
         }
         // TODO ALP SPEC: Which of the offset operand is the source and the dest? (file 1 and 2)
@@ -1520,6 +1574,20 @@ impl Serializable for ComparisonWithOtherFile {
         })
     }
 }
+#[test]
+fn test_comparison_with_other_file_operand() {
+    test_item(
+        ComparisonWithOtherFile {
+            signed_data: false,
+            comparison_type: QueryComparisonType::GreaterThan,
+            size: 2,
+            mask: Some(vec![0xFF, 0xFF].into_boxed_slice()),
+            file_src: FileOffsetOperand { id: 4, offset: 5 },
+            file_dst: FileOffsetOperand { id: 8, offset: 9 },
+        },
+        &hex!("74 02 FFFF   04 05    08 09"),
+    )
+}
 
 // TODO Check size coherence upon creation (start, stop and bitmap)
 #[derive(Clone, Debug, PartialEq)]
@@ -1528,10 +1596,17 @@ pub struct BitmapRangeComparison {
     pub comparison_type: QueryRangeComparisonType,
     // TODO Protect
     pub size: u32,
-    // TODO In theory, start and stop can be huge array thus impossible to cast into any trivial
+    // ALP SPEC: TODO In theory, start and stop can be huge array thus impossible to cast into any trivial
     // number. How do we deal with this.
+    // ALP SPEC: TODO What is the endianness of those start and stop fields?
+    // TODO Enforce stop > start
+    // TODO If the max size is settled, replace the buffer by the max size. This may take up more
+    // memory, but would be way easier to use. Also it would avoid having to specify the ".size"
+    // field.
     pub start: Box<[u8]>,
     pub stop: Box<[u8]>,
+    // ALP SPEC: TODO How does the bitmap has to be aligned in the byte array? Aligned left or
+    // right? Endianness?
     pub bitmap: Box<[u8]>, // TODO Better type?
     pub file: FileOffsetOperand,
 }
@@ -1545,17 +1620,17 @@ impl Serializable for BitmapRangeComparison {
     fn serialize(&self, out: &mut [u8]) -> usize {
         let mut offset = 0;
         let signed_flag = if self.signed_data { 1 } else { 0 };
-        out[0] = ((QueryCode::BitmapRangeComparison as u8) << 4)
-            // | (0 << 3)
+        out[0] = ((QueryCode::BitmapRangeComparison as u8) << 5)
+            // | (0 << 4)
             | (signed_flag << 3)
             | self.comparison_type as u8;
         offset += 1;
         offset += unsafe { VariableUint::u32_serialize(self.size, &mut out[offset..]) } as usize;
-        out[offset..].clone_from_slice(&self.start[..]);
+        out[offset..offset + self.size as usize].clone_from_slice(&self.start[..]);
         offset += self.start.len();
-        out[offset..].clone_from_slice(&self.stop[..]);
+        out[offset..offset + self.size as usize].clone_from_slice(&self.stop[..]);
         offset += self.stop.len();
-        out[offset..].clone_from_slice(&self.bitmap[..]);
+        out[offset..offset + self.bitmap.len()].clone_from_slice(&self.bitmap[..]);
         offset += self.bitmap.len();
         offset += self.file.serialize(&mut out[offset..]);
         offset
@@ -1567,35 +1642,41 @@ impl Serializable for BitmapRangeComparison {
         let signed_data = out[0] & (1 << 3) != 0;
         let comparison_type = QueryRangeComparisonType::from(out[0] & 0x07);
         let ParseValue {
-            value: size,
+            value: size32,
             data_read: size_size,
         } = VariableUint::u32_deserialize(&out[1..])?;
+        let size = size32 as usize;
         let mut offset = 1 + size_size;
+        let mut start = vec![0u8; size].into_boxed_slice();
+        start.clone_from_slice(&out[offset..offset + size]);
+        offset += size;
+        let mut stop = vec![0u8; size].into_boxed_slice();
+        stop.clone_from_slice(&out[offset..offset + size]);
+        offset += size;
+        // TODO Current max start/stop size chosen is u32 because that is the file size limit.
+        // But in theory there is no requirement for the bitmap to have any relation with the
+        // file sizes.
+        let mut start_n = 0u32;
+        let mut stop_n = 0u32;
+        // TODO Endianness?
+        for i in 0..size {
+            start_n = (start_n << 8) + start[i] as u32;
+            stop_n = (stop_n << 8) + stop[i] as u32;
+        }
+        let bitmap_size = (stop_n - start_n + 6) / 8; // ALP SPEC: Thanks for the calculation
+        let mut bitmap = vec![0u8; bitmap_size as usize].into_boxed_slice();
+        bitmap.clone_from_slice(&out[offset..offset + bitmap_size as usize]);
+        offset += bitmap_size as usize;
         let ParseValue {
             value: file,
             data_read: file_size,
         } = FileOffsetOperand::deserialize(&out[offset..])?;
         offset += file_size;
-        let mut start = vec![0u8; size as usize].into_boxed_slice();
-        start.clone_from_slice(&out[offset..offset + size as usize]);
-        offset += size as usize;
-        let mut stop = vec![0u8; size as usize].into_boxed_slice();
-        stop.clone_from_slice(&out[offset..offset + size as usize]);
-        // TODO How do we deal with start and stop?
-        if true {
-            todo!("How do we calculate start and stop?")
-        };
-        let start_n = start[0];
-        let stop_n = stop[0];
-        let bitmap_size = (stop_n - start_n + 6) / 8; // ALP SPEC: Thanks for the calculation
-        let mut bitmap = vec![0u8; bitmap_size as usize].into_boxed_slice();
-        bitmap.clone_from_slice(&out[offset..offset + bitmap_size as usize]);
-        offset += bitmap_size as usize;
         Ok(ParseValue {
             value: Self {
                 signed_data,
                 comparison_type,
-                size,
+                size: size32,
                 start,
                 stop,
                 bitmap,
@@ -1604,6 +1685,23 @@ impl Serializable for BitmapRangeComparison {
             data_read: offset,
         })
     }
+}
+#[test]
+fn test_bitmap_range_comparison_operand() {
+    test_item(
+        BitmapRangeComparison {
+            signed_data: false,
+            comparison_type: QueryRangeComparisonType::InRange,
+            size: 2,
+
+            start: Box::new(hex!("00 03")),
+            stop: Box::new(hex!("00 20")),
+            bitmap: Box::new(hex!("01020304")),
+
+            file: FileOffsetOperand { id: 0, offset: 4 },
+        },
+        &hex!("81 02 0003  0020  01020304  00 04"),
+    )
 }
 
 // TODO Check size coherence upon creation
@@ -1633,17 +1731,17 @@ impl Serializable for StringTokenSearch {
             None => 0,
         };
         let mut offset = 0;
-        out[0] = ((QueryCode::StringTokenSearch as u8) << 4)
-            | (mask_flag << 3)
+        out[0] = ((QueryCode::StringTokenSearch as u8) << 5)
+            | (mask_flag << 4)
             // | (0 << 3)
             | self.max_errors;
         offset += 1;
         offset += unsafe { VariableUint::u32_serialize(self.size, &mut out[offset..]) } as usize;
         if let Some(mask) = &self.mask {
-            out[offset..].clone_from_slice(&mask);
+            out[offset..offset + self.size as usize].clone_from_slice(&mask);
             offset += mask.len();
         }
-        out[offset..].clone_from_slice(&self.value[..]);
+        out[offset..offset + self.size as usize].clone_from_slice(&self.value[..]);
         offset += self.value.len();
         offset += self.file.serialize(&mut out[offset..]);
         offset
@@ -1655,21 +1753,22 @@ impl Serializable for StringTokenSearch {
         let mask_flag = out[0] & (1 << 4) != 0;
         let max_errors = out[0] & 0x07;
         let ParseValue {
-            value: size,
+            value: size32,
             data_read: size_size,
         } = VariableUint::u32_deserialize(&out[1..])?;
+        let size = size32 as usize;
         let mut offset = 1 + size_size;
         let mask = if mask_flag {
-            let mut data = vec![0u8; size as usize].into_boxed_slice();
-            data.clone_from_slice(&out[offset..offset + size as usize]);
-            offset += size as usize;
+            let mut data = vec![0u8; size].into_boxed_slice();
+            data.clone_from_slice(&out[offset..offset + size]);
+            offset += size;
             Some(data)
         } else {
             None
         };
-        let mut value = vec![0u8; size as usize].into_boxed_slice();
-        value.clone_from_slice(&out[offset..offset + size as usize]);
-        offset += size as usize;
+        let mut value = vec![0u8; size].into_boxed_slice();
+        value.clone_from_slice(&out[offset..offset + size]);
+        offset += size;
         let ParseValue {
             value: file,
             data_read: offset_size,
@@ -1678,7 +1777,7 @@ impl Serializable for StringTokenSearch {
         Ok(ParseValue {
             value: Self {
                 max_errors,
-                size,
+                size: size32,
                 mask,
                 value,
                 file,
@@ -1686,6 +1785,19 @@ impl Serializable for StringTokenSearch {
             data_read: offset,
         })
     }
+}
+#[test]
+fn test_string_token_search_operand() {
+    test_item(
+        StringTokenSearch {
+            max_errors: 2,
+            size: 4,
+            mask: Some(Box::new(hex!("FF00FF00"))),
+            value: Box::new(hex!("01020304")),
+            file: FileOffsetOperand { id: 0, offset: 4 },
+        },
+        &hex!("F2 04 FF00FF00  01020304  00 04"),
+    )
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1753,7 +1865,6 @@ impl Serializable for OverloadedIndirectInterface {
         1 + self.addressee.serialize(&mut out[1..])
     }
     fn deserialize(out: &[u8]) -> ParseResult<Self> {
-        // TODO Add overload flag (with op byte mod) (shift byte index by 1)
         if out.len() < 1 + 2 {
             return Err(ParseError::MissingBytes(Some(1 + 2 - out.len())));
         }
@@ -1771,8 +1882,23 @@ impl Serializable for OverloadedIndirectInterface {
         })
     }
 }
+#[test]
+fn test_overloaded_indirect_interface() {
+    test_item(
+        OverloadedIndirectInterface {
+            interface_file_id: 4,
+            addressee: Addressee {
+                nls_method: NlsMethod::AesCcm32,
+                access_class: 0xFF,
+                address: Address::Vid(Box::new([0xAB, 0xCD])),
+            },
+        },
+        &hex!("04   37 FF ABCD"),
+    )
+}
 
 #[derive(Clone, Debug, PartialEq)]
+// ALP SPEC: This seems undoable if we do not know the interface (per protocol specific support)
 pub struct NonOverloadedIndirectInterface {
     pub interface_file_id: u8,
     // ALP SPEC: Where is this defined? Is this ID specific?
@@ -1821,10 +1947,11 @@ impl Serializable for IndirectInterface {
             return Err(ParseError::MissingBytes(Some(1)));
         }
         Ok(if out[0] & 0x80 != 0 {
-            OverloadedIndirectInterface::deserialize(out)?.map_value(IndirectInterface::Overloaded)
+            OverloadedIndirectInterface::deserialize(&out[1..])?
+                .map(|v, i| (IndirectInterface::Overloaded(v), i + 1))
         } else {
-            NonOverloadedIndirectInterface::deserialize(out)?
-                .map_value(IndirectInterface::NonOverloaded)
+            NonOverloadedIndirectInterface::deserialize(&out[1..])?
+                .map(|v, i| (IndirectInterface::NonOverloaded(v), i + 1))
         })
     }
 }
@@ -2396,18 +2523,58 @@ impl Serializable for Forward {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct IndirectForward {
-    // TODO This is an error: overload is determined by the interface variant. Modify accordingly.
-    pub overload: bool,
     pub resp: bool,
     pub interface: IndirectInterface,
 }
-impl_op_serialized!(
-    IndirectForward,
-    overload,
-    resp,
-    interface,
-    IndirectInterface
-);
+impl Serializable for IndirectForward {
+    fn serialized_size(&self) -> usize {
+        1 + self.interface.serialized_size()
+    }
+    fn serialize(&self, out: &mut [u8]) -> usize {
+        let overload = match self.interface {
+            IndirectInterface::Overloaded(_) => true,
+            IndirectInterface::NonOverloaded(_) => false,
+        };
+        out[0] = control_byte!(overload, self.resp, OpCode::IndirectForward);
+        1 + serialize_all!(&mut out[1..], &self.interface)
+    }
+    fn deserialize(out: &[u8]) -> ParseResult<Self> {
+        if out.is_empty() {
+            Err(ParseError::MissingBytes(Some(1)))
+        } else {
+            let mut offset = 0;
+            let ParseValue {
+                value: op1,
+                data_read: op1_size,
+            } = IndirectInterface::deserialize(out)?;
+            offset += op1_size;
+            Ok(ParseValue {
+                value: Self {
+                    resp: out[0] & 0x40 != 0,
+                    interface: op1,
+                },
+                data_read: offset,
+            })
+        }
+    }
+}
+#[test]
+fn test_indirect_forward() {
+    test_item(
+        IndirectForward {
+            resp: true,
+            interface: IndirectInterface::Overloaded(OverloadedIndirectInterface {
+                interface_file_id: 4,
+                addressee: Addressee {
+                    nls_method: NlsMethod::AesCcm32,
+                    access_class: 0xFF,
+                    address: Address::Vid(Box::new([0xAB, 0xCD])),
+                },
+            }),
+        },
+        &hex!("F3   04   37 FF ABCD"),
+    )
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RequestTag {
