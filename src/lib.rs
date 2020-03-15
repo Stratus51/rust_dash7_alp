@@ -93,7 +93,7 @@ macro_rules! impl_op_serialized {
             }
             fn serialize(&self, out: &mut [u8]) -> usize {
                 out[0] = control_byte!(self.$flag7, self.$flag6, OpCode::$name);
-                1 + serialize_all!(out, &self.$op1)
+                1 + serialize_all!(&mut out[1..], &self.$op1)
             }
             fn deserialize(out: &[u8]) -> ParseResult<Self> {
                 if (out.is_empty()) {
@@ -124,7 +124,7 @@ macro_rules! impl_op_serialized {
             }
             fn serialize(&self, out: &mut [u8]) -> usize {
                 out[0] = control_byte!(self.$flag7, self.$flag6, OpCode::$name);
-                1 + serialize_all!(out, &self.$op1, self.$op2)
+                1 + serialize_all!(&mut out[1..], &self.$op1, self.$op2)
             }
             fn deserialize(out: &[u8]) -> ParseResult<Self> {
                 if (out.is_empty()) {
@@ -1107,15 +1107,16 @@ fn test_status_operand() {
 }
 
 // ALP SPEC: where is this defined? Link?
+//  Not found in either specs !
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Permission {
-    Dash7([u8; 8]), // TODO ALP SPEC Check
+    Dash7([u8; 8]), // TODO ALP SPEC Check + what is its name?
 }
 
 impl Permission {
     fn id(self) -> u8 {
         match self {
-            Permission::Dash7(_) => 42,
+            Permission::Dash7(_) => 0x42, // TODO Check
         }
     }
 }
@@ -1141,7 +1142,7 @@ impl Serializable for Permission {
         }
         let mut offset = 1;
         match out[0] {
-            42 => {
+            0x42 => {
                 let mut token = [0; 8];
                 token.clone_from_slice(&out[offset..offset + 8]);
                 offset += 8;
@@ -1966,6 +1967,16 @@ pub struct Nop {
     pub resp: bool,
 }
 impl_op_serialized!(Nop, group, resp);
+#[test]
+fn test_nop() {
+    test_item(
+        Nop {
+            group: true,
+            resp: false,
+        },
+        &hex!("80"),
+    )
+}
 
 // Read
 // TODO Protect varint init
@@ -2020,6 +2031,19 @@ impl Serializable for ReadFileData {
         })
     }
 }
+#[test]
+fn test_read_file_data() {
+    test_item(
+        ReadFileData {
+            group: false,
+            resp: true,
+            file_id: 1,
+            offset: 2,
+            size: 3,
+        },
+        &hex!("41 01 02 03"),
+    )
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ReadFileProperties {
@@ -2028,6 +2052,17 @@ pub struct ReadFileProperties {
     pub file_id: u8,
 }
 impl_simple_op!(ReadFileProperties, group, resp, file_id);
+#[test]
+fn test_read_file_properties() {
+    test_item(
+        ReadFileProperties {
+            group: false,
+            resp: false,
+            file_id: 9,
+        },
+        &hex!("02 09"),
+    )
+}
 
 // Write
 // TODO Protect varint init, data consistency
@@ -2090,6 +2125,19 @@ impl Serializable for WriteFileData {
         })
     }
 }
+#[test]
+fn test_write_file_data() {
+    test_item(
+        WriteFileData {
+            group: true,
+            resp: false,
+            file_id: 9,
+            offset: 5,
+            data: Box::new(hex!("01 02 03")),
+        },
+        &hex!("84   09 05 03  010203"),
+    )
+}
 
 // #[derive(Clone, Copy, Debug, PartialEq)]
 // pub struct WriteFileDataFlush {
@@ -2150,6 +2198,19 @@ impl Serializable for WriteFileData {
 //         })
 //     }
 // }
+// #[test]
+// fn test_write_file_data_flush() {
+//     test_item(
+//         WriteFileDataFlush {
+//             group: true,
+//             resp: false,
+//             file_id: 9,
+//             offset: 5,
+//             data: Box::new(hex!("01 02 03")),
+//         },
+//         &hex!("84   09 05 03  010203"),
+//     )
+// }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct WriteFileProperties {
@@ -2161,6 +2222,18 @@ pub struct WriteFileProperties {
     pub data: [u8; 12],
 }
 impl_header_op!(WriteFileProperties, group, resp, file_id, data);
+#[test]
+fn test_write_file_properties() {
+    test_item(
+        WriteFileProperties {
+            group: true,
+            resp: false,
+            file_id: 9,
+            data: hex!("01 02 03 04 05 06 07 08 09 0A 0B 0C"),
+        },
+        &hex!("86   09   0102030405060708090A0B0C"),
+    )
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ActionQuery {
@@ -2169,6 +2242,20 @@ pub struct ActionQuery {
     pub query: QueryOperand,
 }
 impl_op_serialized!(ActionQuery, group, resp, query, QueryOperand);
+#[test]
+fn test_action_query() {
+    test_item(
+        ActionQuery {
+            group: true,
+            resp: true,
+            query: QueryOperand::NonVoid(NonVoid {
+                size: 4,
+                file: FileOffsetOperand { id: 5, offset: 6 },
+            }),
+        },
+        &hex!("C8   00 04  05 06"),
+    )
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct BreakQuery {
@@ -2177,6 +2264,20 @@ pub struct BreakQuery {
     pub query: QueryOperand,
 }
 impl_op_serialized!(BreakQuery, group, resp, query, QueryOperand);
+#[test]
+fn test_break_query() {
+    test_item(
+        BreakQuery {
+            group: true,
+            resp: true,
+            query: QueryOperand::NonVoid(NonVoid {
+                size: 4,
+                file: FileOffsetOperand { id: 5, offset: 6 },
+            }),
+        },
+        &hex!("C9   00 04  05 06"),
+    )
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PermissionRequest {
@@ -2194,6 +2295,18 @@ impl_op_serialized!(
     permission,
     Permission
 );
+#[test]
+fn test_permission_request() {
+    test_item(
+        PermissionRequest {
+            group: false,
+            resp: false,
+            level: PermissionLevel::Root,
+            permission: Permission::Dash7(hex!("0102030405060708")),
+        },
+        &hex!("0A   01 42 0102030405060708"),
+    )
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct VerifyChecksum {
@@ -2202,6 +2315,20 @@ pub struct VerifyChecksum {
     pub query: QueryOperand,
 }
 impl_op_serialized!(VerifyChecksum, group, resp, query, QueryOperand);
+#[test]
+fn test_verify_checksum() {
+    test_item(
+        VerifyChecksum {
+            group: false,
+            resp: false,
+            query: QueryOperand::NonVoid(NonVoid {
+                size: 4,
+                file: FileOffsetOperand { id: 5, offset: 6 },
+            }),
+        },
+        &hex!("0B   00 04  05 06"),
+    )
+}
 
 // Management
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -2211,6 +2338,17 @@ pub struct ExistFile {
     pub file_id: u8,
 }
 impl_simple_op!(ExistFile, group, resp, file_id);
+#[test]
+fn test_exist_file() {
+    test_item(
+        ExistFile {
+            group: false,
+            resp: false,
+            file_id: 9,
+        },
+        &hex!("10 09"),
+    )
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CreateNewFile {
@@ -2222,6 +2360,18 @@ pub struct CreateNewFile {
     pub data: [u8; 12],
 }
 impl_header_op!(CreateNewFile, group, resp, file_id, data);
+#[test]
+fn test_create_new_file() {
+    test_item(
+        CreateNewFile {
+            group: true,
+            resp: false,
+            file_id: 3,
+            data: hex!("01 02 03 04 05 06 07 08 09 0A 0B 0C"),
+        },
+        &hex!("91   03   0102030405060708090A0B0C"),
+    )
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DeleteFile {
@@ -2230,6 +2380,17 @@ pub struct DeleteFile {
     pub file_id: u8,
 }
 impl_simple_op!(DeleteFile, group, resp, file_id);
+#[test]
+fn test_delete_file() {
+    test_item(
+        DeleteFile {
+            group: false,
+            resp: true,
+            file_id: 9,
+        },
+        &hex!("52 09"),
+    )
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RestoreFile {
@@ -2238,6 +2399,17 @@ pub struct RestoreFile {
     pub file_id: u8,
 }
 impl_simple_op!(RestoreFile, group, resp, file_id);
+#[test]
+fn test_restore_file() {
+    test_item(
+        RestoreFile {
+            group: true,
+            resp: true,
+            file_id: 9,
+        },
+        &hex!("D3 09"),
+    )
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FlushFile {
@@ -2246,15 +2418,38 @@ pub struct FlushFile {
     pub file_id: u8,
 }
 impl_simple_op!(FlushFile, group, resp, file_id);
+#[test]
+fn test_flush_file() {
+    test_item(
+        FlushFile {
+            group: false,
+            resp: false,
+            file_id: 9,
+        },
+        &hex!("14 09"),
+    )
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CopyFile {
     pub group: bool,
     pub resp: bool,
-    pub source_file_id: u8,
-    pub dest_file_id: u8,
+    pub src_file_id: u8,
+    pub dst_file_id: u8,
 }
-impl_simple_op!(CopyFile, group, resp, source_file_id, dest_file_id);
+impl_simple_op!(CopyFile, group, resp, src_file_id, dst_file_id);
+#[test]
+fn test_copy_file() {
+    test_item(
+        CopyFile {
+            group: false,
+            resp: false,
+            src_file_id: 0x42,
+            dst_file_id: 0x24,
+        },
+        &hex!("17 42 24"),
+    )
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ExecuteFile {
@@ -2263,6 +2458,17 @@ pub struct ExecuteFile {
     pub file_id: u8,
 }
 impl_simple_op!(ExecuteFile, group, resp, file_id);
+#[test]
+fn test_execute_file() {
+    test_item(
+        ExecuteFile {
+            group: false,
+            resp: false,
+            file_id: 9,
+        },
+        &hex!("1F 09"),
+    )
+}
 
 // Response
 #[derive(Clone, Debug, PartialEq)]
@@ -2281,7 +2487,7 @@ impl Serializable for ReturnFileData {
             + self.data.len()
     }
     fn serialize(&self, out: &mut [u8]) -> usize {
-        out[0] = control_byte!(self.group, self.resp, OpCode::ReadFileData);
+        out[0] = control_byte!(self.group, self.resp, OpCode::ReturnFileData);
         out[1] = self.file_id;
         let mut offset = 2;
         offset += unsafe_varint_serialize!(out[2..], self.offset, self.data.len() as u32) as usize;
@@ -2324,6 +2530,19 @@ impl Serializable for ReturnFileData {
         })
     }
 }
+#[test]
+fn test_return_file_data() {
+    test_item(
+        ReturnFileData {
+            group: false,
+            resp: false,
+            file_id: 9,
+            offset: 5,
+            data: Box::new(hex!("01 02 03")),
+        },
+        &hex!("20   09 05 03  010203"),
+    )
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ReturnFileProperties {
@@ -2335,6 +2554,18 @@ pub struct ReturnFileProperties {
     pub data: [u8; 12],
 }
 impl_header_op!(ReturnFileProperties, group, resp, file_id, data);
+#[test]
+fn test_return_file_properties() {
+    test_item(
+        ReturnFileProperties {
+            group: false,
+            resp: false,
+            file_id: 9,
+            data: hex!("01 02 03 04 05 06 07 08 09 0A 0B 0C"),
+        },
+        &hex!("21   09   0102030405060708090A0B0C"),
+    )
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum StatusType {
@@ -2393,6 +2624,17 @@ impl Serializable for Status {
         })
     }
 }
+#[test]
+fn test_status() {
+    test_item(
+        Status::Action(StatusOperand {
+            action_id: 2,
+            status: StatusCode::UnknownOperation,
+        }),
+        &hex!("22 02 F6"),
+    )
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ResponseTag {
     pub eop: bool, // End of packet
@@ -2400,6 +2642,17 @@ pub struct ResponseTag {
     pub id: u8,
 }
 impl_simple_op!(ResponseTag, eop, err, id);
+#[test]
+fn test_response_tag() {
+    test_item(
+        ResponseTag {
+            eop: true,
+            err: false,
+            id: 8,
+        },
+        &hex!("A3 08"),
+    )
+}
 
 // Special
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -2445,6 +2698,15 @@ impl Serializable for Chunk {
         })
     }
 }
+#[test]
+fn test_chunk() {
+    test_item(
+        Chunk {
+            step: ChunkStep::End,
+        },
+        &hex!("B0"),
+    )
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum LogicOp {
@@ -2489,6 +2751,16 @@ impl Serializable for Logic {
         })
     }
 }
+#[test]
+fn test_logic() {
+    test_item(
+        Logic {
+            logic: LogicOp::Nand,
+        },
+        &hex!("F1"),
+    )
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Forward {
     pub resp: bool,
@@ -2519,6 +2791,16 @@ impl Serializable for Forward {
             data_read: 1 + conf_size,
         })
     }
+}
+#[test]
+fn test_forward() {
+    test_item(
+        Forward {
+            resp: true,
+            conf: InterfaceConfiguration::Host,
+        },
+        &hex!("72 00"),
+    )
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -2603,6 +2885,10 @@ impl Serializable for RequestTag {
             data_read: 2,
         })
     }
+}
+#[test]
+fn test_request_tag() {
+    test_item(RequestTag { eop: true, id: 8 }, &hex!("B4 08"))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
