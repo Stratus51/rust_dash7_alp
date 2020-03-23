@@ -5,9 +5,6 @@ mod serializable;
 pub use serializable::Serializable;
 pub use serializable::{ParseError, ParseResult, ParseValue};
 
-mod variable_uint;
-pub use variable_uint::VariableUint;
-
 // TODO Look into const function to replace some macros?
 // TODO Use uninitialized memory where possible
 // TODO Int enums: fn from(): find a way to avoid double value definition
@@ -160,7 +157,7 @@ macro_rules! unsafe_varint_serialize_sizes {
     ( $($x: expr),* ) => {{
         let mut ret = 0;
             $(unsafe {
-                ret += VariableUint::unsafe_size($x);
+                ret += varint::size($x);
             })*
         ret
     }}
@@ -171,7 +168,7 @@ macro_rules! unsafe_varint_serialize {
         {
             let mut offset: usize = 0;
             $(unsafe {
-                offset += VariableUint::u32_serialize($x, &mut $out[offset..]) as usize;
+                offset += varint::serialize($x, &mut $out[offset..]) as usize;
             })*
             offset
         }
@@ -366,6 +363,127 @@ impl OpCode {
             63 => OpCode::Extension,
             // TODO Return proper result
             x => panic!("Unknown opcode {}", x),
+        }
+    }
+}
+
+// ===============================================================================
+// Varint
+// ===============================================================================
+mod varint {
+    use crate::{ParseError, ParseResult, ParseValue};
+    pub const MAX: u32 = 0x3F_FF_FF_FF;
+    pub fn is_valid(n: u32) -> Result<(), ()> {
+        if n > MAX {
+            Err(())
+        } else {
+            Ok(())
+        }
+    }
+
+    /// # Safety
+    /// Only call this on u32 that are less than 0x3F_FF_FF_FF.
+    ///
+    /// Calling this on a large integer will return a size of 4 which
+    /// is technically incorrect because the integer is non-encodable.
+    pub unsafe fn size(n: u32) -> u8 {
+        if n <= 0x3F {
+            1
+        } else if n <= 0x3F_FF {
+            2
+        } else if n <= 0x3F_FF_FF {
+            3
+        } else {
+            4
+        }
+    }
+
+    // TODO Is this serialization correct? Check the SPEC!
+    /// # Safety
+    /// Only call this on u32 that are less than 0x3F_FF_FF_FF.
+    ///
+    /// Calling this on a large integer will return an unpredictable
+    /// result (it won't crash).
+    pub unsafe fn serialize(n: u32, out: &mut [u8]) -> u8 {
+        let u8_size = size(n);
+        let size = u8_size as usize;
+        for (i, byte) in out.iter_mut().enumerate().take(size) {
+            *byte = ((n >> ((size - 1 - i) * 8)) & 0xFF) as u8;
+        }
+        out[0] |= ((size - 1) as u8) << 6;
+        u8_size
+    }
+
+    pub fn deserialize(out: &[u8]) -> ParseResult<u32> {
+        if out.is_empty() {
+            return Err(ParseError::MissingBytes(Some(1)));
+        }
+        let size = ((out[0] >> 6) + 1) as usize;
+        if out.len() < size as usize {
+            return Err(ParseError::MissingBytes(Some(size as usize - out.len())));
+        }
+        let mut ret = (out[0] & 0x3F) as u32;
+        for byte in out.iter().take(size).skip(1) {
+            ret = (ret << 8) + *byte as u32;
+        }
+        Ok(ParseValue {
+            value: ret,
+            data_read: size,
+        })
+    }
+
+    #[cfg(test)]
+    mod test {
+        use super::*;
+        use hex_literal::hex;
+
+        #[test]
+        fn test_is_valid() {
+            assert_eq!(is_valid(0x3F_FF_FF_FF), Ok(()));
+            assert_eq!(is_valid(0x40_00_00_00), Err(()));
+        }
+
+        #[test]
+        fn test_unsafe_size() {
+            unsafe {
+                assert_eq!(size(0x00), 1);
+                assert_eq!(size(0x3F), 1);
+                assert_eq!(size(0x3F_FF), 2);
+                assert_eq!(size(0x3F_FF_FF), 3);
+                assert_eq!(size(0x3F_FF_FF_FF), 4);
+            }
+        }
+
+        #[test]
+        fn test_serialize() {
+            fn test(n: u32, truth: &[u8]) {
+                let mut encoded = vec![0u8; truth.len()];
+                assert_eq!(unsafe { serialize(n, &mut encoded[..]) }, truth.len() as u8);
+                assert_eq!(*truth, encoded[..]);
+            }
+            test(0x00, &[0]);
+            test(0x3F, &hex!("3F"));
+            test(0x3F_FF, &hex!("7F FF"));
+            test(0x3F_FF_FF, &hex!("BF FF FF"));
+            test(0x3F_FF_FF_FF, &hex!("FF FF FF FF"));
+        }
+
+        #[test]
+        fn test_deserialize() {
+            fn test_ok(data: &[u8], value: u32, size: usize) {
+                assert_eq!(
+                    deserialize(data),
+                    Ok(ParseValue {
+                        value,
+                        data_read: size
+                    }),
+                );
+            }
+            test_ok(&[0], 0x00, 1);
+            test_ok(&hex!("3F"), 0x3F, 1);
+            test_ok(&hex!("7F FF"), 0x3F_FF, 2);
+            test_ok(&hex!("BF FF FF"), 0x3F_FF_FF, 3);
+            test_ok(&hex!("FF FF FF FF"), 0x3F_FF_FF_FF, 4);
         }
     }
 }
@@ -872,7 +990,7 @@ pub enum InterfaceStatus {
     // TODO
     Host,
     D7asp(D7aspInterfaceStatus),
-    // TODO Protect with size limit (< VariableUint max size)
+    // TODO Protect with size limit (< varint max size)
     Unknown { id: u8, data: Box<[u8]> },
 }
 impl Serializable for InterfaceStatus {
@@ -882,7 +1000,7 @@ impl Serializable for InterfaceStatus {
             InterfaceStatus::D7asp(itf) => itf.serialized_size(),
             InterfaceStatus::Unknown { data, .. } => data.len(),
         };
-        1 + unsafe { VariableUint::unsafe_size(data_size as u32) as usize } + data_size
+        1 + unsafe { varint::size(data_size as u32) as usize } + data_size
     }
     fn serialize(&self, out: &mut [u8]) -> usize {
         let mut offset = 1;
@@ -895,14 +1013,14 @@ impl Serializable for InterfaceStatus {
             InterfaceStatus::D7asp(v) => {
                 out[0] = InterfaceId::D7asp as u8;
                 let size = v.serialized_size() as u32;
-                let size_size = unsafe { VariableUint::u32_serialize(size, &mut out[offset..]) };
+                let size_size = unsafe { varint::serialize(size, &mut out[offset..]) };
                 offset += size_size as usize;
                 offset += v.serialize(&mut out[offset..]);
             }
             InterfaceStatus::Unknown { id, data } => {
                 out[0] = *id;
                 let size = data.len() as u32;
-                let size_size = unsafe { VariableUint::u32_serialize(size, &mut out[offset..]) };
+                let size_size = unsafe { varint::serialize(size, &mut out[offset..]) };
                 offset += size_size as usize;
                 out[offset..offset + data.len()].clone_from_slice(data);
                 offset += data.len();
@@ -926,7 +1044,7 @@ impl Serializable for InterfaceStatus {
                 let ParseValue {
                     value: size,
                     data_read: size_size,
-                } = VariableUint::u32_deserialize(&out[offset..])?;
+                } = varint::deserialize(&out[offset..])?;
                 let size = size as usize;
                 offset += size_size;
                 let ParseValue { value, data_read } =
@@ -938,7 +1056,7 @@ impl Serializable for InterfaceStatus {
                 let ParseValue {
                     value: size,
                     data_read: size_size,
-                } = VariableUint::u32_deserialize(&out[offset..])?;
+                } = varint::deserialize(&out[offset..])?;
                 let size = size as usize;
                 offset += size_size;
                 if out.len() < offset + size {
@@ -1008,7 +1126,7 @@ impl Serializable for FileOffsetOperand {
         let ParseValue {
             value: offset,
             data_read,
-        } = VariableUint::u32_deserialize(&out[1..])?;
+        } = varint::deserialize(&out[1..])?;
         Ok(ParseValue {
             value: Self { id: out[0], offset },
             data_read: 1 + data_read,
@@ -1256,12 +1374,12 @@ pub struct NonVoid {
 }
 impl Serializable for NonVoid {
     fn serialized_size(&self) -> usize {
-        1 + unsafe { VariableUint::unsafe_size(self.size) } as usize + self.file.serialized_size()
+        1 + unsafe { varint::size(self.size) } as usize + self.file.serialized_size()
     }
     fn serialize(&self, out: &mut [u8]) -> usize {
         out[0] = QueryCode::NonVoid as u8;
         let mut offset = 1;
-        offset += unsafe { VariableUint::u32_serialize(self.size, &mut out[offset..]) } as usize;
+        offset += unsafe { varint::serialize(self.size, &mut out[offset..]) } as usize;
         offset += self.file.serialize(&mut out[offset..]);
         offset
     }
@@ -1273,7 +1391,7 @@ impl Serializable for NonVoid {
         let ParseValue {
             value: size,
             data_read: size_size,
-        } = VariableUint::u32_deserialize(&out[offset..])?;
+        } = varint::deserialize(&out[offset..])?;
         offset += size_size;
         let ParseValue {
             value: file,
@@ -1313,9 +1431,7 @@ impl Serializable for ComparisonWithZero {
             Some(_) => self.size as usize,
             None => 0,
         };
-        1 + unsafe { VariableUint::unsafe_size(self.size) } as usize
-            + mask_size
-            + self.file.serialized_size()
+        1 + unsafe { varint::size(self.size) } as usize + mask_size + self.file.serialized_size()
     }
     fn serialize(&self, out: &mut [u8]) -> usize {
         let mask_flag = match self.mask {
@@ -1329,7 +1445,7 @@ impl Serializable for ComparisonWithZero {
             | (signed_flag << 3)
             | self.comparison_type as u8;
         offset += 1;
-        offset += unsafe { VariableUint::u32_serialize(self.size, &mut out[offset..]) } as usize;
+        offset += unsafe { varint::serialize(self.size, &mut out[offset..]) } as usize;
         if let Some(mask) = &self.mask {
             out[offset..offset + (self.size as usize)].clone_from_slice(&mask);
             offset += mask.len();
@@ -1347,7 +1463,7 @@ impl Serializable for ComparisonWithZero {
         let ParseValue {
             value: size,
             data_read: size_size,
-        } = VariableUint::u32_deserialize(&out[1..])?;
+        } = varint::deserialize(&out[1..])?;
         let mut offset = 1 + size_size;
         let mask = if mask_flag {
             let mut data = vec![0u8; size as usize].into_boxed_slice();
@@ -1405,7 +1521,7 @@ impl Serializable for ComparisonWithValue {
             Some(_) => self.size as usize,
             None => 0,
         };
-        1 + unsafe { VariableUint::unsafe_size(self.size) } as usize
+        1 + unsafe { varint::size(self.size) } as usize
             + mask_size
             + self.value.len()
             + self.file.serialized_size()
@@ -1422,7 +1538,7 @@ impl Serializable for ComparisonWithValue {
             | (signed_flag << 3)
             | self.comparison_type as u8;
         offset += 1;
-        offset += unsafe { VariableUint::u32_serialize(self.size, &mut out[offset..]) } as usize;
+        offset += unsafe { varint::serialize(self.size, &mut out[offset..]) } as usize;
         if let Some(mask) = &self.mask {
             out[offset..offset + self.size as usize].clone_from_slice(&mask);
             offset += mask.len();
@@ -1442,7 +1558,7 @@ impl Serializable for ComparisonWithValue {
         let ParseValue {
             value: size,
             data_read: size_size,
-        } = VariableUint::u32_deserialize(&out[1..])?;
+        } = varint::deserialize(&out[1..])?;
         let mut offset = 1 + size_size;
         let mask = if mask_flag {
             let mut data = vec![0u8; size as usize].into_boxed_slice();
@@ -1505,7 +1621,7 @@ impl Serializable for ComparisonWithOtherFile {
             Some(_) => self.size as usize,
             None => 0,
         };
-        1 + unsafe { VariableUint::unsafe_size(self.size) } as usize
+        1 + unsafe { varint::size(self.size) } as usize
             + mask_size
             + self.file_src.serialized_size()
             + self.file_dst.serialized_size()
@@ -1522,7 +1638,7 @@ impl Serializable for ComparisonWithOtherFile {
             | (signed_flag << 3)
             | self.comparison_type as u8;
         offset += 1;
-        offset += unsafe { VariableUint::u32_serialize(self.size, &mut out[offset..]) } as usize;
+        offset += unsafe { varint::serialize(self.size, &mut out[offset..]) } as usize;
         if let Some(mask) = &self.mask {
             out[offset..offset + self.size as usize].clone_from_slice(&mask);
             offset += mask.len();
@@ -1542,7 +1658,7 @@ impl Serializable for ComparisonWithOtherFile {
         let ParseValue {
             value: size,
             data_read: size_size,
-        } = VariableUint::u32_deserialize(&out[1..])?;
+        } = varint::deserialize(&out[1..])?;
         let mut offset = 1 + size_size;
         let mask = if mask_flag {
             let mut data = vec![0u8; size as usize].into_boxed_slice();
@@ -1613,7 +1729,7 @@ pub struct BitmapRangeComparison {
 }
 impl Serializable for BitmapRangeComparison {
     fn serialized_size(&self) -> usize {
-        1 + unsafe { VariableUint::unsafe_size(self.size) } as usize
+        1 + unsafe { varint::size(self.size) } as usize
             + 2 * self.size as usize
             + self.bitmap.len()
             + self.file.serialized_size()
@@ -1626,7 +1742,7 @@ impl Serializable for BitmapRangeComparison {
             | (signed_flag << 3)
             | self.comparison_type as u8;
         offset += 1;
-        offset += unsafe { VariableUint::u32_serialize(self.size, &mut out[offset..]) } as usize;
+        offset += unsafe { varint::serialize(self.size, &mut out[offset..]) } as usize;
         out[offset..offset + self.size as usize].clone_from_slice(&self.start[..]);
         offset += self.start.len();
         out[offset..offset + self.size as usize].clone_from_slice(&self.stop[..]);
@@ -1645,7 +1761,7 @@ impl Serializable for BitmapRangeComparison {
         let ParseValue {
             value: size32,
             data_read: size_size,
-        } = VariableUint::u32_deserialize(&out[1..])?;
+        } = varint::deserialize(&out[1..])?;
         let size = size32 as usize;
         let mut offset = 1 + size_size;
         let mut start = vec![0u8; size].into_boxed_slice();
@@ -1721,7 +1837,7 @@ impl Serializable for StringTokenSearch {
             Some(_) => self.size as usize,
             None => 0,
         };
-        1 + unsafe { VariableUint::unsafe_size(self.size) } as usize
+        1 + unsafe { varint::size(self.size) } as usize
             + mask_size
             + self.value.len()
             + self.file.serialized_size()
@@ -1737,7 +1853,7 @@ impl Serializable for StringTokenSearch {
             // | (0 << 3)
             | self.max_errors;
         offset += 1;
-        offset += unsafe { VariableUint::u32_serialize(self.size, &mut out[offset..]) } as usize;
+        offset += unsafe { varint::serialize(self.size, &mut out[offset..]) } as usize;
         if let Some(mask) = &self.mask {
             out[offset..offset + self.size as usize].clone_from_slice(&mask);
             offset += mask.len();
@@ -1756,7 +1872,7 @@ impl Serializable for StringTokenSearch {
         let ParseValue {
             value: size32,
             data_read: size_size,
-        } = VariableUint::u32_deserialize(&out[1..])?;
+        } = varint::deserialize(&out[1..])?;
         let size = size32 as usize;
         let mut offset = 1 + size_size;
         let mask = if mask_flag {
@@ -2012,12 +2128,12 @@ impl Serializable for ReadFileData {
         let ParseValue {
             value: offset,
             data_read: offset_size,
-        } = VariableUint::u32_deserialize(&out[off..])?;
+        } = varint::deserialize(&out[off..])?;
         off += offset_size;
         let ParseValue {
             value: size,
             data_read: size_size,
-        } = VariableUint::u32_deserialize(&out[off..])?;
+        } = varint::deserialize(&out[off..])?;
         off += size_size;
         Ok(ParseValue {
             value: Self {
@@ -2102,12 +2218,12 @@ impl Serializable for WriteFileData {
         let ParseValue {
             value: offset,
             data_read: offset_size,
-        } = VariableUint::u32_deserialize(&out[off..])?;
+        } = varint::deserialize(&out[off..])?;
         off += offset_size;
         let ParseValue {
             value: size,
             data_read: size_size,
-        } = VariableUint::u32_deserialize(&out[off..])?;
+        } = varint::deserialize(&out[off..])?;
         off += size_size;
         let size = size as usize;
         let mut data = vec![0u8; size].into_boxed_slice();
@@ -2175,12 +2291,12 @@ fn test_write_file_data() {
 //         let ParseValue {
 //             value: offset,
 //             data_read: offset_size,
-//         } = VariableUint::u32_deserialize(&out[off..])?;
+//         } = varint::deserialize(&out[off..])?;
 //         off += offset_size;
 //         let ParseValue {
 //             value: size,
 //             data_read: size_size,
-//         } = VariableUint::u32_deserialize(&out[off..])?;
+//         } = varint::deserialize(&out[off..])?;
 //         off += size_size;
 //         let size = size as usize;
 //         let mut data = vec![0u8; size].into_boxed_slice();
@@ -2507,12 +2623,12 @@ impl Serializable for ReturnFileData {
         let ParseValue {
             value: offset,
             data_read: offset_size,
-        } = VariableUint::u32_deserialize(&out[off..])?;
+        } = varint::deserialize(&out[off..])?;
         off += offset_size;
         let ParseValue {
             value: size,
             data_read: size_size,
-        } = VariableUint::u32_deserialize(&out[off..])?;
+        } = varint::deserialize(&out[off..])?;
         off += size_size;
         let size = size as usize;
         let mut data = vec![0u8; size].into_boxed_slice();
