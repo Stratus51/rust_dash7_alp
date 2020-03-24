@@ -15,6 +15,8 @@ pub use codec::{ParseError, ParseResult, ParseValue};
 // troubles if we were to convert u32 to usize (even if a 64Ko payload seems a bit big).
 // TODO Slice copies still check length consistency dynamically. Is there a way to get rid of that
 // at runtime while still testing it at compile/test time?
+//      - For simple index access, get_unchecked_mut can do the trick. But It makes the code hard to
+//      read...
 // TODO is {out = &out[offset..]; out[..size]} more efficient than {out[offset..offset+size]} ?
 // TODO Add function to encode without having to define a temporary structure
 
@@ -1135,52 +1137,28 @@ fn test_file_offset_operand() {
     )
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum StatusCode {
-    Received = 1,
-    Ok = 0,
-    FileIdMissing = 0xFF,
-    CreateFileIdAlreadyExist = 0xFE,
-    FileIsNotRestorable = 0xFD,
-    InsufficientPermission = 0xFC,
-    CreateFileLengthOverflow = 0xFB,
-    CreateFileAllocationOverflow = 0xFA, // ??? Difference with the previous one?
-    WriteOffsetOverflow = 0xF9,
-    WriteDataOverflow = 0xF8,
-    WriteStorageUnavailable = 0xF7,
-    UnknownOperation = 0xF6,
-    OperandIncomplete = 0xF5,
-    OperandWrongFormat = 0xF4,
-    UnknownError = 0x80,
-    // TODO Add and unknown type to prevent parsing error?
+pub mod status_code {
+    pub const RECEIVED: u8 = 1;
+    pub const OK: u8 = 0;
+    pub const FILE_ID_MISSING: u8 = 0xFF;
+    pub const CREATE_FILE_ID_ALREADY_EXIST: u8 = 0xFE;
+    pub const FILE_IS_NOT_RESTORABLE: u8 = 0xFD;
+    pub const INSUFFICIENT_PERMISSION: u8 = 0xFC;
+    pub const CREATE_FILE_LENGTH_OVERFLOW: u8 = 0xFB;
+    pub const CREATE_FILE_ALLOCATION_OVERFLOW: u8 = 0xFA; // ALP_SPEC: ??? Difference with the previous one?;
+    pub const WRITE_OFFSET_OVERFLOW: u8 = 0xF9;
+    pub const WRITE_DATA_OVERFLOW: u8 = 0xF8;
+    pub const WRITE_STORAGE_UNAVAILABLE: u8 = 0xF7;
+    pub const UNKNOWN_OPERATION: u8 = 0xF6;
+    pub const OPERAND_INCOMPLETE: u8 = 0xF5;
+    pub const OPERAND_WRONG_FORMAT: u8 = 0xF4;
+    pub const UNKNOWN_ERROR: u8 = 0x80;
 }
-impl StatusCode {
-    fn from(n: u8) -> Self {
-        match n {
-            1 => StatusCode::Received,
-            0 => StatusCode::Ok,
-            0xFF => StatusCode::FileIdMissing,
-            0xFE => StatusCode::CreateFileIdAlreadyExist,
-            0xFD => StatusCode::FileIsNotRestorable,
-            0xFC => StatusCode::InsufficientPermission,
-            0xFB => StatusCode::CreateFileLengthOverflow,
-            0xFA => StatusCode::CreateFileAllocationOverflow,
-            0xF9 => StatusCode::WriteOffsetOverflow,
-            0xF8 => StatusCode::WriteDataOverflow,
-            0xF7 => StatusCode::WriteStorageUnavailable,
-            0xF6 => StatusCode::UnknownOperation,
-            0xF5 => StatusCode::OperandIncomplete,
-            0xF4 => StatusCode::OperandWrongFormat,
-            0x80 => StatusCode::UnknownError,
-            // TODO Add and unknown type to prevent parsing error?
-            x => panic!("Unknown Status Code {}", x),
-        }
-    }
-}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct StatusOperand {
     pub action_id: u8,
-    pub status: StatusCode,
+    pub status: u8,
 }
 impl Codec for StatusOperand {
     fn encoded_size(&self) -> usize {
@@ -1198,7 +1176,7 @@ impl Codec for StatusOperand {
         Ok(ParseValue {
             value: Self {
                 action_id: out[0],
-                status: StatusCode::from(out[1]),
+                status: out[1],
             },
             size: 2,
         })
@@ -1209,7 +1187,7 @@ fn test_status_operand() {
     test_item(
         StatusOperand {
             action_id: 2,
-            status: StatusCode::UnknownOperation,
+            status: status_code::UNKNOWN_OPERATION,
         },
         &hex!("02 F6"),
     )
@@ -2739,7 +2717,7 @@ fn test_status() {
     test_item(
         Status::Action(StatusOperand {
             action_id: 2,
-            status: StatusCode::UnknownOperation,
+            status: status_code::UNKNOWN_OPERATION,
         }),
         &hex!("22 02 F6"),
     )
