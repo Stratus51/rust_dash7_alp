@@ -1,21 +1,22 @@
 #[cfg(test)]
 use hex_literal::hex;
 
-mod serializable;
-pub use serializable::Serializable;
-pub use serializable::{ParseError, ParseResult, ParseValue};
+mod codec;
+pub use codec::Codec;
+pub use codec::{ParseError, ParseResult, ParseValue};
 
 // TODO Look into const function to replace some macros?
 // TODO Use uninitialized memory where possible
 // TODO Int enums: fn from(): find a way to avoid double value definition
-// TODO Int enums: optim: find a way to cast from int to enum instead of callbing a matching
+// TODO Int enums: optim: find a way to cast from int to enum instead of calling a matching
 // function (much more resource intensive)
 // TODO Optimize min size calculation (fold it into the upper OP when possible)
 // TODO usize is target dependent. In other words, on a 16 bit processor, we will run into
 // troubles if we were to convert u32 to usize (even if a 64Ko payload seems a bit big).
 // TODO Slice copies still check length consistency dynamically. Is there a way to get rid of that
-// while testing it at compile/test time?
+// at runtime while still testing it at compile/test time?
 // TODO is {out = &out[offset..]; out[..size]} more efficient than {out[offset..offset+size]} ?
+// TODO Add function to encode without having to define a temporary structure
 
 // ===============================================================================
 // Macros
@@ -25,19 +26,19 @@ macro_rules! serialize_all {
         {
             let mut offset = 0;
             $({
-                offset += $x.serialize(&mut $out[offset..]);
+                offset += $x.encode(&mut $out[offset..]);
             })*
             offset
         }
     }
 }
 
-macro_rules! serialized_size {
+macro_rules! encoded_size {
     ( $($x: expr),* ) => {
         {
             let mut total = 0;
             $({
-                total += $x.serialized_size();
+                total += $x.encoded_size();
             })*
             total
         }
@@ -60,15 +61,15 @@ macro_rules! control_byte {
 // Derive replacement (proc-macro would not allow this to be a normal lib)
 macro_rules! impl_op_serialized {
     ($name: ident, $flag7: ident, $flag6: ident) => {
-        impl Serializable for $name {
-            fn serialized_size(&self) -> usize {
+        impl Codec for $name {
+            fn encoded_size(&self) -> usize {
                 1
             }
-            fn serialize(&self, out: &mut [u8]) -> usize {
+            fn encode(&self, out: &mut [u8]) -> usize {
                 out[0] = control_byte!(self.$flag7, self.$flag6, OpCode::$name);
                 1
             }
-            fn deserialize(out: &[u8]) -> ParseResult<Self> {
+            fn decode(out: &[u8]) -> ParseResult<Self> {
                 if (out.is_empty()) {
                     Err(ParseError::MissingBytes(Some(1)))
                 } else {
@@ -77,30 +78,30 @@ macro_rules! impl_op_serialized {
                             $flag6: out[0] & 0x40 != 0,
                             $flag7: out[0] & 0x80 != 0,
                         },
-                        data_read: 1,
+                        size: 1,
                     })
                 }
             }
         }
     };
     ($name: ident, $flag7: ident, $flag6: ident, $op1: ident, $op1_type: ident) => {
-        impl Serializable for $name {
-            fn serialized_size(&self) -> usize {
-                1 + serialized_size!(self.$op1)
+        impl Codec for $name {
+            fn encoded_size(&self) -> usize {
+                1 + encoded_size!(self.$op1)
             }
-            fn serialize(&self, out: &mut [u8]) -> usize {
+            fn encode(&self, out: &mut [u8]) -> usize {
                 out[0] = control_byte!(self.$flag7, self.$flag6, OpCode::$name);
                 1 + serialize_all!(&mut out[1..], &self.$op1)
             }
-            fn deserialize(out: &[u8]) -> ParseResult<Self> {
+            fn decode(out: &[u8]) -> ParseResult<Self> {
                 if (out.is_empty()) {
                     Err(ParseError::MissingBytes(Some(1)))
                 } else {
                     let mut offset = 1;
                     let ParseValue {
                         value: op1,
-                        data_read: op1_size,
-                    } = $op1_type::deserialize(&out[offset..])?;
+                        size: op1_size,
+                    } = $op1_type::decode(&out[offset..])?;
                     offset += op1_size;
                     Ok(ParseValue {
                         value: Self {
@@ -108,35 +109,35 @@ macro_rules! impl_op_serialized {
                             $flag7: out[0] & 0x80 != 0,
                             $op1: op1,
                         },
-                        data_read: offset,
+                        size: offset,
                     })
                 }
             }
         }
     };
     ($name: ident, $flag7: ident, $flag6: ident, $op1: ident, $op1_type: ident, $op2: ident, $op2_type: ident) => {
-        impl Serializable for $name {
-            fn serialized_size(&self) -> usize {
-                1 + serialized_size!(self.$op1, self.$op2)
+        impl Codec for $name {
+            fn encoded_size(&self) -> usize {
+                1 + encoded_size!(self.$op1, self.$op2)
             }
-            fn serialize(&self, out: &mut [u8]) -> usize {
+            fn encode(&self, out: &mut [u8]) -> usize {
                 out[0] = control_byte!(self.$flag7, self.$flag6, OpCode::$name);
                 1 + serialize_all!(&mut out[1..], &self.$op1, self.$op2)
             }
-            fn deserialize(out: &[u8]) -> ParseResult<Self> {
+            fn decode(out: &[u8]) -> ParseResult<Self> {
                 if (out.is_empty()) {
                     Err(ParseError::MissingBytes(Some(1)))
                 } else {
                     let mut offset = 1;
                     let ParseValue {
                         value: op1,
-                        data_read: op1_size,
-                    } = $op1_type::deserialize(&out[offset..])?;
+                        size: op1_size,
+                    } = $op1_type::decode(&out[offset..])?;
                     offset += op1_size;
                     let ParseValue {
                         value: op2,
-                        data_read: op2_size,
-                    } = $op2_type::deserialize(&out[offset..])?;
+                        size: op2_size,
+                    } = $op2_type::decode(&out[offset..])?;
                     offset += op2_size;
                     Ok(ParseValue {
                         value: Self {
@@ -145,7 +146,7 @@ macro_rules! impl_op_serialized {
                             $op1: op1,
                             $op2: op2,
                         },
-                        data_read: offset,
+                        size: offset,
                     })
                 }
             }
@@ -168,7 +169,7 @@ macro_rules! unsafe_varint_serialize {
         {
             let mut offset: usize = 0;
             $(unsafe {
-                offset += varint::serialize($x, &mut $out[offset..]) as usize;
+                offset += varint::encode($x, &mut $out[offset..]) as usize;
             })*
             offset
         }
@@ -200,11 +201,11 @@ macro_rules! build_simple_op {
 
 macro_rules! impl_simple_op {
     ($name: ident, $flag7: ident, $flag6: ident, $($x: ident),* ) => {
-        impl Serializable for $name {
-            fn serialized_size(&self) -> usize {
+        impl Codec for $name {
+            fn encoded_size(&self) -> usize {
                 1 + count!($( $x )*)
             }
-            fn serialize(&self, out: &mut [u8]) -> usize {
+            fn encode(&self, out: &mut [u8]) -> usize {
                 out[0] = control_byte!(self.$flag7, self.$flag6, OpCode::$name);
                 let mut offset = 1;
                 $({
@@ -213,14 +214,14 @@ macro_rules! impl_simple_op {
                 })*
                 1 + offset
             }
-            fn deserialize(out: &[u8]) -> ParseResult<Self> {
+            fn decode(out: &[u8]) -> ParseResult<Self> {
                 const SIZE: usize = 1 + count!($( $x )*);
                 if(out.len() < SIZE) {
                     Err(ParseError::MissingBytes(Some(SIZE - out.len())))
                 } else {
                     Ok(ParseValue {
                         value: build_simple_op!($name, out, $flag7, $flag6, $($x),*),
-                        data_read: SIZE,
+                        size: SIZE,
                     })
                 }
             }
@@ -230,17 +231,17 @@ macro_rules! impl_simple_op {
 
 macro_rules! impl_header_op {
     ($name: ident, $flag7: ident, $flag6: ident, $file_id: ident, $file_header: ident) => {
-        impl Serializable for $name {
-            fn serialized_size(&self) -> usize {
+        impl Codec for $name {
+            fn encoded_size(&self) -> usize {
                 1 + 1 + 12
             }
-            fn serialize(&self, out: &mut [u8]) -> usize {
+            fn encode(&self, out: &mut [u8]) -> usize {
                 out[0] = control_byte!(self.group, self.resp, OpCode::$name);
                 out[1] = self.file_id;
                 out[2..2 + 12].clone_from_slice(&self.data[..]);
                 1 + 1 + 12
             }
-            fn deserialize(out: &[u8]) -> ParseResult<Self> {
+            fn decode(out: &[u8]) -> ParseResult<Self> {
                 const SIZE: usize = 1 + 1 + 12;
                 if (out.len() < SIZE) {
                     Err(ParseError::MissingBytes(Some(SIZE - out.len())))
@@ -254,7 +255,7 @@ macro_rules! impl_header_op {
                             $file_id: out[1],
                             $file_header: header,
                         },
-                        data_read: SIZE,
+                        size: SIZE,
                     })
                 }
             }
@@ -263,13 +264,13 @@ macro_rules! impl_header_op {
 }
 
 #[cfg(test)]
-fn test_item<T: Serializable + std::fmt::Debug + std::cmp::PartialEq>(item: T, data: &[u8]) {
-    assert_eq!(item.serialize_to_box()[..], *data);
+fn test_item<T: Codec + std::fmt::Debug + std::cmp::PartialEq>(item: T, data: &[u8]) {
+    assert_eq!(item.encode_to_box()[..], *data);
     assert_eq!(
-        T::deserialize(&data).expect("should be parsed without error"),
+        T::decode(&data).expect("should be parsed without error"),
         ParseValue {
             value: item,
-            data_read: data.len(),
+            size: data.len(),
         }
     );
 }
@@ -404,7 +405,7 @@ mod varint {
     ///
     /// Calling this on a large integer will return an unpredictable
     /// result (it won't crash).
-    pub unsafe fn serialize(n: u32, out: &mut [u8]) -> u8 {
+    pub unsafe fn encode(n: u32, out: &mut [u8]) -> u8 {
         let u8_size = size(n);
         let size = u8_size as usize;
         for (i, byte) in out.iter_mut().enumerate().take(size) {
@@ -414,7 +415,7 @@ mod varint {
         u8_size
     }
 
-    pub fn deserialize(out: &[u8]) -> ParseResult<u32> {
+    pub fn decode(out: &[u8]) -> ParseResult<u32> {
         if out.is_empty() {
             return Err(ParseError::MissingBytes(Some(1)));
         }
@@ -426,10 +427,7 @@ mod varint {
         for byte in out.iter().take(size).skip(1) {
             ret = (ret << 8) + *byte as u32;
         }
-        Ok(ParseValue {
-            value: ret,
-            data_read: size,
-        })
+        Ok(ParseValue { value: ret, size })
     }
 
     #[cfg(test)]
@@ -455,10 +453,10 @@ mod varint {
         }
 
         #[test]
-        fn test_serialize() {
+        fn test_encode() {
             fn test(n: u32, truth: &[u8]) {
                 let mut encoded = vec![0u8; truth.len()];
-                assert_eq!(unsafe { serialize(n, &mut encoded[..]) }, truth.len() as u8);
+                assert_eq!(unsafe { encode(n, &mut encoded[..]) }, truth.len() as u8);
                 assert_eq!(*truth, encoded[..]);
             }
             test(0x00, &[0]);
@@ -469,15 +467,9 @@ mod varint {
         }
 
         #[test]
-        fn test_deserialize() {
+        fn test_decode() {
             fn test_ok(data: &[u8], value: u32, size: usize) {
-                assert_eq!(
-                    deserialize(data),
-                    Ok(ParseValue {
-                        value,
-                        data_read: size
-                    }),
-                );
+                assert_eq!(decode(data), Ok(ParseValue { value, size: size }),);
             }
             test_ok(&[0], 0x00, 1);
             test_ok(&hex!("3F"), 0x3F, 1);
@@ -533,8 +525,8 @@ pub struct Addressee {
     pub access_class: u8,
     pub address: Address,
 }
-impl Serializable for Addressee {
-    fn serialized_size(&self) -> usize {
+impl Codec for Addressee {
+    fn encoded_size(&self) -> usize {
         1 + 1
             + match self.address {
                 Address::NbId(_) => 1,
@@ -543,7 +535,7 @@ impl Serializable for Addressee {
                 Address::Vid(_) => 2,
             }
     }
-    fn serialize(&self, out: &mut [u8]) -> usize {
+    fn encode(&self, out: &mut [u8]) -> usize {
         let (id_type, id): (u8, Box<[u8]>) = match &self.address {
             Address::NbId(n) => (0, Box::new([*n])),
             Address::NoId => (1, Box::new([])),
@@ -556,7 +548,7 @@ impl Serializable for Addressee {
         out[2..2 + id.len()].clone_from_slice(&id);
         2 + id.len()
     }
-    fn deserialize(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> ParseResult<Self> {
         const SIZE: usize = 1 + 1;
         if out.len() < SIZE {
             return Err(ParseError::MissingBytes(Some(SIZE - out.len())));
@@ -596,7 +588,7 @@ impl Serializable for Addressee {
                 access_class,
                 address,
             },
-            data_read: SIZE + address_size,
+            size: SIZE + address_size,
         })
     }
 }
@@ -688,15 +680,15 @@ pub struct Qos {
     pub retry: RetryMode,
     pub resp: RespMode,
 }
-impl Serializable for Qos {
-    fn serialized_size(&self) -> usize {
+impl Codec for Qos {
+    fn encoded_size(&self) -> usize {
         1
     }
-    fn serialize(&self, out: &mut [u8]) -> usize {
+    fn encode(&self, out: &mut [u8]) -> usize {
         out[0] = ((self.retry as u8) << 3) + self.resp as u8;
         1
     }
-    fn deserialize(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.is_empty() {
             return Err(ParseError::MissingBytes(Some(1)));
         }
@@ -705,7 +697,7 @@ impl Serializable for Qos {
                 retry: RetryMode::from((out[0] & 0x38) >> 3),
                 resp: RespMode::from(out[0] & 0x07),
             },
-            data_read: 1,
+            size: 1,
         })
     }
 }
@@ -729,28 +721,28 @@ pub struct D7aspInterfaceConfiguration {
     pub addressee: Addressee,
 }
 
-impl Serializable for D7aspInterfaceConfiguration {
-    fn serialized_size(&self) -> usize {
-        self.qos.serialized_size() + 2 + self.addressee.serialized_size()
+impl Codec for D7aspInterfaceConfiguration {
+    fn encoded_size(&self) -> usize {
+        self.qos.encoded_size() + 2 + self.addressee.encoded_size()
     }
-    fn serialize(&self, out: &mut [u8]) -> usize {
-        self.qos.serialize(out);
+    fn encode(&self, out: &mut [u8]) -> usize {
+        self.qos.encode(out);
         out[1] = self.to;
         out[2] = self.te;
-        3 + self.addressee.serialize(&mut out[3..])
+        3 + self.addressee.encode(&mut out[3..])
     }
-    fn deserialize(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.len() < 3 {
             return Err(ParseError::MissingBytes(Some(3 - out.len())));
         }
         let ParseValue {
             value: qos,
-            data_read: qos_size,
-        } = Qos::deserialize(out)?;
+            size: qos_size,
+        } = Qos::decode(out)?;
         let ParseValue {
             value: addressee,
-            data_read: addressee_size,
-        } = Addressee::deserialize(&out[3..])?;
+            size: addressee_size,
+        } = Addressee::decode(&out[3..])?;
         Ok(ParseValue {
             value: Self {
                 qos,
@@ -758,7 +750,7 @@ impl Serializable for D7aspInterfaceConfiguration {
                 te: out[2],
                 addressee,
             },
-            data_read: qos_size + 2 + addressee_size,
+            size: qos_size + 2 + addressee_size,
         })
     }
 }
@@ -798,15 +790,15 @@ pub struct D7aspInterfaceStatus {
     pub addressee: Addressee,
     pub nls_state: Option<[u8; 5]>, // TODO Constrain this existence with addressee nls value
 }
-impl Serializable for D7aspInterfaceStatus {
-    fn serialized_size(&self) -> usize {
-        10 + self.addressee.serialized_size()
+impl Codec for D7aspInterfaceStatus {
+    fn encoded_size(&self) -> usize {
+        10 + self.addressee.encoded_size()
             + match self.nls_state {
                 Some(_) => 5,
                 None => 0,
             }
     }
-    fn serialize(&self, out: &mut [u8]) -> usize {
+    fn encode(&self, out: &mut [u8]) -> usize {
         let mut i = 0;
         out[i] = self.ch_header;
         i += 1;
@@ -827,21 +819,21 @@ impl Serializable for D7aspInterfaceStatus {
         i += 1;
         out[i] = self.resp_to;
         i += 1;
-        i += self.addressee.serialize(&mut out[i..]);
+        i += self.addressee.encode(&mut out[i..]);
         if let Some(nls_state) = &self.nls_state {
             out[i..i + 5].clone_from_slice(&nls_state[..]);
             i += 5;
         }
         i
     }
-    fn deserialize(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.len() < 10 {
             return Err(ParseError::MissingBytes(Some(10 - out.len())));
         }
         let ParseValue {
             value: addressee,
-            data_read: addressee_size,
-        } = Addressee::deserialize(&out[10..])?;
+            size: addressee_size,
+        } = Addressee::decode(&out[10..])?;
         let offset = 10 + addressee_size;
         let nls_state = match addressee.nls_method {
             NlsMethod::None => None,
@@ -875,7 +867,7 @@ impl Serializable for D7aspInterfaceStatus {
                 addressee,
                 nls_state,
             },
-            data_read: size,
+            size,
         })
     }
 }
@@ -918,14 +910,14 @@ pub enum InterfaceConfiguration {
     Host,
     D7asp(D7aspInterfaceConfiguration),
 }
-impl Serializable for InterfaceConfiguration {
-    fn serialized_size(&self) -> usize {
+impl Codec for InterfaceConfiguration {
+    fn encoded_size(&self) -> usize {
         1 + match self {
             InterfaceConfiguration::Host => 0,
-            InterfaceConfiguration::D7asp(v) => v.serialized_size(),
+            InterfaceConfiguration::D7asp(v) => v.encoded_size(),
         }
     }
-    fn serialize(&self, out: &mut [u8]) -> usize {
+    fn encode(&self, out: &mut [u8]) -> usize {
         match self {
             InterfaceConfiguration::Host => {
                 out[0] = InterfaceId::Host as u8;
@@ -933,11 +925,11 @@ impl Serializable for InterfaceConfiguration {
             }
             InterfaceConfiguration::D7asp(v) => {
                 out[0] = InterfaceId::D7asp as u8;
-                1 + v.serialize(&mut out[1..])
+                1 + v.encode(&mut out[1..])
             }
         }
     }
-    fn deserialize(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.is_empty() {
             return Err(ParseError::MissingBytes(Some(1)));
         }
@@ -946,14 +938,13 @@ impl Serializable for InterfaceConfiguration {
         Ok(match out[0] {
             HOST => ParseValue {
                 value: InterfaceConfiguration::Host,
-                data_read: 1,
+                size: 1,
             },
             D7ASP => {
-                let ParseValue { value, data_read } =
-                    D7aspInterfaceConfiguration::deserialize(&out[1..])?;
+                let ParseValue { value, size } = D7aspInterfaceConfiguration::decode(&out[1..])?;
                 ParseValue {
                     value: InterfaceConfiguration::D7asp(value),
-                    data_read: data_read + 1,
+                    size: size + 1,
                 }
             }
             // TODO Return an error instead of panic
@@ -993,16 +984,16 @@ pub enum InterfaceStatus {
     // TODO Protect with size limit (< varint max size)
     Unknown { id: u8, data: Box<[u8]> },
 }
-impl Serializable for InterfaceStatus {
-    fn serialized_size(&self) -> usize {
+impl Codec for InterfaceStatus {
+    fn encoded_size(&self) -> usize {
         let data_size = match self {
             InterfaceStatus::Host => 0,
-            InterfaceStatus::D7asp(itf) => itf.serialized_size(),
+            InterfaceStatus::D7asp(itf) => itf.encoded_size(),
             InterfaceStatus::Unknown { data, .. } => data.len(),
         };
         1 + unsafe { varint::size(data_size as u32) as usize } + data_size
     }
-    fn serialize(&self, out: &mut [u8]) -> usize {
+    fn encode(&self, out: &mut [u8]) -> usize {
         let mut offset = 1;
         match self {
             InterfaceStatus::Host => {
@@ -1012,15 +1003,15 @@ impl Serializable for InterfaceStatus {
             }
             InterfaceStatus::D7asp(v) => {
                 out[0] = InterfaceId::D7asp as u8;
-                let size = v.serialized_size() as u32;
-                let size_size = unsafe { varint::serialize(size, &mut out[offset..]) };
+                let size = v.encoded_size() as u32;
+                let size_size = unsafe { varint::encode(size, &mut out[offset..]) };
                 offset += size_size as usize;
-                offset += v.serialize(&mut out[offset..]);
+                offset += v.encode(&mut out[offset..]);
             }
             InterfaceStatus::Unknown { id, data } => {
                 out[0] = *id;
                 let size = data.len() as u32;
-                let size_size = unsafe { varint::serialize(size, &mut out[offset..]) };
+                let size_size = unsafe { varint::encode(size, &mut out[offset..]) };
                 offset += size_size as usize;
                 out[offset..offset + data.len()].clone_from_slice(data);
                 offset += data.len();
@@ -1028,7 +1019,7 @@ impl Serializable for InterfaceStatus {
         };
         offset
     }
-    fn deserialize(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.is_empty() {
             return Err(ParseError::MissingBytes(Some(1)));
         }
@@ -1043,20 +1034,20 @@ impl Serializable for InterfaceStatus {
             D7ASP => {
                 let ParseValue {
                     value: size,
-                    data_read: size_size,
-                } = varint::deserialize(&out[offset..])?;
+                    size: size_size,
+                } = varint::decode(&out[offset..])?;
                 let size = size as usize;
                 offset += size_size;
-                let ParseValue { value, data_read } =
-                    D7aspInterfaceStatus::deserialize(&out[offset..offset + size])?;
-                offset += data_read;
+                let ParseValue { value, size } =
+                    D7aspInterfaceStatus::decode(&out[offset..offset + size])?;
+                offset += size;
                 InterfaceStatus::D7asp(value)
             }
             id => {
                 let ParseValue {
                     value: size,
-                    data_read: size_size,
-                } = varint::deserialize(&out[offset..])?;
+                    size: size_size,
+                } = varint::decode(&out[offset..])?;
                 let size = size as usize;
                 offset += size_size;
                 if out.len() < offset + size {
@@ -1070,7 +1061,7 @@ impl Serializable for InterfaceStatus {
         };
         Ok(ParseValue {
             value,
-            data_read: offset,
+            size: offset,
         })
     }
 }
@@ -1111,25 +1102,25 @@ pub struct FileOffsetOperand {
     pub offset: u32,
 }
 
-impl Serializable for FileOffsetOperand {
-    fn serialized_size(&self) -> usize {
+impl Codec for FileOffsetOperand {
+    fn encoded_size(&self) -> usize {
         1 + unsafe_varint_serialize_sizes!(self.offset) as usize
     }
-    fn serialize(&self, out: &mut [u8]) -> usize {
+    fn encode(&self, out: &mut [u8]) -> usize {
         out[0] = self.id;
         1 + unsafe_varint_serialize!(out[1..], self.offset)
     }
-    fn deserialize(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.len() < 2 {
             return Err(ParseError::MissingBytes(Some(2 - out.len())));
         }
         let ParseValue {
             value: offset,
-            data_read,
-        } = varint::deserialize(&out[1..])?;
+            size,
+        } = varint::decode(&out[1..])?;
         Ok(ParseValue {
             value: Self { id: out[0], offset },
-            data_read: 1 + data_read,
+            size: 1 + size,
         })
     }
 }
@@ -1191,16 +1182,16 @@ pub struct StatusOperand {
     pub action_id: u8,
     pub status: StatusCode,
 }
-impl Serializable for StatusOperand {
-    fn serialized_size(&self) -> usize {
+impl Codec for StatusOperand {
+    fn encoded_size(&self) -> usize {
         1 + 1
     }
-    fn serialize(&self, out: &mut [u8]) -> usize {
+    fn encode(&self, out: &mut [u8]) -> usize {
         out[0] = self.action_id;
         out[1] = self.status as u8;
         2
     }
-    fn deserialize(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.len() < 2 {
             return Err(ParseError::MissingBytes(Some(2 - out.len())));
         }
@@ -1209,7 +1200,7 @@ impl Serializable for StatusOperand {
                 action_id: out[0],
                 status: StatusCode::from(out[1]),
             },
-            data_read: 2,
+            size: 2,
         })
     }
 }
@@ -1239,13 +1230,13 @@ impl Permission {
     }
 }
 
-impl Serializable for Permission {
-    fn serialized_size(&self) -> usize {
+impl Codec for Permission {
+    fn encoded_size(&self) -> usize {
         1 + match self {
             Permission::Dash7(_) => 8,
         }
     }
-    fn serialize(&self, out: &mut [u8]) -> usize {
+    fn encode(&self, out: &mut [u8]) -> usize {
         out[0] = self.id();
         1 + match self {
             Permission::Dash7(token) => {
@@ -1254,7 +1245,7 @@ impl Serializable for Permission {
             }
         }
     }
-    fn deserialize(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.is_empty() {
             return Err(ParseError::MissingBytes(Some(1)));
         }
@@ -1266,7 +1257,7 @@ impl Serializable for Permission {
                 offset += 8;
                 Ok(ParseValue {
                     value: Permission::Dash7(token),
-                    data_read: offset,
+                    size: offset,
                 })
             }
             // TODO ParseError
@@ -1282,15 +1273,15 @@ pub enum PermissionLevel {
     Root = 1,
     // TODO SPEC: Does something else exist?
 }
-impl Serializable for PermissionLevel {
-    fn serialized_size(&self) -> usize {
+impl Codec for PermissionLevel {
+    fn encoded_size(&self) -> usize {
         1
     }
-    fn serialize(&self, out: &mut [u8]) -> usize {
+    fn encode(&self, out: &mut [u8]) -> usize {
         out[0] = *self as u8;
         1
     }
-    fn deserialize(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.is_empty() {
             return Err(ParseError::MissingBytes(Some(1)));
         }
@@ -1301,7 +1292,7 @@ impl Serializable for PermissionLevel {
                 // TODO ParseError
                 x => panic!("Unknown permission level {}", x),
             },
-            data_read: 1,
+            size: 1,
         })
     }
 }
@@ -1372,35 +1363,35 @@ pub struct NonVoid {
     pub size: u32,
     pub file: FileOffsetOperand,
 }
-impl Serializable for NonVoid {
-    fn serialized_size(&self) -> usize {
-        1 + unsafe { varint::size(self.size) } as usize + self.file.serialized_size()
+impl Codec for NonVoid {
+    fn encoded_size(&self) -> usize {
+        1 + unsafe { varint::size(self.size) } as usize + self.file.encoded_size()
     }
-    fn serialize(&self, out: &mut [u8]) -> usize {
+    fn encode(&self, out: &mut [u8]) -> usize {
         out[0] = QueryCode::NonVoid as u8;
         let mut offset = 1;
-        offset += unsafe { varint::serialize(self.size, &mut out[offset..]) } as usize;
-        offset += self.file.serialize(&mut out[offset..]);
+        offset += unsafe { varint::encode(self.size, &mut out[offset..]) } as usize;
+        offset += self.file.encode(&mut out[offset..]);
         offset
     }
-    fn deserialize(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.len() < 3 {
             return Err(ParseError::MissingBytes(Some(3 - out.len())));
         }
         let mut offset = 1;
         let ParseValue {
             value: size,
-            data_read: size_size,
-        } = varint::deserialize(&out[offset..])?;
+            size: size_size,
+        } = varint::decode(&out[offset..])?;
         offset += size_size;
         let ParseValue {
             value: file,
-            data_read: file_size,
-        } = FileOffsetOperand::deserialize(&out[offset..])?;
+            size: file_size,
+        } = FileOffsetOperand::decode(&out[offset..])?;
         offset += file_size;
         Ok(ParseValue {
             value: Self { size, file },
-            data_read: offset,
+            size: offset,
         })
     }
 }
@@ -1425,15 +1416,15 @@ pub struct ComparisonWithZero {
     pub mask: Option<Box<[u8]>>,
     pub file: FileOffsetOperand,
 }
-impl Serializable for ComparisonWithZero {
-    fn serialized_size(&self) -> usize {
+impl Codec for ComparisonWithZero {
+    fn encoded_size(&self) -> usize {
         let mask_size = match self.mask {
             Some(_) => self.size as usize,
             None => 0,
         };
-        1 + unsafe { varint::size(self.size) } as usize + mask_size + self.file.serialized_size()
+        1 + unsafe { varint::size(self.size) } as usize + mask_size + self.file.encoded_size()
     }
-    fn serialize(&self, out: &mut [u8]) -> usize {
+    fn encode(&self, out: &mut [u8]) -> usize {
         let mask_flag = match self.mask {
             Some(_) => 1,
             None => 0,
@@ -1445,15 +1436,15 @@ impl Serializable for ComparisonWithZero {
             | (signed_flag << 3)
             | self.comparison_type as u8;
         offset += 1;
-        offset += unsafe { varint::serialize(self.size, &mut out[offset..]) } as usize;
+        offset += unsafe { varint::encode(self.size, &mut out[offset..]) } as usize;
         if let Some(mask) = &self.mask {
             out[offset..offset + (self.size as usize)].clone_from_slice(&mask);
             offset += mask.len();
         }
-        offset += self.file.serialize(&mut out[offset..]);
+        offset += self.file.encode(&mut out[offset..]);
         offset
     }
-    fn deserialize(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.len() < 1 + 1 + 2 {
             return Err(ParseError::MissingBytes(Some(1 + 1 + 2 - out.len())));
         }
@@ -1462,8 +1453,8 @@ impl Serializable for ComparisonWithZero {
         let comparison_type = QueryComparisonType::from(out[0] & 0x07);
         let ParseValue {
             value: size,
-            data_read: size_size,
-        } = varint::deserialize(&out[1..])?;
+            size: size_size,
+        } = varint::decode(&out[1..])?;
         let mut offset = 1 + size_size;
         let mask = if mask_flag {
             let mut data = vec![0u8; size as usize].into_boxed_slice();
@@ -1475,8 +1466,8 @@ impl Serializable for ComparisonWithZero {
         };
         let ParseValue {
             value: file,
-            data_read: offset_size,
-        } = FileOffsetOperand::deserialize(&out[offset..])?;
+            size: offset_size,
+        } = FileOffsetOperand::decode(&out[offset..])?;
         offset += offset_size;
         Ok(ParseValue {
             value: Self {
@@ -1486,7 +1477,7 @@ impl Serializable for ComparisonWithZero {
                 mask,
                 file,
             },
-            data_read: offset,
+            size: offset,
         })
     }
 }
@@ -1515,8 +1506,8 @@ pub struct ComparisonWithValue {
     pub value: Box<[u8]>,
     pub file: FileOffsetOperand,
 }
-impl Serializable for ComparisonWithValue {
-    fn serialized_size(&self) -> usize {
+impl Codec for ComparisonWithValue {
+    fn encoded_size(&self) -> usize {
         let mask_size = match self.mask {
             Some(_) => self.size as usize,
             None => 0,
@@ -1524,9 +1515,9 @@ impl Serializable for ComparisonWithValue {
         1 + unsafe { varint::size(self.size) } as usize
             + mask_size
             + self.value.len()
-            + self.file.serialized_size()
+            + self.file.encoded_size()
     }
-    fn serialize(&self, out: &mut [u8]) -> usize {
+    fn encode(&self, out: &mut [u8]) -> usize {
         let mask_flag = match self.mask {
             Some(_) => 1,
             None => 0,
@@ -1538,17 +1529,17 @@ impl Serializable for ComparisonWithValue {
             | (signed_flag << 3)
             | self.comparison_type as u8;
         offset += 1;
-        offset += unsafe { varint::serialize(self.size, &mut out[offset..]) } as usize;
+        offset += unsafe { varint::encode(self.size, &mut out[offset..]) } as usize;
         if let Some(mask) = &self.mask {
             out[offset..offset + self.size as usize].clone_from_slice(&mask);
             offset += mask.len();
         }
         out[offset..offset + self.size as usize].clone_from_slice(&self.value[..]);
         offset += self.value.len();
-        offset += self.file.serialize(&mut out[offset..]);
+        offset += self.file.encode(&mut out[offset..]);
         offset
     }
-    fn deserialize(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.len() < 1 + 1 + 2 {
             return Err(ParseError::MissingBytes(Some(1 + 1 + 2 - out.len())));
         }
@@ -1557,8 +1548,8 @@ impl Serializable for ComparisonWithValue {
         let comparison_type = QueryComparisonType::from(out[0] & 0x07);
         let ParseValue {
             value: size,
-            data_read: size_size,
-        } = varint::deserialize(&out[1..])?;
+            size: size_size,
+        } = varint::decode(&out[1..])?;
         let mut offset = 1 + size_size;
         let mask = if mask_flag {
             let mut data = vec![0u8; size as usize].into_boxed_slice();
@@ -1573,8 +1564,8 @@ impl Serializable for ComparisonWithValue {
         offset += size as usize;
         let ParseValue {
             value: file,
-            data_read: offset_size,
-        } = FileOffsetOperand::deserialize(&out[offset..])?;
+            size: offset_size,
+        } = FileOffsetOperand::decode(&out[offset..])?;
         offset += offset_size;
         Ok(ParseValue {
             value: Self {
@@ -1585,7 +1576,7 @@ impl Serializable for ComparisonWithValue {
                 value,
                 file,
             },
-            data_read: offset,
+            size: offset,
         })
     }
 }
@@ -1615,18 +1606,18 @@ pub struct ComparisonWithOtherFile {
     pub file_src: FileOffsetOperand,
     pub file_dst: FileOffsetOperand,
 }
-impl Serializable for ComparisonWithOtherFile {
-    fn serialized_size(&self) -> usize {
+impl Codec for ComparisonWithOtherFile {
+    fn encoded_size(&self) -> usize {
         let mask_size = match self.mask {
             Some(_) => self.size as usize,
             None => 0,
         };
         1 + unsafe { varint::size(self.size) } as usize
             + mask_size
-            + self.file_src.serialized_size()
-            + self.file_dst.serialized_size()
+            + self.file_src.encoded_size()
+            + self.file_dst.encoded_size()
     }
-    fn serialize(&self, out: &mut [u8]) -> usize {
+    fn encode(&self, out: &mut [u8]) -> usize {
         let mask_flag = match self.mask {
             Some(_) => 1,
             None => 0,
@@ -1638,17 +1629,17 @@ impl Serializable for ComparisonWithOtherFile {
             | (signed_flag << 3)
             | self.comparison_type as u8;
         offset += 1;
-        offset += unsafe { varint::serialize(self.size, &mut out[offset..]) } as usize;
+        offset += unsafe { varint::encode(self.size, &mut out[offset..]) } as usize;
         if let Some(mask) = &self.mask {
             out[offset..offset + self.size as usize].clone_from_slice(&mask);
             offset += mask.len();
         }
         // TODO ALP SPEC: Which of the offset operand is the source and the dest? (file 1 and 2)
-        offset += self.file_src.serialize(&mut out[offset..]);
-        offset += self.file_dst.serialize(&mut out[offset..]);
+        offset += self.file_src.encode(&mut out[offset..]);
+        offset += self.file_dst.encode(&mut out[offset..]);
         offset
     }
-    fn deserialize(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.len() < 1 + 1 + 2 + 2 {
             return Err(ParseError::MissingBytes(Some(1 + 1 + 2 + 2 - out.len())));
         }
@@ -1657,8 +1648,8 @@ impl Serializable for ComparisonWithOtherFile {
         let comparison_type = QueryComparisonType::from(out[0] & 0x07);
         let ParseValue {
             value: size,
-            data_read: size_size,
-        } = varint::deserialize(&out[1..])?;
+            size: size_size,
+        } = varint::decode(&out[1..])?;
         let mut offset = 1 + size_size;
         let mask = if mask_flag {
             let mut data = vec![0u8; size as usize].into_boxed_slice();
@@ -1670,13 +1661,13 @@ impl Serializable for ComparisonWithOtherFile {
         };
         let ParseValue {
             value: file_src,
-            data_read: file_src_size,
-        } = FileOffsetOperand::deserialize(&out[offset..])?;
+            size: file_src_size,
+        } = FileOffsetOperand::decode(&out[offset..])?;
         offset += file_src_size;
         let ParseValue {
             value: file_dst,
-            data_read: file_dst_size,
-        } = FileOffsetOperand::deserialize(&out[offset..])?;
+            size: file_dst_size,
+        } = FileOffsetOperand::decode(&out[offset..])?;
         offset += file_dst_size;
         Ok(ParseValue {
             value: Self {
@@ -1687,7 +1678,7 @@ impl Serializable for ComparisonWithOtherFile {
                 file_src,
                 file_dst,
             },
-            data_read: offset,
+            size: offset,
         })
     }
 }
@@ -1727,14 +1718,14 @@ pub struct BitmapRangeComparison {
     pub bitmap: Box<[u8]>, // TODO Better type?
     pub file: FileOffsetOperand,
 }
-impl Serializable for BitmapRangeComparison {
-    fn serialized_size(&self) -> usize {
+impl Codec for BitmapRangeComparison {
+    fn encoded_size(&self) -> usize {
         1 + unsafe { varint::size(self.size) } as usize
             + 2 * self.size as usize
             + self.bitmap.len()
-            + self.file.serialized_size()
+            + self.file.encoded_size()
     }
-    fn serialize(&self, out: &mut [u8]) -> usize {
+    fn encode(&self, out: &mut [u8]) -> usize {
         let mut offset = 0;
         let signed_flag = if self.signed_data { 1 } else { 0 };
         out[0] = ((QueryCode::BitmapRangeComparison as u8) << 5)
@@ -1742,17 +1733,17 @@ impl Serializable for BitmapRangeComparison {
             | (signed_flag << 3)
             | self.comparison_type as u8;
         offset += 1;
-        offset += unsafe { varint::serialize(self.size, &mut out[offset..]) } as usize;
+        offset += unsafe { varint::encode(self.size, &mut out[offset..]) } as usize;
         out[offset..offset + self.size as usize].clone_from_slice(&self.start[..]);
         offset += self.start.len();
         out[offset..offset + self.size as usize].clone_from_slice(&self.stop[..]);
         offset += self.stop.len();
         out[offset..offset + self.bitmap.len()].clone_from_slice(&self.bitmap[..]);
         offset += self.bitmap.len();
-        offset += self.file.serialize(&mut out[offset..]);
+        offset += self.file.encode(&mut out[offset..]);
         offset
     }
-    fn deserialize(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.len() < 1 + 1 + 2 {
             return Err(ParseError::MissingBytes(Some(1 + 1 + 2 - out.len())));
         }
@@ -1760,8 +1751,8 @@ impl Serializable for BitmapRangeComparison {
         let comparison_type = QueryRangeComparisonType::from(out[0] & 0x07);
         let ParseValue {
             value: size32,
-            data_read: size_size,
-        } = varint::deserialize(&out[1..])?;
+            size: size_size,
+        } = varint::decode(&out[1..])?;
         let size = size32 as usize;
         let mut offset = 1 + size_size;
         let mut start = vec![0u8; size].into_boxed_slice();
@@ -1786,8 +1777,8 @@ impl Serializable for BitmapRangeComparison {
         offset += bitmap_size as usize;
         let ParseValue {
             value: file,
-            data_read: file_size,
-        } = FileOffsetOperand::deserialize(&out[offset..])?;
+            size: file_size,
+        } = FileOffsetOperand::decode(&out[offset..])?;
         offset += file_size;
         Ok(ParseValue {
             value: Self {
@@ -1799,7 +1790,7 @@ impl Serializable for BitmapRangeComparison {
                 bitmap,
                 file,
             },
-            data_read: offset,
+            size: offset,
         })
     }
 }
@@ -1831,8 +1822,8 @@ pub struct StringTokenSearch {
     pub value: Box<[u8]>,
     pub file: FileOffsetOperand,
 }
-impl Serializable for StringTokenSearch {
-    fn serialized_size(&self) -> usize {
+impl Codec for StringTokenSearch {
+    fn encoded_size(&self) -> usize {
         let mask_size = match self.mask {
             Some(_) => self.size as usize,
             None => 0,
@@ -1840,9 +1831,9 @@ impl Serializable for StringTokenSearch {
         1 + unsafe { varint::size(self.size) } as usize
             + mask_size
             + self.value.len()
-            + self.file.serialized_size()
+            + self.file.encoded_size()
     }
-    fn serialize(&self, out: &mut [u8]) -> usize {
+    fn encode(&self, out: &mut [u8]) -> usize {
         let mask_flag = match self.mask {
             Some(_) => 1,
             None => 0,
@@ -1853,17 +1844,17 @@ impl Serializable for StringTokenSearch {
             // | (0 << 3)
             | self.max_errors;
         offset += 1;
-        offset += unsafe { varint::serialize(self.size, &mut out[offset..]) } as usize;
+        offset += unsafe { varint::encode(self.size, &mut out[offset..]) } as usize;
         if let Some(mask) = &self.mask {
             out[offset..offset + self.size as usize].clone_from_slice(&mask);
             offset += mask.len();
         }
         out[offset..offset + self.size as usize].clone_from_slice(&self.value[..]);
         offset += self.value.len();
-        offset += self.file.serialize(&mut out[offset..]);
+        offset += self.file.encode(&mut out[offset..]);
         offset
     }
-    fn deserialize(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.len() < 1 + 1 + 2 {
             return Err(ParseError::MissingBytes(Some(1 + 1 + 2 - out.len())));
         }
@@ -1871,8 +1862,8 @@ impl Serializable for StringTokenSearch {
         let max_errors = out[0] & 0x07;
         let ParseValue {
             value: size32,
-            data_read: size_size,
-        } = varint::deserialize(&out[1..])?;
+            size: size_size,
+        } = varint::decode(&out[1..])?;
         let size = size32 as usize;
         let mut offset = 1 + size_size;
         let mask = if mask_flag {
@@ -1888,8 +1879,8 @@ impl Serializable for StringTokenSearch {
         offset += size;
         let ParseValue {
             value: file,
-            data_read: offset_size,
-        } = FileOffsetOperand::deserialize(&out[offset..])?;
+            size: offset_size,
+        } = FileOffsetOperand::decode(&out[offset..])?;
         offset += offset_size;
         Ok(ParseValue {
             value: Self {
@@ -1899,7 +1890,7 @@ impl Serializable for StringTokenSearch {
                 value,
                 file,
             },
-            data_read: offset,
+            size: offset,
         })
     }
 }
@@ -1926,42 +1917,43 @@ pub enum QueryOperand {
     BitmapRangeComparison(BitmapRangeComparison),
     StringTokenSearch(StringTokenSearch),
 }
-impl Serializable for QueryOperand {
-    fn serialized_size(&self) -> usize {
+impl Codec for QueryOperand {
+    fn encoded_size(&self) -> usize {
         match self {
-            QueryOperand::NonVoid(v) => v.serialized_size(),
-            QueryOperand::ComparisonWithZero(v) => v.serialized_size(),
-            QueryOperand::ComparisonWithValue(v) => v.serialized_size(),
-            QueryOperand::ComparisonWithOtherFile(v) => v.serialized_size(),
-            QueryOperand::BitmapRangeComparison(v) => v.serialized_size(),
-            QueryOperand::StringTokenSearch(v) => v.serialized_size(),
+            QueryOperand::NonVoid(v) => v.encoded_size(),
+            QueryOperand::ComparisonWithZero(v) => v.encoded_size(),
+            QueryOperand::ComparisonWithValue(v) => v.encoded_size(),
+            QueryOperand::ComparisonWithOtherFile(v) => v.encoded_size(),
+            QueryOperand::BitmapRangeComparison(v) => v.encoded_size(),
+            QueryOperand::StringTokenSearch(v) => v.encoded_size(),
         }
     }
-    fn serialize(&self, out: &mut [u8]) -> usize {
+    fn encode(&self, out: &mut [u8]) -> usize {
         match self {
-            QueryOperand::NonVoid(v) => v.serialize(out),
-            QueryOperand::ComparisonWithZero(v) => v.serialize(out),
-            QueryOperand::ComparisonWithValue(v) => v.serialize(out),
-            QueryOperand::ComparisonWithOtherFile(v) => v.serialize(out),
-            QueryOperand::BitmapRangeComparison(v) => v.serialize(out),
-            QueryOperand::StringTokenSearch(v) => v.serialize(out),
+            QueryOperand::NonVoid(v) => v.encode(out),
+            QueryOperand::ComparisonWithZero(v) => v.encode(out),
+            QueryOperand::ComparisonWithValue(v) => v.encode(out),
+            QueryOperand::ComparisonWithOtherFile(v) => v.encode(out),
+            QueryOperand::BitmapRangeComparison(v) => v.encode(out),
+            QueryOperand::StringTokenSearch(v) => v.encode(out),
         }
     }
-    fn deserialize(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> ParseResult<Self> {
         Ok(match QueryCode::from(out[0] >> 5) {
-            QueryCode::NonVoid => NonVoid::deserialize(out)?.map_value(QueryOperand::NonVoid),
+            QueryCode::NonVoid => NonVoid::decode(out)?.map_value(QueryOperand::NonVoid),
             QueryCode::ComparisonWithZero => {
-                ComparisonWithZero::deserialize(out)?.map_value(QueryOperand::ComparisonWithZero)
+                ComparisonWithZero::decode(out)?.map_value(QueryOperand::ComparisonWithZero)
             }
             QueryCode::ComparisonWithValue => {
-                ComparisonWithValue::deserialize(out)?.map_value(QueryOperand::ComparisonWithValue)
+                ComparisonWithValue::decode(out)?.map_value(QueryOperand::ComparisonWithValue)
             }
-            QueryCode::ComparisonWithOtherFile => ComparisonWithOtherFile::deserialize(out)?
+            QueryCode::ComparisonWithOtherFile => ComparisonWithOtherFile::decode(out)?
                 .map_value(QueryOperand::ComparisonWithOtherFile),
-            QueryCode::BitmapRangeComparison => BitmapRangeComparison::deserialize(out)?
-                .map_value(QueryOperand::BitmapRangeComparison),
+            QueryCode::BitmapRangeComparison => {
+                BitmapRangeComparison::decode(out)?.map_value(QueryOperand::BitmapRangeComparison)
+            }
             QueryCode::StringTokenSearch => {
-                StringTokenSearch::deserialize(out)?.map_value(QueryOperand::StringTokenSearch)
+                StringTokenSearch::decode(out)?.map_value(QueryOperand::StringTokenSearch)
             }
         })
     }
@@ -1973,29 +1965,29 @@ pub struct OverloadedIndirectInterface {
     pub addressee: Addressee,
 }
 
-impl Serializable for OverloadedIndirectInterface {
-    fn serialized_size(&self) -> usize {
-        1 + self.addressee.serialized_size()
+impl Codec for OverloadedIndirectInterface {
+    fn encoded_size(&self) -> usize {
+        1 + self.addressee.encoded_size()
     }
-    fn serialize(&self, out: &mut [u8]) -> usize {
+    fn encode(&self, out: &mut [u8]) -> usize {
         out[0] = self.interface_file_id;
-        1 + self.addressee.serialize(&mut out[1..])
+        1 + self.addressee.encode(&mut out[1..])
     }
-    fn deserialize(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.len() < 1 + 2 {
             return Err(ParseError::MissingBytes(Some(1 + 2 - out.len())));
         }
         let interface_file_id = out[0];
         let ParseValue {
             value: addressee,
-            data_read: addressee_size,
-        } = Addressee::deserialize(&out[1..])?;
+            size: addressee_size,
+        } = Addressee::decode(&out[1..])?;
         Ok(ParseValue {
             value: Self {
                 interface_file_id,
                 addressee,
             },
-            data_read: 1 + addressee_size,
+            size: 1 + addressee_size,
         })
     }
 }
@@ -2022,11 +2014,11 @@ pub struct NonOverloadedIndirectInterface {
     pub data: Box<[u8]>,
 }
 
-impl Serializable for NonOverloadedIndirectInterface {
-    fn serialized_size(&self) -> usize {
+impl Codec for NonOverloadedIndirectInterface {
+    fn encoded_size(&self) -> usize {
         1 + self.data.len()
     }
-    fn serialize(&self, out: &mut [u8]) -> usize {
+    fn encode(&self, out: &mut [u8]) -> usize {
         // TODO Add overload flag (with op byte mod) (shift out bytes by 1)
         out[0] = self.interface_file_id;
         let mut offset = 1;
@@ -2035,7 +2027,7 @@ impl Serializable for NonOverloadedIndirectInterface {
         // ALP SPEC: TODO: What should we do
         todo!("{}", offset)
     }
-    fn deserialize(_out: &[u8]) -> ParseResult<Self> {
+    fn decode(_out: &[u8]) -> ParseResult<Self> {
         todo!("TODO")
     }
 }
@@ -2046,28 +2038,28 @@ pub enum IndirectInterface {
     NonOverloaded(NonOverloadedIndirectInterface),
 }
 
-impl Serializable for IndirectInterface {
-    fn serialized_size(&self) -> usize {
+impl Codec for IndirectInterface {
+    fn encoded_size(&self) -> usize {
         match self {
-            IndirectInterface::Overloaded(v) => v.serialized_size(),
-            IndirectInterface::NonOverloaded(v) => v.serialized_size(),
+            IndirectInterface::Overloaded(v) => v.encoded_size(),
+            IndirectInterface::NonOverloaded(v) => v.encoded_size(),
         }
     }
-    fn serialize(&self, out: &mut [u8]) -> usize {
+    fn encode(&self, out: &mut [u8]) -> usize {
         match self {
-            IndirectInterface::Overloaded(v) => v.serialize(out),
-            IndirectInterface::NonOverloaded(v) => v.serialize(out),
+            IndirectInterface::Overloaded(v) => v.encode(out),
+            IndirectInterface::NonOverloaded(v) => v.encode(out),
         }
     }
-    fn deserialize(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.is_empty() {
             return Err(ParseError::MissingBytes(Some(1)));
         }
         Ok(if out[0] & 0x80 != 0 {
-            OverloadedIndirectInterface::deserialize(&out[1..])?
+            OverloadedIndirectInterface::decode(&out[1..])?
                 .map(|v, i| (IndirectInterface::Overloaded(v), i + 1))
         } else {
-            NonOverloadedIndirectInterface::deserialize(&out[1..])?
+            NonOverloadedIndirectInterface::decode(&out[1..])?
                 .map(|v, i| (IndirectInterface::NonOverloaded(v), i + 1))
         })
     }
@@ -2107,16 +2099,16 @@ pub struct ReadFileData {
     pub size: u32,
 }
 
-impl Serializable for ReadFileData {
-    fn serialized_size(&self) -> usize {
+impl Codec for ReadFileData {
+    fn encoded_size(&self) -> usize {
         1 + 1 + unsafe_varint_serialize_sizes!(self.offset, self.size) as usize
     }
-    fn serialize(&self, out: &mut [u8]) -> usize {
+    fn encode(&self, out: &mut [u8]) -> usize {
         out[0] = control_byte!(self.group, self.resp, OpCode::ReadFileData);
         out[1] = self.file_id;
         1 + 1 + unsafe_varint_serialize!(out[2..], self.offset, self.size)
     }
-    fn deserialize(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> ParseResult<Self> {
         let min_size = 1 + 1 + 1 + 1;
         if out.len() < min_size {
             return Err(ParseError::MissingBytes(Some(min_size - out.len())));
@@ -2127,13 +2119,13 @@ impl Serializable for ReadFileData {
         let mut off = 2;
         let ParseValue {
             value: offset,
-            data_read: offset_size,
-        } = varint::deserialize(&out[off..])?;
+            size: offset_size,
+        } = varint::decode(&out[off..])?;
         off += offset_size;
         let ParseValue {
             value: size,
-            data_read: size_size,
-        } = varint::deserialize(&out[off..])?;
+            size: size_size,
+        } = varint::decode(&out[off..])?;
         off += size_size;
         Ok(ParseValue {
             value: Self {
@@ -2143,7 +2135,7 @@ impl Serializable for ReadFileData {
                 offset,
                 size,
             },
-            data_read: off,
+            size: off,
         })
     }
 }
@@ -2191,13 +2183,13 @@ pub struct WriteFileData {
     pub offset: u32,
     pub data: Box<[u8]>,
 }
-impl Serializable for WriteFileData {
-    fn serialized_size(&self) -> usize {
+impl Codec for WriteFileData {
+    fn encoded_size(&self) -> usize {
         1 + 1
             + unsafe_varint_serialize_sizes!(self.offset, self.data.len() as u32) as usize
             + self.data.len()
     }
-    fn serialize(&self, out: &mut [u8]) -> usize {
+    fn encode(&self, out: &mut [u8]) -> usize {
         out[0] = control_byte!(self.group, self.resp, OpCode::WriteFileData);
         out[1] = self.file_id;
         let mut offset = 2;
@@ -2206,7 +2198,7 @@ impl Serializable for WriteFileData {
         offset += self.data.len();
         offset
     }
-    fn deserialize(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> ParseResult<Self> {
         let min_size = 1 + 1 + 1 + 1;
         if out.len() < min_size {
             return Err(ParseError::MissingBytes(Some(min_size - out.len())));
@@ -2217,13 +2209,13 @@ impl Serializable for WriteFileData {
         let mut off = 2;
         let ParseValue {
             value: offset,
-            data_read: offset_size,
-        } = varint::deserialize(&out[off..])?;
+            size: offset_size,
+        } = varint::decode(&out[off..])?;
         off += offset_size;
         let ParseValue {
             value: size,
-            data_read: size_size,
-        } = varint::deserialize(&out[off..])?;
+            size: size_size,
+        } = varint::decode(&out[off..])?;
         off += size_size;
         let size = size as usize;
         let mut data = vec![0u8; size].into_boxed_slice();
@@ -2237,7 +2229,7 @@ impl Serializable for WriteFileData {
                 offset,
                 data,
             },
-            data_read: off,
+            size: off,
         })
     }
 }
@@ -2264,13 +2256,13 @@ fn test_write_file_data() {
 //     pub offset: u32,
 //     pub data: Box<[u8]>,
 // }
-// impl Serializable for WriteFileDataFlush {
-//     fn serialized_size(&self) -> usize {
+// impl Codec for WriteFileDataFlush {
+//     fn encoded_size(&self) -> usize {
 //         1 + 1
 //             + unsafe_varint_serialize_sizes!(self.offset, self.data.len() as u32) as usize
 //             + self.data.len()
 //     }
-//     fn serialize(&self, out: &mut [u8]) -> usize {
+//     fn encode(&self, out: &mut [u8]) -> usize {
 //         out[0] = control_byte!(self.group, self.resp, OpCode::WriteFileDataFlush);
 //         out[1] = self.file_id;
 //         let mut offset = 2;
@@ -2279,7 +2271,7 @@ fn test_write_file_data() {
 //         offset += self.data.len();
 //         offset
 //     }
-//     fn deserialize(out: &[u8]) -> ParseResult<Self> {
+//     fn decode(out: &[u8]) -> ParseResult<Self> {
 //         let min_size = 1 + 1 + 1 + 1;
 //         if out.len() < min_size {
 //             return Err(ParseError::MissingBytes(Some(min_size - out.len())));
@@ -2290,13 +2282,13 @@ fn test_write_file_data() {
 //         let mut off = 2;
 //         let ParseValue {
 //             value: offset,
-//             data_read: offset_size,
-//         } = varint::deserialize(&out[off..])?;
+//             size: offset_size,
+//         } = varint::decode(&out[off..])?;
 //         off += offset_size;
 //         let ParseValue {
 //             value: size,
-//             data_read: size_size,
-//         } = varint::deserialize(&out[off..])?;
+//             size: size_size,
+//         } = varint::decode(&out[off..])?;
 //         off += size_size;
 //         let size = size as usize;
 //         let mut data = vec![0u8; size].into_boxed_slice();
@@ -2310,7 +2302,7 @@ fn test_write_file_data() {
 //                 offset,
 //                 data,
 //             },
-//             data_read: off,
+//             size: off,
 //         })
 //     }
 // }
@@ -2596,13 +2588,13 @@ pub struct ReturnFileData {
     pub offset: u32,
     pub data: Box<[u8]>,
 }
-impl Serializable for ReturnFileData {
-    fn serialized_size(&self) -> usize {
+impl Codec for ReturnFileData {
+    fn encoded_size(&self) -> usize {
         1 + 1
             + unsafe_varint_serialize_sizes!(self.offset, self.data.len() as u32) as usize
             + self.data.len()
     }
-    fn serialize(&self, out: &mut [u8]) -> usize {
+    fn encode(&self, out: &mut [u8]) -> usize {
         out[0] = control_byte!(self.group, self.resp, OpCode::ReturnFileData);
         out[1] = self.file_id;
         let mut offset = 2;
@@ -2611,7 +2603,7 @@ impl Serializable for ReturnFileData {
         offset += self.data.len();
         offset
     }
-    fn deserialize(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> ParseResult<Self> {
         let min_size = 1 + 1 + 1 + 1;
         if out.len() < min_size {
             return Err(ParseError::MissingBytes(Some(min_size - out.len())));
@@ -2622,13 +2614,13 @@ impl Serializable for ReturnFileData {
         let mut off = 2;
         let ParseValue {
             value: offset,
-            data_read: offset_size,
-        } = varint::deserialize(&out[off..])?;
+            size: offset_size,
+        } = varint::decode(&out[off..])?;
         off += offset_size;
         let ParseValue {
             value: size,
-            data_read: size_size,
-        } = varint::deserialize(&out[off..])?;
+            size: size_size,
+        } = varint::decode(&out[off..])?;
         off += size_size;
         let size = size as usize;
         let mut data = vec![0u8; size].into_boxed_slice();
@@ -2642,7 +2634,7 @@ impl Serializable for ReturnFileData {
                 offset,
                 data,
             },
-            data_read: off,
+            size: off,
         })
     }
 }
@@ -2707,14 +2699,14 @@ pub enum Status {
     Interface(InterfaceStatus),
     // ALP SPEC: Where are the stack errors?
 }
-impl Serializable for Status {
-    fn serialized_size(&self) -> usize {
+impl Codec for Status {
+    fn encoded_size(&self) -> usize {
         1 + match self {
-            Status::Action(op) => op.serialized_size(),
-            Status::Interface(op) => op.serialized_size(),
+            Status::Action(op) => op.encoded_size(),
+            Status::Interface(op) => op.encoded_size(),
         }
     }
-    fn serialize(&self, out: &mut [u8]) -> usize {
+    fn encode(&self, out: &mut [u8]) -> usize {
         out[0] = OpCode::Status as u8
             + ((match self {
                 Status::Action(_) => StatusType::Action,
@@ -2723,20 +2715,22 @@ impl Serializable for Status {
                 << 6);
         let out = &mut out[1..];
         1 + match self {
-            Status::Action(op) => op.serialize(out),
-            Status::Interface(op) => op.serialize(out),
+            Status::Action(op) => op.encode(out),
+            Status::Interface(op) => op.encode(out),
         }
     }
-    fn deserialize(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.is_empty() {
             return Err(ParseError::MissingBytes(Some(1)));
         }
         let status_type = out[0] >> 6;
         Ok(match StatusType::from(status_type) {
-            StatusType::Action => StatusOperand::deserialize(&out[1..])?
-                .map(|v, data_read| (Status::Action(v), data_read + 1)),
-            StatusType::Interface => InterfaceStatus::deserialize(&out[1..])?
-                .map(|v, data_read| (Status::Interface(v), data_read + 1)),
+            StatusType::Action => {
+                StatusOperand::decode(&out[1..])?.map(|v, size| (Status::Action(v), size + 1))
+            }
+            StatusType::Interface => {
+                InterfaceStatus::decode(&out[1..])?.map(|v, size| (Status::Interface(v), size + 1))
+            }
         })
     }
 }
@@ -2794,15 +2788,15 @@ impl ChunkStep {
 pub struct Chunk {
     pub step: ChunkStep,
 }
-impl Serializable for Chunk {
-    fn serialized_size(&self) -> usize {
+impl Codec for Chunk {
+    fn encoded_size(&self) -> usize {
         1
     }
-    fn serialize(&self, out: &mut [u8]) -> usize {
+    fn encode(&self, out: &mut [u8]) -> usize {
         out[0] = OpCode::Chunk as u8 + ((self.step as u8) << 6);
         1
     }
-    fn deserialize(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.is_empty() {
             return Err(ParseError::MissingBytes(Some(1)));
         }
@@ -2810,7 +2804,7 @@ impl Serializable for Chunk {
             value: Self {
                 step: ChunkStep::from(out[0] >> 6),
             },
-            data_read: 1,
+            size: 1,
         })
     }
 }
@@ -2847,15 +2841,15 @@ impl LogicOp {
 pub struct Logic {
     pub logic: LogicOp,
 }
-impl Serializable for Logic {
-    fn serialized_size(&self) -> usize {
+impl Codec for Logic {
+    fn encoded_size(&self) -> usize {
         1
     }
-    fn serialize(&self, out: &mut [u8]) -> usize {
+    fn encode(&self, out: &mut [u8]) -> usize {
         out[0] = OpCode::Logic as u8 + ((self.logic as u8) << 6);
         1
     }
-    fn deserialize(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.is_empty() {
             return Err(ParseError::MissingBytes(Some(1)));
         }
@@ -2863,7 +2857,7 @@ impl Serializable for Logic {
             value: Self {
                 logic: LogicOp::from(out[0] >> 6),
             },
-            data_read: 1,
+            size: 1,
         })
     }
 }
@@ -2882,29 +2876,29 @@ pub struct Forward {
     pub resp: bool,
     pub conf: InterfaceConfiguration,
 }
-impl Serializable for Forward {
-    fn serialized_size(&self) -> usize {
-        1 + self.conf.serialized_size()
+impl Codec for Forward {
+    fn encoded_size(&self) -> usize {
+        1 + self.conf.encoded_size()
     }
-    fn serialize(&self, out: &mut [u8]) -> usize {
+    fn encode(&self, out: &mut [u8]) -> usize {
         out[0] = control_byte!(false, self.resp, OpCode::Forward);
-        1 + self.conf.serialize(&mut out[1..])
+        1 + self.conf.encode(&mut out[1..])
     }
-    fn deserialize(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> ParseResult<Self> {
         let min_size = 1 + 1;
         if out.len() < min_size {
             return Err(ParseError::MissingBytes(Some(min_size - out.len())));
         }
         let ParseValue {
             value: conf,
-            data_read: conf_size,
-        } = InterfaceConfiguration::deserialize(&out[1..])?;
+            size: conf_size,
+        } = InterfaceConfiguration::decode(&out[1..])?;
         Ok(ParseValue {
             value: Self {
                 resp: out[0] & 0x40 != 0,
                 conf,
             },
-            data_read: 1 + conf_size,
+            size: 1 + conf_size,
         })
     }
 }
@@ -2924,11 +2918,11 @@ pub struct IndirectForward {
     pub resp: bool,
     pub interface: IndirectInterface,
 }
-impl Serializable for IndirectForward {
-    fn serialized_size(&self) -> usize {
-        1 + self.interface.serialized_size()
+impl Codec for IndirectForward {
+    fn encoded_size(&self) -> usize {
+        1 + self.interface.encoded_size()
     }
-    fn serialize(&self, out: &mut [u8]) -> usize {
+    fn encode(&self, out: &mut [u8]) -> usize {
         let overload = match self.interface {
             IndirectInterface::Overloaded(_) => true,
             IndirectInterface::NonOverloaded(_) => false,
@@ -2936,22 +2930,22 @@ impl Serializable for IndirectForward {
         out[0] = control_byte!(overload, self.resp, OpCode::IndirectForward);
         1 + serialize_all!(&mut out[1..], &self.interface)
     }
-    fn deserialize(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.is_empty() {
             Err(ParseError::MissingBytes(Some(1)))
         } else {
             let mut offset = 0;
             let ParseValue {
                 value: op1,
-                data_read: op1_size,
-            } = IndirectInterface::deserialize(out)?;
+                size: op1_size,
+            } = IndirectInterface::decode(out)?;
             offset += op1_size;
             Ok(ParseValue {
                 value: Self {
                     resp: out[0] & 0x40 != 0,
                     interface: op1,
                 },
-                data_read: offset,
+                size: offset,
             })
         }
     }
@@ -2979,16 +2973,16 @@ pub struct RequestTag {
     pub eop: bool, // End of packet
     pub id: u8,
 }
-impl Serializable for RequestTag {
-    fn serialized_size(&self) -> usize {
+impl Codec for RequestTag {
+    fn encoded_size(&self) -> usize {
         1 + 1
     }
-    fn serialize(&self, out: &mut [u8]) -> usize {
+    fn encode(&self, out: &mut [u8]) -> usize {
         out[0] = control_byte!(self.eop, false, OpCode::RequestTag);
         out[1] = self.id;
         1 + 1
     }
-    fn deserialize(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> ParseResult<Self> {
         let min_size = 1 + 1;
         if out.len() < min_size {
             return Err(ParseError::MissingBytes(Some(min_size - out.len())));
@@ -2998,7 +2992,7 @@ impl Serializable for RequestTag {
                 eop: out[0] & 0x80 != 0,
                 id: out[1],
             },
-            data_read: 2,
+            size: 2,
         })
     }
 }
@@ -3012,14 +3006,14 @@ pub struct Extension {
     pub group: bool,
     pub resp: bool,
 }
-impl Serializable for Extension {
-    fn serialized_size(&self) -> usize {
+impl Codec for Extension {
+    fn encoded_size(&self) -> usize {
         todo!()
     }
-    fn serialize(&self, _out: &mut [u8]) -> usize {
+    fn encode(&self, _out: &mut [u8]) -> usize {
         todo!()
     }
-    fn deserialize(_out: &[u8]) -> ParseResult<Self> {
+    fn decode(_out: &[u8]) -> ParseResult<Self> {
         todo!()
     }
 }
@@ -3067,124 +3061,118 @@ pub enum Action {
     Extension(Extension),
 }
 
-impl Serializable for Action {
-    fn serialized_size(&self) -> usize {
+impl Codec for Action {
+    fn encoded_size(&self) -> usize {
         match self {
-            Action::Nop(x) => x.serialized_size(),
-            Action::ReadFileData(x) => x.serialized_size(),
-            Action::ReadFileProperties(x) => x.serialized_size(),
-            Action::WriteFileData(x) => x.serialized_size(),
-            // Action::WriteFileDataFlush(x) => x.serialized_size(),
-            Action::WriteFileProperties(x) => x.serialized_size(),
-            Action::ActionQuery(x) => x.serialized_size(),
-            Action::BreakQuery(x) => x.serialized_size(),
-            Action::PermissionRequest(x) => x.serialized_size(),
-            Action::VerifyChecksum(x) => x.serialized_size(),
-            Action::ExistFile(x) => x.serialized_size(),
-            Action::CreateNewFile(x) => x.serialized_size(),
-            Action::DeleteFile(x) => x.serialized_size(),
-            Action::RestoreFile(x) => x.serialized_size(),
-            Action::FlushFile(x) => x.serialized_size(),
-            Action::CopyFile(x) => x.serialized_size(),
-            Action::ExecuteFile(x) => x.serialized_size(),
-            Action::ReturnFileData(x) => x.serialized_size(),
-            Action::ReturnFileProperties(x) => x.serialized_size(),
-            Action::Status(x) => x.serialized_size(),
-            Action::ResponseTag(x) => x.serialized_size(),
-            Action::Chunk(x) => x.serialized_size(),
-            Action::Logic(x) => x.serialized_size(),
-            Action::Forward(x) => x.serialized_size(),
-            Action::IndirectForward(x) => x.serialized_size(),
-            Action::RequestTag(x) => x.serialized_size(),
-            Action::Extension(x) => x.serialized_size(),
+            Action::Nop(x) => x.encoded_size(),
+            Action::ReadFileData(x) => x.encoded_size(),
+            Action::ReadFileProperties(x) => x.encoded_size(),
+            Action::WriteFileData(x) => x.encoded_size(),
+            // Action::WriteFileDataFlush(x) => x.encoded_size(),
+            Action::WriteFileProperties(x) => x.encoded_size(),
+            Action::ActionQuery(x) => x.encoded_size(),
+            Action::BreakQuery(x) => x.encoded_size(),
+            Action::PermissionRequest(x) => x.encoded_size(),
+            Action::VerifyChecksum(x) => x.encoded_size(),
+            Action::ExistFile(x) => x.encoded_size(),
+            Action::CreateNewFile(x) => x.encoded_size(),
+            Action::DeleteFile(x) => x.encoded_size(),
+            Action::RestoreFile(x) => x.encoded_size(),
+            Action::FlushFile(x) => x.encoded_size(),
+            Action::CopyFile(x) => x.encoded_size(),
+            Action::ExecuteFile(x) => x.encoded_size(),
+            Action::ReturnFileData(x) => x.encoded_size(),
+            Action::ReturnFileProperties(x) => x.encoded_size(),
+            Action::Status(x) => x.encoded_size(),
+            Action::ResponseTag(x) => x.encoded_size(),
+            Action::Chunk(x) => x.encoded_size(),
+            Action::Logic(x) => x.encoded_size(),
+            Action::Forward(x) => x.encoded_size(),
+            Action::IndirectForward(x) => x.encoded_size(),
+            Action::RequestTag(x) => x.encoded_size(),
+            Action::Extension(x) => x.encoded_size(),
         }
     }
-    fn serialize(&self, out: &mut [u8]) -> usize {
+    fn encode(&self, out: &mut [u8]) -> usize {
         match self {
-            Action::Nop(x) => x.serialize(out),
-            Action::ReadFileData(x) => x.serialize(out),
-            Action::ReadFileProperties(x) => x.serialize(out),
-            Action::WriteFileData(x) => x.serialize(out),
-            // Action::WriteFileDataFlush(x) => x.serialize(out),
-            Action::WriteFileProperties(x) => x.serialize(out),
-            Action::ActionQuery(x) => x.serialize(out),
-            Action::BreakQuery(x) => x.serialize(out),
-            Action::PermissionRequest(x) => x.serialize(out),
-            Action::VerifyChecksum(x) => x.serialize(out),
-            Action::ExistFile(x) => x.serialize(out),
-            Action::CreateNewFile(x) => x.serialize(out),
-            Action::DeleteFile(x) => x.serialize(out),
-            Action::RestoreFile(x) => x.serialize(out),
-            Action::FlushFile(x) => x.serialize(out),
-            Action::CopyFile(x) => x.serialize(out),
-            Action::ExecuteFile(x) => x.serialize(out),
-            Action::ReturnFileData(x) => x.serialize(out),
-            Action::ReturnFileProperties(x) => x.serialize(out),
-            Action::Status(x) => x.serialize(out),
-            Action::ResponseTag(x) => x.serialize(out),
-            Action::Chunk(x) => x.serialize(out),
-            Action::Logic(x) => x.serialize(out),
-            Action::Forward(x) => x.serialize(out),
-            Action::IndirectForward(x) => x.serialize(out),
-            Action::RequestTag(x) => x.serialize(out),
-            Action::Extension(x) => x.serialize(out),
+            Action::Nop(x) => x.encode(out),
+            Action::ReadFileData(x) => x.encode(out),
+            Action::ReadFileProperties(x) => x.encode(out),
+            Action::WriteFileData(x) => x.encode(out),
+            // Action::WriteFileDataFlush(x) => x.encode(out),
+            Action::WriteFileProperties(x) => x.encode(out),
+            Action::ActionQuery(x) => x.encode(out),
+            Action::BreakQuery(x) => x.encode(out),
+            Action::PermissionRequest(x) => x.encode(out),
+            Action::VerifyChecksum(x) => x.encode(out),
+            Action::ExistFile(x) => x.encode(out),
+            Action::CreateNewFile(x) => x.encode(out),
+            Action::DeleteFile(x) => x.encode(out),
+            Action::RestoreFile(x) => x.encode(out),
+            Action::FlushFile(x) => x.encode(out),
+            Action::CopyFile(x) => x.encode(out),
+            Action::ExecuteFile(x) => x.encode(out),
+            Action::ReturnFileData(x) => x.encode(out),
+            Action::ReturnFileProperties(x) => x.encode(out),
+            Action::Status(x) => x.encode(out),
+            Action::ResponseTag(x) => x.encode(out),
+            Action::Chunk(x) => x.encode(out),
+            Action::Logic(x) => x.encode(out),
+            Action::Forward(x) => x.encode(out),
+            Action::IndirectForward(x) => x.encode(out),
+            Action::RequestTag(x) => x.encode(out),
+            Action::Extension(x) => x.encode(out),
         }
     }
-    fn deserialize(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.is_empty() {
             return Err(ParseError::MissingBytes(Some(1)));
         }
         let opcode = OpCode::from(out[0] & 0x3F);
         Ok(match opcode {
-            OpCode::Nop => Nop::deserialize(&out)?.map_value(Action::Nop),
-            OpCode::ReadFileData => {
-                ReadFileData::deserialize(&out)?.map_value(Action::ReadFileData)
-            }
+            OpCode::Nop => Nop::decode(&out)?.map_value(Action::Nop),
+            OpCode::ReadFileData => ReadFileData::decode(&out)?.map_value(Action::ReadFileData),
             OpCode::ReadFileProperties => {
-                ReadFileProperties::deserialize(&out)?.map_value(Action::ReadFileProperties)
+                ReadFileProperties::decode(&out)?.map_value(Action::ReadFileProperties)
             }
-            OpCode::WriteFileData => {
-                WriteFileData::deserialize(&out)?.map_value(Action::WriteFileData)
-            }
+            OpCode::WriteFileData => WriteFileData::decode(&out)?.map_value(Action::WriteFileData),
             // OpCode::WriteFileDataFlush => {
-            //     WriteFileDataFlush::deserialize(&out)?.map_value( Action::WriteFileDataFlush)
+            //     WriteFileDataFlush::decode(&out)?.map_value( Action::WriteFileDataFlush)
             // }
             OpCode::WriteFileProperties => {
-                WriteFileProperties::deserialize(&out)?.map_value(Action::WriteFileProperties)
+                WriteFileProperties::decode(&out)?.map_value(Action::WriteFileProperties)
             }
-            OpCode::ActionQuery => ActionQuery::deserialize(&out)?.map_value(Action::ActionQuery),
-            OpCode::BreakQuery => BreakQuery::deserialize(&out)?.map_value(Action::BreakQuery),
+            OpCode::ActionQuery => ActionQuery::decode(&out)?.map_value(Action::ActionQuery),
+            OpCode::BreakQuery => BreakQuery::decode(&out)?.map_value(Action::BreakQuery),
             OpCode::PermissionRequest => {
-                PermissionRequest::deserialize(&out)?.map_value(Action::PermissionRequest)
+                PermissionRequest::decode(&out)?.map_value(Action::PermissionRequest)
             }
             OpCode::VerifyChecksum => {
-                VerifyChecksum::deserialize(&out)?.map_value(Action::VerifyChecksum)
+                VerifyChecksum::decode(&out)?.map_value(Action::VerifyChecksum)
             }
-            OpCode::ExistFile => ExistFile::deserialize(&out)?.map_value(Action::ExistFile),
-            OpCode::CreateNewFile => {
-                CreateNewFile::deserialize(&out)?.map_value(Action::CreateNewFile)
-            }
-            OpCode::DeleteFile => DeleteFile::deserialize(&out)?.map_value(Action::DeleteFile),
-            OpCode::RestoreFile => RestoreFile::deserialize(&out)?.map_value(Action::RestoreFile),
-            OpCode::FlushFile => FlushFile::deserialize(&out)?.map_value(Action::FlushFile),
-            OpCode::CopyFile => CopyFile::deserialize(&out)?.map_value(Action::CopyFile),
-            OpCode::ExecuteFile => ExecuteFile::deserialize(&out)?.map_value(Action::ExecuteFile),
+            OpCode::ExistFile => ExistFile::decode(&out)?.map_value(Action::ExistFile),
+            OpCode::CreateNewFile => CreateNewFile::decode(&out)?.map_value(Action::CreateNewFile),
+            OpCode::DeleteFile => DeleteFile::decode(&out)?.map_value(Action::DeleteFile),
+            OpCode::RestoreFile => RestoreFile::decode(&out)?.map_value(Action::RestoreFile),
+            OpCode::FlushFile => FlushFile::decode(&out)?.map_value(Action::FlushFile),
+            OpCode::CopyFile => CopyFile::decode(&out)?.map_value(Action::CopyFile),
+            OpCode::ExecuteFile => ExecuteFile::decode(&out)?.map_value(Action::ExecuteFile),
             OpCode::ReturnFileData => {
-                ReturnFileData::deserialize(&out)?.map_value(Action::ReturnFileData)
+                ReturnFileData::decode(&out)?.map_value(Action::ReturnFileData)
             }
             OpCode::ReturnFileProperties => {
-                ReturnFileProperties::deserialize(&out)?.map_value(Action::ReturnFileProperties)
+                ReturnFileProperties::decode(&out)?.map_value(Action::ReturnFileProperties)
             }
-            OpCode::Status => Status::deserialize(&out)?.map_value(Action::Status),
-            OpCode::ResponseTag => ResponseTag::deserialize(&out)?.map_value(Action::ResponseTag),
-            OpCode::Chunk => Chunk::deserialize(&out)?.map_value(Action::Chunk),
-            OpCode::Logic => Logic::deserialize(&out)?.map_value(Action::Logic),
-            OpCode::Forward => Forward::deserialize(&out)?.map_value(Action::Forward),
+            OpCode::Status => Status::decode(&out)?.map_value(Action::Status),
+            OpCode::ResponseTag => ResponseTag::decode(&out)?.map_value(Action::ResponseTag),
+            OpCode::Chunk => Chunk::decode(&out)?.map_value(Action::Chunk),
+            OpCode::Logic => Logic::decode(&out)?.map_value(Action::Logic),
+            OpCode::Forward => Forward::decode(&out)?.map_value(Action::Forward),
             OpCode::IndirectForward => {
-                IndirectForward::deserialize(&out)?.map_value(Action::IndirectForward)
+                IndirectForward::decode(&out)?.map_value(Action::IndirectForward)
             }
-            OpCode::RequestTag => RequestTag::deserialize(&out)?.map_value(Action::RequestTag),
-            OpCode::Extension => Extension::deserialize(&out)?.map_value(Action::Extension),
+            OpCode::RequestTag => RequestTag::decode(&out)?.map_value(Action::RequestTag),
+            OpCode::Extension => Extension::decode(&out)?.map_value(Action::Extension),
         })
     }
 }
@@ -3208,39 +3196,39 @@ impl Default for Command {
     }
 }
 impl Command {
-    fn partial_deserialize(out: &[u8]) -> Result<ParseValue<Command>, CommandParseError> {
+    fn partial_decode(out: &[u8]) -> Result<ParseValue<Command>, CommandParseError> {
         let mut actions = vec![];
         let mut offset = 0;
         loop {
             if out.is_empty() {
                 break;
             }
-            match Action::deserialize(&out[offset..]) {
-                Ok(ParseValue { value, data_read }) => {
+            match Action::decode(&out[offset..]) {
+                Ok(ParseValue { value, size }) => {
                     actions.push(value);
-                    offset += data_read;
+                    offset += size;
                 }
                 Err(error) => return Err(CommandParseError { actions, error }),
             }
         }
         Ok(ParseValue {
             value: Self { actions },
-            data_read: offset,
+            size: offset,
         })
     }
 }
-impl Serializable for Command {
-    fn serialized_size(&self) -> usize {
-        self.actions.iter().map(|act| act.serialized_size()).sum()
+impl Codec for Command {
+    fn encoded_size(&self) -> usize {
+        self.actions.iter().map(|act| act.encoded_size()).sum()
     }
-    fn serialize(&self, out: &mut [u8]) -> usize {
+    fn encode(&self, out: &mut [u8]) -> usize {
         let mut offset = 0;
         for action in self.actions.iter() {
-            offset += action.serialize(&mut out[offset..]);
+            offset += action.encode(&mut out[offset..]);
         }
         offset
     }
-    fn deserialize(out: &[u8]) -> ParseResult<Self> {
-        Self::partial_deserialize(out).map_err(|v| v.error)
+    fn decode(out: &[u8]) -> ParseResult<Self> {
+        Self::partial_decode(out).map_err(|v| v.error)
     }
 }
