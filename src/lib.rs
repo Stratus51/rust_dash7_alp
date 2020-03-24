@@ -3,13 +3,14 @@ use hex_literal::hex;
 
 mod codec;
 pub use codec::Codec;
-pub use codec::{ParseError, ParseResult, ParseValue};
+pub use codec::{ParseError, ParseFail, ParseResult, ParseResultExtension, ParseValue};
 
 // TODO Look into const function to replace some macros?
 // TODO Use uninitialized memory where possible
 // TODO Int enums: fn from(): find a way to avoid double value definition
 // TODO Int enums: optim: find a way to cast from int to enum instead of calling a matching
-// function (much more resource intensive)
+// function (much more resource intensive). Only do that for enums that match all possible
+// values that result from the parsing.
 // TODO Optimize min size calculation (fold it into the upper OP when possible)
 // TODO usize is target dependent. In other words, on a 16 bit processor, we will run into
 // troubles if we were to convert u32 to usize (even if a 64Ko payload seems a bit big).
@@ -73,7 +74,7 @@ macro_rules! impl_op_serialized {
             }
             fn decode(out: &[u8]) -> ParseResult<Self> {
                 if (out.is_empty()) {
-                    Err(ParseError::MissingBytes(Some(1)))
+                    Err(ParseFail::MissingBytes(Some(1)))
                 } else {
                     Ok(ParseValue {
                         value: Self {
@@ -97,13 +98,13 @@ macro_rules! impl_op_serialized {
             }
             fn decode(out: &[u8]) -> ParseResult<Self> {
                 if (out.is_empty()) {
-                    Err(ParseError::MissingBytes(Some(1)))
+                    Err(ParseFail::MissingBytes(Some(1)))
                 } else {
                     let mut offset = 1;
                     let ParseValue {
                         value: op1,
                         size: op1_size,
-                    } = $op1_type::decode(&out[offset..])?;
+                    } = $op1_type::decode(&out[offset..]).inc_offset(offset)?;
                     offset += op1_size;
                     Ok(ParseValue {
                         value: Self {
@@ -128,18 +129,18 @@ macro_rules! impl_op_serialized {
             }
             fn decode(out: &[u8]) -> ParseResult<Self> {
                 if (out.is_empty()) {
-                    Err(ParseError::MissingBytes(Some(1)))
+                    Err(ParseFail::MissingBytes(Some(1)))
                 } else {
                     let mut offset = 1;
                     let ParseValue {
                         value: op1,
                         size: op1_size,
-                    } = $op1_type::decode(&out[offset..])?;
+                    } = $op1_type::decode(&out[offset..]).inc_offset(offset)?;
                     offset += op1_size;
                     let ParseValue {
                         value: op2,
                         size: op2_size,
-                    } = $op2_type::decode(&out[offset..])?;
+                    } = $op2_type::decode(&out[offset..]).inc_offset(offset)?;
                     offset += op2_size;
                     Ok(ParseValue {
                         value: Self {
@@ -219,7 +220,7 @@ macro_rules! impl_simple_op {
             fn decode(out: &[u8]) -> ParseResult<Self> {
                 const SIZE: usize = 1 + count!($( $x )*);
                 if(out.len() < SIZE) {
-                    Err(ParseError::MissingBytes(Some(SIZE - out.len())))
+                    Err(ParseFail::MissingBytes(Some(SIZE - out.len())))
                 } else {
                     Ok(ParseValue {
                         value: build_simple_op!($name, out, $flag7, $flag6, $($x),*),
@@ -246,7 +247,7 @@ macro_rules! impl_header_op {
             fn decode(out: &[u8]) -> ParseResult<Self> {
                 const SIZE: usize = 1 + 1 + 12;
                 if (out.len() < SIZE) {
-                    Err(ParseError::MissingBytes(Some(SIZE - out.len())))
+                    Err(ParseFail::MissingBytes(Some(SIZE - out.len())))
                 } else {
                     let mut header = [0; 12];
                     header.clone_from_slice(&out[2..2 + 12]);
@@ -275,6 +276,24 @@ fn test_item<T: Codec + std::fmt::Debug + std::cmp::PartialEq>(item: T, data: &[
             size: data.len(),
         }
     );
+}
+
+// ===============================================================================
+// Definitions
+// ===============================================================================
+#[derive(Clone, Debug, PartialEq)]
+pub enum Enum {
+    OpCode,
+    NlsMethod,
+    RetryMode,
+    RespMode,
+    InterfaceId,
+    PermissionId,
+    PermissionLevel,
+    QueryComparisonType,
+    QueryRangeComparisonType,
+    QueryCode,
+    StatusType,
 }
 
 // ===============================================================================
@@ -324,8 +343,8 @@ pub enum OpCode {
     Extension = 63,
 }
 impl OpCode {
-    fn from(n: u8) -> Self {
-        match n {
+    fn from(n: u8) -> Result<Self, ParseFail> {
+        Ok(match n {
             // Nop
             0 => OpCode::Nop,
 
@@ -364,9 +383,18 @@ impl OpCode {
             51 => OpCode::IndirectForward,
             52 => OpCode::RequestTag,
             63 => OpCode::Extension,
-            // TODO Return proper result
-            x => panic!("Unknown opcode {}", x),
-        }
+
+            // On unknown OpCode return an error
+            x => {
+                return Err(ParseFail::Error {
+                    error: ParseError::UnknownEnumVariant {
+                        en: Enum::OpCode,
+                        value: x,
+                    },
+                    offset: 0,
+                })
+            }
+        })
     }
 }
 
@@ -374,7 +402,7 @@ impl OpCode {
 // Varint
 // ===============================================================================
 mod varint {
-    use crate::{ParseError, ParseResult, ParseValue};
+    use crate::{ParseFail, ParseResult, ParseValue};
     pub const MAX: u32 = 0x3F_FF_FF_FF;
     pub fn is_valid(n: u32) -> Result<(), ()> {
         if n > MAX {
@@ -419,11 +447,11 @@ mod varint {
 
     pub fn decode(out: &[u8]) -> ParseResult<u32> {
         if out.is_empty() {
-            return Err(ParseError::MissingBytes(Some(1)));
+            return Err(ParseFail::MissingBytes(Some(1)));
         }
         let size = ((out[0] >> 6) + 1) as usize;
         if out.len() < size as usize {
-            return Err(ParseError::MissingBytes(Some(size as usize - out.len())));
+            return Err(ParseFail::MissingBytes(Some(size as usize - out.len())));
         }
         let mut ret = (out[0] & 0x3F) as u32;
         for byte in out.iter().take(size).skip(1) {
@@ -497,8 +525,8 @@ pub enum NlsMethod {
     AesCcm32 = 7,
 }
 impl NlsMethod {
-    fn from(n: u8) -> NlsMethod {
-        match n {
+    fn from(n: u8) -> Result<NlsMethod, ParseFail> {
+        Ok(match n {
             0 => NlsMethod::None,
             1 => NlsMethod::AesCtr,
             2 => NlsMethod::AesCbcMac128,
@@ -507,8 +535,16 @@ impl NlsMethod {
             5 => NlsMethod::AesCcm128,
             6 => NlsMethod::AesCcm64,
             7 => NlsMethod::AesCcm32,
-            _ => panic!("Unknown nls method {}", n),
-        }
+            x => {
+                return Err(ParseFail::Error {
+                    error: ParseError::UnknownEnumVariant {
+                        en: Enum::NlsMethod,
+                        value: x,
+                    },
+                    offset: 0,
+                })
+            }
+        })
     }
 }
 
@@ -553,22 +589,22 @@ impl Codec for Addressee {
     fn decode(out: &[u8]) -> ParseResult<Self> {
         const SIZE: usize = 1 + 1;
         if out.len() < SIZE {
-            return Err(ParseError::MissingBytes(Some(SIZE - out.len())));
+            return Err(ParseFail::MissingBytes(Some(SIZE - out.len())));
         }
         let id_type = (out[0] & 0x30) >> 4;
-        let nls_method = NlsMethod::from(out[0] & 0x0F);
+        let nls_method = NlsMethod::from(out[0] & 0x0F)?;
         let access_class = out[1];
         let (address, address_size) = match id_type {
             0 => {
                 if out.len() < 3 {
-                    return Err(ParseError::MissingBytes(Some(1)));
+                    return Err(ParseFail::MissingBytes(Some(1)));
                 }
                 (Address::NbId(out[2]), 1)
             }
             1 => (Address::NoId, 0),
             2 => {
                 if out.len() < 2 + 8 {
-                    return Err(ParseError::MissingBytes(Some(2 + 8 - out.len())));
+                    return Err(ParseFail::MissingBytes(Some(2 + 8 - out.len())));
                 }
                 let mut data = Box::new([0u8; 8]);
                 data.clone_from_slice(&out[2..2 + 8]);
@@ -576,7 +612,7 @@ impl Codec for Addressee {
             }
             3 => {
                 if out.len() < 2 + 2 {
-                    return Err(ParseError::MissingBytes(Some(2 + 2 - out.len())));
+                    return Err(ParseFail::MissingBytes(Some(2 + 2 - out.len())));
                 }
                 let mut data = Box::new([0u8; 2]);
                 data.clone_from_slice(&out[2..2 + 2]);
@@ -640,16 +676,24 @@ fn test_addressee_vid() {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+// TODO ALP_SPEC: Aren't there supposed to be more retry modes?
 pub enum RetryMode {
     No = 0,
 }
 impl RetryMode {
-    fn from(n: u8) -> Self {
-        match n {
+    fn from(n: u8) -> Result<Self, ParseFail> {
+        Ok(match n {
             0 => RetryMode::No,
-            // TODO Don't panic. Return Result instead.
-            x => panic!("Unknown RetryMode {}", x),
-        }
+            x => {
+                return Err(ParseFail::Error {
+                    error: ParseError::UnknownEnumVariant {
+                        en: Enum::RetryMode,
+                        value: x,
+                    },
+                    offset: 0,
+                })
+            }
+        })
     }
 }
 
@@ -663,17 +707,24 @@ pub enum RespMode {
     RespPreferred = 6,
 }
 impl RespMode {
-    fn from(n: u8) -> Self {
-        match n {
+    fn from(n: u8) -> Result<Self, ParseFail> {
+        Ok(match n {
             0 => RespMode::No,
             1 => RespMode::All,
             2 => RespMode::Any,
             4 => RespMode::RespNoRpt,
             5 => RespMode::RespOnData,
             6 => RespMode::RespPreferred,
-            // TODO Don't panic. Return Result instead.
-            x => panic!("Unknown RetryMode {}", x),
-        }
+            x => {
+                return Err(ParseFail::Error {
+                    error: ParseError::UnknownEnumVariant {
+                        en: Enum::RespMode,
+                        value: x,
+                    },
+                    offset: 0,
+                })
+            }
+        })
     }
 }
 
@@ -692,13 +743,12 @@ impl Codec for Qos {
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.is_empty() {
-            return Err(ParseError::MissingBytes(Some(1)));
+            return Err(ParseFail::MissingBytes(Some(1)));
         }
+        let retry = RetryMode::from((out[0] & 0x38) >> 3)?;
+        let resp = RespMode::from(out[0] & 0x07)?;
         Ok(ParseValue {
-            value: Self {
-                retry: RetryMode::from((out[0] & 0x38) >> 3),
-                resp: RespMode::from(out[0] & 0x07),
-            },
+            value: Self { retry, resp },
             size: 1,
         })
     }
@@ -735,7 +785,7 @@ impl Codec for D7aspInterfaceConfiguration {
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.len() < 3 {
-            return Err(ParseError::MissingBytes(Some(3 - out.len())));
+            return Err(ParseFail::MissingBytes(Some(3 - out.len())));
         }
         let ParseValue {
             value: qos,
@@ -744,7 +794,7 @@ impl Codec for D7aspInterfaceConfiguration {
         let ParseValue {
             value: addressee,
             size: addressee_size,
-        } = Addressee::decode(&out[3..])?;
+        } = Addressee::decode(&out[3..]).inc_offset(3)?;
         Ok(ParseValue {
             value: Self {
                 qos,
@@ -830,18 +880,18 @@ impl Codec for D7aspInterfaceStatus {
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.len() < 10 {
-            return Err(ParseError::MissingBytes(Some(10 - out.len())));
+            return Err(ParseFail::MissingBytes(Some(10 - out.len())));
         }
         let ParseValue {
             value: addressee,
             size: addressee_size,
-        } = Addressee::decode(&out[10..])?;
+        } = Addressee::decode(&out[10..]).inc_offset(10)?;
         let offset = 10 + addressee_size;
         let nls_state = match addressee.nls_method {
             NlsMethod::None => None,
             _ => {
                 if out.len() < offset + 5 {
-                    return Err(ParseError::MissingBytes(Some(offset + 5 - out.len())));
+                    return Err(ParseFail::MissingBytes(Some(offset + 5 - out.len())));
                 } else {
                     let mut nls_state = [0u8; 5];
                     nls_state.clone_from_slice(&out[offset..offset + 5]);
@@ -933,7 +983,7 @@ impl Codec for InterfaceConfiguration {
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.is_empty() {
-            return Err(ParseError::MissingBytes(Some(1)));
+            return Err(ParseFail::MissingBytes(Some(1)));
         }
         const HOST: u8 = InterfaceId::Host as u8;
         const D7ASP: u8 = InterfaceId::D7asp as u8;
@@ -943,14 +993,22 @@ impl Codec for InterfaceConfiguration {
                 size: 1,
             },
             D7ASP => {
-                let ParseValue { value, size } = D7aspInterfaceConfiguration::decode(&out[1..])?;
+                let ParseValue { value, size } =
+                    D7aspInterfaceConfiguration::decode(&out[1..]).inc_offset(1)?;
                 ParseValue {
                     value: InterfaceConfiguration::D7asp(value),
                     size: size + 1,
                 }
             }
-            // TODO Return an error instead of panic
-            id => panic!("Unknown interface ID {}", id),
+            id => {
+                return Err(ParseFail::Error {
+                    error: ParseError::UnknownEnumVariant {
+                        en: Enum::InterfaceId,
+                        value: id,
+                    },
+                    offset: 0,
+                })
+            }
         })
     }
 }
@@ -980,7 +1038,6 @@ fn test_interface_configuration_host() {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum InterfaceStatus {
-    // TODO
     Host,
     D7asp(D7aspInterfaceStatus),
     // TODO Protect with size limit (< varint max size)
@@ -1023,7 +1080,7 @@ impl Codec for InterfaceStatus {
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.is_empty() {
-            return Err(ParseError::MissingBytes(Some(1)));
+            return Err(ParseFail::MissingBytes(Some(1)));
         }
         const HOST: u8 = InterfaceId::Host as u8;
         const D7ASP: u8 = InterfaceId::D7asp as u8;
@@ -1041,7 +1098,7 @@ impl Codec for InterfaceStatus {
                 let size = size as usize;
                 offset += size_size;
                 let ParseValue { value, size } =
-                    D7aspInterfaceStatus::decode(&out[offset..offset + size])?;
+                    D7aspInterfaceStatus::decode(&out[offset..offset + size]).inc_offset(offset)?;
                 offset += size;
                 InterfaceStatus::D7asp(value)
             }
@@ -1053,7 +1110,7 @@ impl Codec for InterfaceStatus {
                 let size = size as usize;
                 offset += size_size;
                 if out.len() < offset + size {
-                    return Err(ParseError::MissingBytes(Some(offset + size - out.len())));
+                    return Err(ParseFail::MissingBytes(Some(offset + size - out.len())));
                 }
                 let mut data = vec![0u8; size].into_boxed_slice();
                 data.clone_from_slice(&out[offset..size]);
@@ -1114,7 +1171,7 @@ impl Codec for FileOffsetOperand {
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.len() < 2 {
-            return Err(ParseError::MissingBytes(Some(2 - out.len())));
+            return Err(ParseFail::MissingBytes(Some(2 - out.len())));
         }
         let ParseValue {
             value: offset,
@@ -1171,7 +1228,7 @@ impl Codec for StatusOperand {
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.len() < 2 {
-            return Err(ParseError::MissingBytes(Some(2 - out.len())));
+            return Err(ParseFail::MissingBytes(Some(2 - out.len())));
         }
         Ok(ParseValue {
             value: Self {
@@ -1225,7 +1282,7 @@ impl Codec for Permission {
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.is_empty() {
-            return Err(ParseError::MissingBytes(Some(1)));
+            return Err(ParseFail::MissingBytes(Some(1)));
         }
         let mut offset = 1;
         match out[0] {
@@ -1238,8 +1295,13 @@ impl Codec for Permission {
                     size: offset,
                 })
             }
-            // TODO ParseError
-            x => panic!("Unknown authentication ID {}", x),
+            x => Err(ParseFail::Error {
+                error: ParseError::UnknownEnumVariant {
+                    en: Enum::PermissionId,
+                    value: x,
+                },
+                offset: 0,
+            }),
         }
     }
 }
@@ -1261,14 +1323,21 @@ impl Codec for PermissionLevel {
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.is_empty() {
-            return Err(ParseError::MissingBytes(Some(1)));
+            return Err(ParseFail::MissingBytes(Some(1)));
         }
         Ok(ParseValue {
             value: match out[0] {
                 0 => PermissionLevel::User,
                 1 => PermissionLevel::Root,
-                // TODO ParseError
-                x => panic!("Unknown permission level {}", x),
+                x => {
+                    return Err(ParseFail::Error {
+                        error: ParseError::UnknownEnumVariant {
+                            en: Enum::PermissionLevel,
+                            value: x,
+                        },
+                        offset: 0,
+                    })
+                }
             },
             size: 1,
         })
@@ -1285,16 +1354,24 @@ pub enum QueryComparisonType {
     GreaterThanOrEqual = 5,
 }
 impl QueryComparisonType {
-    fn from(n: u8) -> Self {
-        match n {
+    fn from(n: u8) -> Result<Self, ParseFail> {
+        Ok(match n {
             0 => QueryComparisonType::Inequal,
             1 => QueryComparisonType::Equal,
             2 => QueryComparisonType::LessThan,
             3 => QueryComparisonType::LessThanOrEqual,
             4 => QueryComparisonType::GreaterThan,
             5 => QueryComparisonType::GreaterThanOrEqual,
-            x => panic!("Unknown query comparison type {}", x),
-        }
+            x => {
+                return Err(ParseFail::Error {
+                    error: ParseError::UnknownEnumVariant {
+                        en: Enum::QueryComparisonType,
+                        value: x,
+                    },
+                    offset: 0,
+                })
+            }
+        })
     }
 }
 
@@ -1304,12 +1381,20 @@ pub enum QueryRangeComparisonType {
     InRange = 1,
 }
 impl QueryRangeComparisonType {
-    fn from(n: u8) -> Self {
-        match n {
+    fn from(n: u8) -> Result<Self, ParseFail> {
+        Ok(match n {
             0 => QueryRangeComparisonType::NotInRange,
             1 => QueryRangeComparisonType::InRange,
-            x => panic!("Unknown query range comparison type {}", x),
-        }
+            x => {
+                return Err(ParseFail::Error {
+                    error: ParseError::UnknownEnumVariant {
+                        en: Enum::QueryRangeComparisonType,
+                        value: x,
+                    },
+                    offset: 0,
+                })
+            }
+        })
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -1322,16 +1407,24 @@ pub enum QueryCode {
     StringTokenSearch = 7,
 }
 impl QueryCode {
-    fn from(n: u8) -> Self {
-        match n {
+    fn from(n: u8) -> Result<Self, ParseFail> {
+        Ok(match n {
             0 => QueryCode::NonVoid,
             1 => QueryCode::ComparisonWithZero,
             2 => QueryCode::ComparisonWithValue,
             3 => QueryCode::ComparisonWithOtherFile,
             4 => QueryCode::BitmapRangeComparison,
             7 => QueryCode::StringTokenSearch,
-            x => panic!("Unknown query code {}", x),
-        }
+            x => {
+                return Err(ParseFail::Error {
+                    error: ParseError::UnknownEnumVariant {
+                        en: Enum::QueryCode,
+                        value: x,
+                    },
+                    offset: 0,
+                })
+            }
+        })
     }
 }
 
@@ -1354,7 +1447,7 @@ impl Codec for NonVoid {
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.len() < 3 {
-            return Err(ParseError::MissingBytes(Some(3 - out.len())));
+            return Err(ParseFail::MissingBytes(Some(3 - out.len())));
         }
         let mut offset = 1;
         let ParseValue {
@@ -1424,11 +1517,11 @@ impl Codec for ComparisonWithZero {
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.len() < 1 + 1 + 2 {
-            return Err(ParseError::MissingBytes(Some(1 + 1 + 2 - out.len())));
+            return Err(ParseFail::MissingBytes(Some(1 + 1 + 2 - out.len())));
         }
         let mask_flag = out[0] & (1 << 4) != 0;
         let signed_data = out[0] & (1 << 3) != 0;
-        let comparison_type = QueryComparisonType::from(out[0] & 0x07);
+        let comparison_type = QueryComparisonType::from(out[0] & 0x07)?;
         let ParseValue {
             value: size,
             size: size_size,
@@ -1519,11 +1612,11 @@ impl Codec for ComparisonWithValue {
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.len() < 1 + 1 + 2 {
-            return Err(ParseError::MissingBytes(Some(1 + 1 + 2 - out.len())));
+            return Err(ParseFail::MissingBytes(Some(1 + 1 + 2 - out.len())));
         }
         let mask_flag = out[0] & (1 << 4) != 0;
         let signed_data = out[0] & (1 << 3) != 0;
-        let comparison_type = QueryComparisonType::from(out[0] & 0x07);
+        let comparison_type = QueryComparisonType::from(out[0] & 0x07)?;
         let ParseValue {
             value: size,
             size: size_size,
@@ -1619,11 +1712,11 @@ impl Codec for ComparisonWithOtherFile {
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.len() < 1 + 1 + 2 + 2 {
-            return Err(ParseError::MissingBytes(Some(1 + 1 + 2 + 2 - out.len())));
+            return Err(ParseFail::MissingBytes(Some(1 + 1 + 2 + 2 - out.len())));
         }
         let mask_flag = out[0] & (1 << 4) != 0;
         let signed_data = out[0] & (1 << 3) != 0;
-        let comparison_type = QueryComparisonType::from(out[0] & 0x07);
+        let comparison_type = QueryComparisonType::from(out[0] & 0x07)?;
         let ParseValue {
             value: size,
             size: size_size,
@@ -1723,10 +1816,10 @@ impl Codec for BitmapRangeComparison {
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.len() < 1 + 1 + 2 {
-            return Err(ParseError::MissingBytes(Some(1 + 1 + 2 - out.len())));
+            return Err(ParseFail::MissingBytes(Some(1 + 1 + 2 - out.len())));
         }
         let signed_data = out[0] & (1 << 3) != 0;
-        let comparison_type = QueryRangeComparisonType::from(out[0] & 0x07);
+        let comparison_type = QueryRangeComparisonType::from(out[0] & 0x07)?;
         let ParseValue {
             value: size32,
             size: size_size,
@@ -1834,7 +1927,7 @@ impl Codec for StringTokenSearch {
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.len() < 1 + 1 + 2 {
-            return Err(ParseError::MissingBytes(Some(1 + 1 + 2 - out.len())));
+            return Err(ParseFail::MissingBytes(Some(1 + 1 + 2 - out.len())));
         }
         let mask_flag = out[0] & (1 << 4) != 0;
         let max_errors = out[0] & 0x07;
@@ -1917,23 +2010,21 @@ impl Codec for QueryOperand {
         }
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
-        Ok(match QueryCode::from(out[0] >> 5) {
-            QueryCode::NonVoid => NonVoid::decode(out)?.map_value(QueryOperand::NonVoid),
-            QueryCode::ComparisonWithZero => {
-                ComparisonWithZero::decode(out)?.map_value(QueryOperand::ComparisonWithZero)
+        Ok(match QueryCode::from(out[0] >> 5)? {
+            QueryCode::NonVoid => {
+                NonVoid::decode(out).map(|ok| ok.map_value(QueryOperand::NonVoid))
             }
-            QueryCode::ComparisonWithValue => {
-                ComparisonWithValue::decode(out)?.map_value(QueryOperand::ComparisonWithValue)
-            }
-            QueryCode::ComparisonWithOtherFile => ComparisonWithOtherFile::decode(out)?
-                .map_value(QueryOperand::ComparisonWithOtherFile),
-            QueryCode::BitmapRangeComparison => {
-                BitmapRangeComparison::decode(out)?.map_value(QueryOperand::BitmapRangeComparison)
-            }
-            QueryCode::StringTokenSearch => {
-                StringTokenSearch::decode(out)?.map_value(QueryOperand::StringTokenSearch)
-            }
-        })
+            QueryCode::ComparisonWithZero => ComparisonWithZero::decode(out)
+                .map(|ok| ok.map_value(QueryOperand::ComparisonWithZero)),
+            QueryCode::ComparisonWithValue => ComparisonWithValue::decode(out)
+                .map(|ok| ok.map_value(QueryOperand::ComparisonWithValue)),
+            QueryCode::ComparisonWithOtherFile => ComparisonWithOtherFile::decode(out)
+                .map(|ok| ok.map_value(QueryOperand::ComparisonWithOtherFile)),
+            QueryCode::BitmapRangeComparison => BitmapRangeComparison::decode(out)
+                .map(|ok| ok.map_value(QueryOperand::BitmapRangeComparison)),
+            QueryCode::StringTokenSearch => StringTokenSearch::decode(out)
+                .map(|ok| ok.map_value(QueryOperand::StringTokenSearch)),
+        }?)
     }
 }
 
@@ -1953,13 +2044,13 @@ impl Codec for OverloadedIndirectInterface {
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.len() < 1 + 2 {
-            return Err(ParseError::MissingBytes(Some(1 + 2 - out.len())));
+            return Err(ParseFail::MissingBytes(Some(1 + 2 - out.len())));
         }
         let interface_file_id = out[0];
         let ParseValue {
             value: addressee,
             size: addressee_size,
-        } = Addressee::decode(&out[1..])?;
+        } = Addressee::decode(&out[1..]).inc_offset(1)?;
         Ok(ParseValue {
             value: Self {
                 interface_file_id,
@@ -2031,7 +2122,7 @@ impl Codec for IndirectInterface {
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.is_empty() {
-            return Err(ParseError::MissingBytes(Some(1)));
+            return Err(ParseFail::MissingBytes(Some(1)));
         }
         Ok(if out[0] & 0x80 != 0 {
             OverloadedIndirectInterface::decode(&out[1..])?
@@ -2089,7 +2180,7 @@ impl Codec for ReadFileData {
     fn decode(out: &[u8]) -> ParseResult<Self> {
         let min_size = 1 + 1 + 1 + 1;
         if out.len() < min_size {
-            return Err(ParseError::MissingBytes(Some(min_size - out.len())));
+            return Err(ParseFail::MissingBytes(Some(min_size - out.len())));
         }
         let group = out[0] & 0x80 != 0;
         let resp = out[0] & 0x40 != 0;
@@ -2179,7 +2270,7 @@ impl Codec for WriteFileData {
     fn decode(out: &[u8]) -> ParseResult<Self> {
         let min_size = 1 + 1 + 1 + 1;
         if out.len() < min_size {
-            return Err(ParseError::MissingBytes(Some(min_size - out.len())));
+            return Err(ParseFail::MissingBytes(Some(min_size - out.len())));
         }
         let group = out[0] & 0x80 != 0;
         let resp = out[0] & 0x40 != 0;
@@ -2252,7 +2343,7 @@ fn test_write_file_data() {
 //     fn decode(out: &[u8]) -> ParseResult<Self> {
 //         let min_size = 1 + 1 + 1 + 1;
 //         if out.len() < min_size {
-//             return Err(ParseError::MissingBytes(Some(min_size - out.len())));
+//             return Err(ParseFail::MissingBytes(Some(min_size - out.len())));
 //         }
 //         let group = out[0] & 0x80 != 0;
 //         let resp = out[0] & 0x40 != 0;
@@ -2584,7 +2675,7 @@ impl Codec for ReturnFileData {
     fn decode(out: &[u8]) -> ParseResult<Self> {
         let min_size = 1 + 1 + 1 + 1;
         if out.len() < min_size {
-            return Err(ParseError::MissingBytes(Some(min_size - out.len())));
+            return Err(ParseFail::MissingBytes(Some(min_size - out.len())));
         }
         let group = out[0] & 0x80 != 0;
         let resp = out[0] & 0x40 != 0;
@@ -2659,13 +2750,20 @@ pub enum StatusType {
     Interface = 1,
 }
 impl StatusType {
-    fn from(n: u8) -> Self {
-        match n {
+    fn from(n: u8) -> Result<Self, ParseFail> {
+        Ok(match n {
             0 => StatusType::Action,
             1 => StatusType::Interface,
-            // TODO Return a proper error instead of panic
-            x => panic!("Unknown status type: {}", x),
-        }
+            x => {
+                return Err(ParseFail::Error {
+                    error: ParseError::UnknownEnumVariant {
+                        en: Enum::StatusType,
+                        value: x,
+                    },
+                    offset: 0,
+                })
+            }
+        })
     }
 }
 
@@ -2699,16 +2797,16 @@ impl Codec for Status {
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.is_empty() {
-            return Err(ParseError::MissingBytes(Some(1)));
+            return Err(ParseFail::MissingBytes(Some(1)));
         }
         let status_type = out[0] >> 6;
-        Ok(match StatusType::from(status_type) {
+        Ok(match StatusType::from(status_type)? {
             StatusType::Action => {
                 StatusOperand::decode(&out[1..])?.map(|v, size| (Status::Action(v), size + 1))
             }
-            StatusType::Interface => {
-                InterfaceStatus::decode(&out[1..])?.map(|v, size| (Status::Interface(v), size + 1))
-            }
+            StatusType::Interface => InterfaceStatus::decode(&out[1..])
+                .inc_offset(1)?
+                .map(|v, size| (Status::Interface(v), size + 1)),
         })
     }
 }
@@ -2776,7 +2874,7 @@ impl Codec for Chunk {
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.is_empty() {
-            return Err(ParseError::MissingBytes(Some(1)));
+            return Err(ParseFail::MissingBytes(Some(1)));
         }
         Ok(ParseValue {
             value: Self {
@@ -2829,7 +2927,7 @@ impl Codec for Logic {
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.is_empty() {
-            return Err(ParseError::MissingBytes(Some(1)));
+            return Err(ParseFail::MissingBytes(Some(1)));
         }
         Ok(ParseValue {
             value: Self {
@@ -2865,12 +2963,12 @@ impl Codec for Forward {
     fn decode(out: &[u8]) -> ParseResult<Self> {
         let min_size = 1 + 1;
         if out.len() < min_size {
-            return Err(ParseError::MissingBytes(Some(min_size - out.len())));
+            return Err(ParseFail::MissingBytes(Some(min_size - out.len())));
         }
         let ParseValue {
             value: conf,
             size: conf_size,
-        } = InterfaceConfiguration::decode(&out[1..])?;
+        } = InterfaceConfiguration::decode(&out[1..]).inc_offset(1)?;
         Ok(ParseValue {
             value: Self {
                 resp: out[0] & 0x40 != 0,
@@ -2910,7 +3008,7 @@ impl Codec for IndirectForward {
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.is_empty() {
-            Err(ParseError::MissingBytes(Some(1)))
+            Err(ParseFail::MissingBytes(Some(1)))
         } else {
             let mut offset = 0;
             let ParseValue {
@@ -2963,7 +3061,7 @@ impl Codec for RequestTag {
     fn decode(out: &[u8]) -> ParseResult<Self> {
         let min_size = 1 + 1;
         if out.len() < min_size {
-            return Err(ParseError::MissingBytes(Some(min_size - out.len())));
+            return Err(ParseFail::MissingBytes(Some(min_size - out.len())));
         }
         Ok(ParseValue {
             value: Self {
@@ -3104,9 +3202,9 @@ impl Codec for Action {
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.is_empty() {
-            return Err(ParseError::MissingBytes(Some(1)));
+            return Err(ParseFail::MissingBytes(Some(1)));
         }
-        let opcode = OpCode::from(out[0] & 0x3F);
+        let opcode = OpCode::from(out[0] & 0x3F)?;
         Ok(match opcode {
             OpCode::Nop => Nop::decode(&out)?.map_value(Action::Nop),
             OpCode::ReadFileData => ReadFileData::decode(&out)?.map_value(Action::ReadFileData),
@@ -3163,9 +3261,9 @@ pub struct Command {
     pub actions: Vec<Action>,
 }
 #[derive(Clone, Debug, PartialEq)]
-pub struct CommandParseError {
+pub struct CommandParseFail {
     pub actions: Vec<Action>,
-    pub error: ParseError,
+    pub error: ParseFail,
 }
 
 impl Default for Command {
@@ -3174,7 +3272,7 @@ impl Default for Command {
     }
 }
 impl Command {
-    fn partial_decode(out: &[u8]) -> Result<ParseValue<Command>, CommandParseError> {
+    fn partial_decode(out: &[u8]) -> Result<ParseValue<Command>, CommandParseFail> {
         let mut actions = vec![];
         let mut offset = 0;
         loop {
@@ -3186,7 +3284,12 @@ impl Command {
                     actions.push(value);
                     offset += size;
                 }
-                Err(error) => return Err(CommandParseError { actions, error }),
+                Err(error) => {
+                    return Err(CommandParseFail {
+                        actions,
+                        error: error.inc_offset(offset),
+                    })
+                }
             }
         }
         Ok(ParseValue {

@@ -1,7 +1,6 @@
 #[derive(Clone, Debug, PartialEq)]
 pub struct ParseValue<T> {
     pub value: T,
-    // TODO Rename: data_size? size?
     pub size: usize,
 }
 impl<T> ParseValue<T> {
@@ -19,13 +18,47 @@ impl<T> ParseValue<T> {
     }
 }
 
+use crate::Enum;
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum ParseError {
-    MissingBytes(Option<usize>),
+    UnknownEnumVariant { en: Enum, value: u8 },
 }
-pub type ParseResult<T> = Result<ParseValue<T>, ParseError>;
 
-// TODO Rename to Codec, encode, decode
+#[derive(Clone, Debug, PartialEq)]
+pub enum ParseFail {
+    MissingBytes(Option<usize>),
+    Error { error: ParseError, offset: usize },
+}
+impl ParseFail {
+    pub fn inc_offset(self, n: usize) -> Self {
+        match self {
+            ParseFail::Error { error, offset } => ParseFail::Error {
+                error,
+                offset: offset + n,
+            },
+            x => x,
+        }
+    }
+}
+pub type ParseResult<T> = Result<ParseValue<T>, ParseFail>;
+
+pub trait ParseResultExtension {
+    fn inc_offset(self, n: usize) -> Self;
+}
+
+impl<T> ParseResultExtension for ParseResult<T> {
+    fn inc_offset(self, n: usize) -> Self {
+        self.map_err(|e| match e {
+            ParseFail::Error { error, offset } => ParseFail::Error {
+                error,
+                offset: offset + n,
+            },
+            x => x,
+        })
+    }
+}
+
 pub trait Codec {
     fn encoded_size(&self) -> usize;
     fn encode(&self, out: &mut [u8]) -> usize;
