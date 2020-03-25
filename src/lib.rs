@@ -21,6 +21,7 @@ pub use codec::{ParseError, ParseFail, ParseResult, ParseResultExtension, ParseV
 //      read...
 // TODO is {out = &out[offset..]; out[..size]} more efficient than {out[offset..offset+size]} ?
 // TODO Add function to encode without having to define a temporary structure
+// TODO Document int Enum values meanings (Error & Spec enums)
 
 // ===============================================================================
 // Macros
@@ -180,16 +181,17 @@ macro_rules! impl_header_op {
             fn encode(&self, out: &mut [u8]) -> usize {
                 out[0] = control_byte!(self.group, self.resp, OpCode::$name);
                 out[1] = self.file_id;
-                out[2..2 + 12].clone_from_slice(&self.data[..]);
-                1 + 1 + 12
+                let mut offset = 2;
+                offset += self.$file_header.encode(&mut out[offset..]);
+                offset
             }
             fn decode(out: &[u8]) -> ParseResult<Self> {
                 const SIZE: usize = 1 + 1 + 12;
                 if (out.len() < SIZE) {
                     Err(ParseFail::MissingBytes(Some(SIZE - out.len())))
                 } else {
-                    let mut header = [0; 12];
-                    header.clone_from_slice(&out[2..2 + 12]);
+                    let ParseValue { value: header, .. } =
+                        FileHeader::decode(&out[2..]).inc_offset(2)?;
                     Ok(ParseValue {
                         value: Self {
                             $flag6: out[0] & 0x40 != 0,
@@ -233,6 +235,7 @@ pub enum Enum {
     QueryRangeComparisonType,
     QueryCode,
     StatusType,
+    ActionCondition,
 }
 
 // ===============================================================================
@@ -340,7 +343,7 @@ impl OpCode {
 // ===============================================================================
 // Varint
 // ===============================================================================
-mod varint {
+pub mod varint {
     use crate::{ParseFail, ParseResult, ParseValue};
     pub const MAX: u32 = 0x3F_FF_FF_FF;
     pub fn is_valid(n: u32) -> Result<(), ()> {
@@ -1166,6 +1169,201 @@ fn test_interface_status_d7asp() {
 #[test]
 fn test_interface_status_host() {
     test_item(InterfaceStatus::Host, &hex!("00 00"))
+}
+
+// ===============================================================================
+// Data elements
+// ===============================================================================
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct UserPermissions {
+    read: bool,
+    write: bool,
+    run: bool,
+}
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Permissions {
+    encrypted: bool,
+    executable: bool,
+    user: UserPermissions,
+    guest: UserPermissions,
+}
+impl Permissions {
+    pub fn to_byte(self) -> u8 {
+        let mut ret = 0;
+        ret |= (self.encrypted as u8) << 7;
+        ret |= (self.executable as u8) << 6;
+        ret |= (self.user.read as u8) << 5;
+        ret |= (self.user.write as u8) << 4;
+        ret |= (self.user.run as u8) << 3;
+        ret |= (self.guest.read as u8) << 2;
+        ret |= (self.guest.write as u8) << 1;
+        ret |= self.guest.run as u8;
+        ret
+    }
+    pub fn from_byte(n: u8) -> Self {
+        Self {
+            encrypted: n & 0x80 != 0,
+            executable: n & 0x40 != 0,
+            user: UserPermissions {
+                read: n & 0x20 != 0,
+                write: n & 0x10 != 0,
+                run: n & 0x08 != 0,
+            },
+            guest: UserPermissions {
+                read: n & 0x04 != 0,
+                write: n & 0x02 != 0,
+                run: n & 0x01 != 0,
+            },
+        }
+    }
+}
+// TODO Should this be consts to avoid crashing on unknown action conditions?
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ActionCondition {
+    List = 0,
+    Read = 1,
+    Write = 2,
+    WriteFlush = 3,
+}
+impl ActionCondition {
+    fn from(n: u8) -> Result<Self, ParseFail> {
+        Ok(match n {
+            0 => ActionCondition::List,
+            1 => ActionCondition::Read,
+            2 => ActionCondition::Write,
+            3 => ActionCondition::WriteFlush,
+            x => {
+                return Err(ParseFail::Error {
+                    error: ParseError::UnknownEnumVariant {
+                        en: Enum::ActionCondition,
+                        value: x,
+                    },
+                    offset: 0,
+                })
+            }
+        })
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum StorageClass {
+    Transient = 0,
+    Volatile = 1,
+    Restorable = 2,
+    Permanent = 3,
+}
+impl StorageClass {
+    fn from(n: u8) -> Self {
+        match n {
+            0 => StorageClass::Transient,
+            1 => StorageClass::Volatile,
+            2 => StorageClass::Restorable,
+            3 => StorageClass::Permanent,
+            _ => panic!(),
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FileProperties {
+    act_en: bool,
+    act_cond: ActionCondition,
+    storage_class: StorageClass,
+}
+impl FileProperties {
+    pub fn to_byte(self) -> u8 {
+        let mut ret = 0;
+        ret |= (self.act_en as u8) << 7;
+        ret |= (self.act_cond as u8) << 4;
+        ret |= self.storage_class as u8;
+        ret
+    }
+    pub fn from_byte(n: u8) -> Result<Self, ParseFail> {
+        Ok(Self {
+            act_en: n & 0x80 != 0,
+            act_cond: ActionCondition::from((n >> 4) & 0x7)?,
+            storage_class: StorageClass::from(n & 0x03),
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FileHeader {
+    permissions: Permissions,
+    properties: FileProperties,
+    alp_cmd_fid: u8,
+    interface_file_id: u8,
+    file_size: u32,
+    allocated_size: u32,
+}
+impl Codec for FileHeader {
+    fn encoded_size(&self) -> usize {
+        12
+    }
+    fn encode(&self, out: &mut [u8]) -> usize {
+        out[0] = self.permissions.to_byte();
+        out[1] = self.properties.to_byte();
+        out[2] = self.alp_cmd_fid;
+        out[3] = self.interface_file_id;
+        out[4..4 + 4].clone_from_slice(&self.file_size.to_be_bytes());
+        out[8..8 + 4].clone_from_slice(&self.allocated_size.to_be_bytes());
+        12
+    }
+    fn decode(out: &[u8]) -> ParseResult<Self> {
+        if out.len() < 12 {
+            return Err(ParseFail::MissingBytes(Some(12 - out.len())));
+        }
+        let mut file_size_bytes = [0u8; 4];
+        file_size_bytes.clone_from_slice(&out[4..4 + 4]);
+        let mut allocated_size_bytes = [0u8; 4];
+        allocated_size_bytes.clone_from_slice(&out[8..8 + 4]);
+        Ok(ParseValue {
+            value: Self {
+                permissions: Permissions::from_byte(out[0]),
+                properties: FileProperties::from_byte(out[1]).map_err(|e| match e {
+                    ParseFail::Error { error, offset } => ParseFail::Error {
+                        error,
+                        offset: offset + 1,
+                    },
+                    x => x,
+                })?,
+                alp_cmd_fid: out[2],
+                interface_file_id: out[3],
+                file_size: u32::from_be_bytes(file_size_bytes),
+                allocated_size: u32::from_be_bytes(allocated_size_bytes),
+            },
+            size: 12,
+        })
+    }
+}
+#[test]
+fn test_file_header() {
+    test_item(
+        FileHeader {
+            permissions: Permissions {
+                encrypted: true,
+                executable: false,
+                user: UserPermissions {
+                    read: true,
+                    write: true,
+                    run: true,
+                },
+                guest: UserPermissions {
+                    read: false,
+                    write: false,
+                    run: false,
+                },
+            },
+            properties: FileProperties {
+                act_en: false,
+                act_cond: ActionCondition::Read,
+                storage_class: StorageClass::Permanent,
+            },
+            alp_cmd_fid: 1,
+            interface_file_id: 2,
+            file_size: 0xDEAD_BEEF,
+            allocated_size: 0xBAAD_FACE,
+        },
+        &hex!("B8 13 01 02 DEADBEEF BAADFACE"),
+    )
 }
 
 // ===============================================================================
@@ -2656,11 +2854,9 @@ pub struct WriteFileProperties {
     pub group: bool,
     pub resp: bool,
     pub file_id: u8,
-    // TODO
-    // ALP SPEC: Missing link to find definition in ALP spec
-    pub data: [u8; 12],
+    pub header: FileHeader,
 }
-impl_header_op!(WriteFileProperties, group, resp, file_id, data);
+impl_header_op!(WriteFileProperties, group, resp, file_id, header);
 #[test]
 fn test_write_file_properties() {
     test_item(
@@ -2668,9 +2864,33 @@ fn test_write_file_properties() {
             group: true,
             resp: false,
             file_id: 9,
-            data: hex!("01 02 03 04 05 06 07 08 09 0A 0B 0C"),
+            header: FileHeader {
+                permissions: Permissions {
+                    encrypted: true,
+                    executable: false,
+                    user: UserPermissions {
+                        read: true,
+                        write: true,
+                        run: true,
+                    },
+                    guest: UserPermissions {
+                        read: false,
+                        write: false,
+                        run: false,
+                    },
+                },
+                properties: FileProperties {
+                    act_en: false,
+                    act_cond: ActionCondition::Read,
+                    storage_class: StorageClass::Permanent,
+                },
+                alp_cmd_fid: 1,
+                interface_file_id: 2,
+                file_size: 0xDEAD_BEEF,
+                allocated_size: 0xBAAD_FACE,
+            },
         },
-        &hex!("86   09   0102030405060708090A0B0C"),
+        &hex!("86   09   B8 13 01 02 DEADBEEF BAADFACE"),
     )
 }
 
@@ -2833,11 +3053,9 @@ pub struct CreateNewFile {
     pub group: bool,
     pub resp: bool,
     pub file_id: u8,
-    // TODO
-    // ALP SPEC: Missing link to find definition in ALP spec
-    pub data: [u8; 12],
+    pub header: FileHeader,
 }
-impl_header_op!(CreateNewFile, group, resp, file_id, data);
+impl_header_op!(CreateNewFile, group, resp, file_id, header);
 #[test]
 fn test_create_new_file() {
     test_item(
@@ -2845,9 +3063,33 @@ fn test_create_new_file() {
             group: true,
             resp: false,
             file_id: 3,
-            data: hex!("01 02 03 04 05 06 07 08 09 0A 0B 0C"),
+            header: FileHeader {
+                permissions: Permissions {
+                    encrypted: true,
+                    executable: false,
+                    user: UserPermissions {
+                        read: true,
+                        write: true,
+                        run: true,
+                    },
+                    guest: UserPermissions {
+                        read: false,
+                        write: false,
+                        run: false,
+                    },
+                },
+                properties: FileProperties {
+                    act_en: false,
+                    act_cond: ActionCondition::Read,
+                    storage_class: StorageClass::Permanent,
+                },
+                alp_cmd_fid: 1,
+                interface_file_id: 2,
+                file_size: 0xDEAD_BEEF,
+                allocated_size: 0xBAAD_FACE,
+            },
         },
-        &hex!("91   03   0102030405060708090A0B0C"),
+        &hex!("91   03   B8 13 01 02 DEADBEEF BAADFACE"),
     )
 }
 
@@ -3060,11 +3302,9 @@ pub struct ReturnFileProperties {
     pub group: bool,
     pub resp: bool,
     pub file_id: u8,
-    // TODO
-    // ALP SPEC: Missing link to find definition in ALP spec
-    pub data: [u8; 12],
+    pub header: FileHeader,
 }
-impl_header_op!(ReturnFileProperties, group, resp, file_id, data);
+impl_header_op!(ReturnFileProperties, group, resp, file_id, header);
 #[test]
 fn test_return_file_properties() {
     test_item(
@@ -3072,9 +3312,33 @@ fn test_return_file_properties() {
             group: false,
             resp: false,
             file_id: 9,
-            data: hex!("01 02 03 04 05 06 07 08 09 0A 0B 0C"),
+            header: FileHeader {
+                permissions: Permissions {
+                    encrypted: true,
+                    executable: false,
+                    user: UserPermissions {
+                        read: true,
+                        write: true,
+                        run: true,
+                    },
+                    guest: UserPermissions {
+                        read: false,
+                        write: false,
+                        run: false,
+                    },
+                },
+                properties: FileProperties {
+                    act_en: false,
+                    act_cond: ActionCondition::Read,
+                    storage_class: StorageClass::Permanent,
+                },
+                alp_cmd_fid: 1,
+                interface_file_id: 2,
+                file_size: 0xDEAD_BEEF,
+                allocated_size: 0xBAAD_FACE,
+            },
         },
-        &hex!("21   09   0102030405060708090A0B0C"),
+        &hex!("21   09   B8 13 01 02 DEADBEEF BAADFACE"),
     )
 }
 
