@@ -14,6 +14,7 @@ pub use codec::{ParseError, ParseFail, ParseResult, ParseResultExtension, ParseV
 // TODO Optimize min size calculation (fold it into the upper OP when possible)
 // TODO usize is target dependent. In other words, on a 16 bit processor, we will run into
 // troubles if we were to convert u32 to usize (even if a 64Ko payload seems a bit big).
+// Maybe we should just embrace this limitation? (Not to be lazy or anything...)
 // TODO Slice copies still check length consistency dynamically. Is there a way to get rid of that
 // at runtime while still testing it at compile/test time?
 //      - For simple index access, get_unchecked_mut can do the trick. But It makes the code hard to
@@ -61,33 +62,7 @@ macro_rules! control_byte {
     }};
 }
 
-// TODO This is now spaguetti code. Let's nuke this macro !
-// Derive replacement (proc-macro would not allow this to be a normal lib)
 macro_rules! impl_op_serialized {
-    ($name: ident, $flag7: ident, $flag6: ident) => {
-        impl Codec for $name {
-            fn encoded_size(&self) -> usize {
-                1
-            }
-            fn encode(&self, out: &mut [u8]) -> usize {
-                out[0] = control_byte!(self.$flag7, self.$flag6, OpCode::$name);
-                1
-            }
-            fn decode(out: &[u8]) -> ParseResult<Self> {
-                if (out.is_empty()) {
-                    Err(ParseFail::MissingBytes(Some(1)))
-                } else {
-                    Ok(ParseValue {
-                        value: Self {
-                            $flag6: out[0] & 0x40 != 0,
-                            $flag7: out[0] & 0x80 != 0,
-                        },
-                        size: 1,
-                    })
-                }
-            }
-        }
-    };
     ($name: ident, $flag7: ident, $flag6: ident, $op1: ident, $op1_type: ident) => {
         impl Codec for $name {
             fn encoded_size(&self) -> usize {
@@ -112,78 +87,6 @@ macro_rules! impl_op_serialized {
                             $flag6: out[0] & 0x40 != 0,
                             $flag7: out[0] & 0x80 != 0,
                             $op1: op1,
-                        },
-                        size: offset,
-                    })
-                }
-            }
-        }
-    };
-    ($name: ident, $flag7: ident, $flag6: ident, $op1: ident, $op2: ident, $op2_type: ident) => {
-        impl Codec for $name {
-            fn encoded_size(&self) -> usize {
-                1 + 1 + encoded_size!(self.$op2)
-            }
-            fn encode(&self, out: &mut [u8]) -> usize {
-                out[0] = control_byte!(self.$flag7, self.$flag6, OpCode::$name);
-                out[1] = self.$op1;
-                1 + serialize_all!(&mut out[2..], self.$op2)
-            }
-            fn decode(out: &[u8]) -> ParseResult<Self> {
-                if (out.is_empty()) {
-                    Err(ParseFail::MissingBytes(Some(1)))
-                } else {
-                    let mut offset = 1;
-                    let op1 = out[offset];
-                    offset += 1;
-                    let ParseValue {
-                        value: op2,
-                        size: op2_size,
-                    } = $op2_type::decode(&out[offset..]).inc_offset(offset)?;
-                    offset += op2_size;
-                    Ok(ParseValue {
-                        value: Self {
-                            $flag6: out[0] & 0x40 != 0,
-                            $flag7: out[0] & 0x80 != 0,
-                            $op1: op1,
-                            $op2: op2,
-                        },
-                        size: offset,
-                    })
-                }
-            }
-        }
-    };
-    ($name: ident, $flag7: ident, $flag6: ident, $op1: ident, $op1_type: ident, $op2: ident, $op2_type: ident) => {
-        impl Codec for $name {
-            fn encoded_size(&self) -> usize {
-                1 + encoded_size!(self.$op1, self.$op2)
-            }
-            fn encode(&self, out: &mut [u8]) -> usize {
-                out[0] = control_byte!(self.$flag7, self.$flag6, OpCode::$name);
-                1 + serialize_all!(&mut out[1..], &self.$op1, self.$op2)
-            }
-            fn decode(out: &[u8]) -> ParseResult<Self> {
-                if (out.is_empty()) {
-                    Err(ParseFail::MissingBytes(Some(1)))
-                } else {
-                    let mut offset = 1;
-                    let ParseValue {
-                        value: op1,
-                        size: op1_size,
-                    } = $op1_type::decode(&out[offset..]).inc_offset(offset)?;
-                    offset += op1_size;
-                    let ParseValue {
-                        value: op2,
-                        size: op2_size,
-                    } = $op2_type::decode(&out[offset..]).inc_offset(offset)?;
-                    offset += op2_size;
-                    Ok(ParseValue {
-                        value: Self {
-                            $flag6: out[0] & 0x40 != 0,
-                            $flag7: out[0] & 0x80 != 0,
-                            $op1: op1,
-                            $op2: op2,
                         },
                         size: offset,
                     })
@@ -2492,7 +2395,28 @@ pub struct Nop {
     pub group: bool,
     pub resp: bool,
 }
-impl_op_serialized!(Nop, group, resp);
+impl Codec for Nop {
+    fn encoded_size(&self) -> usize {
+        1
+    }
+    fn encode(&self, out: &mut [u8]) -> usize {
+        out[0] = control_byte!(self.group, self.resp, OpCode::Nop);
+        1
+    }
+    fn decode(out: &[u8]) -> ParseResult<Self> {
+        if out.is_empty() {
+            Err(ParseFail::MissingBytes(Some(1)))
+        } else {
+            Ok(ParseValue {
+                value: Self {
+                    resp: out[0] & 0x40 != 0,
+                    group: out[0] & 0x80 != 0,
+                },
+                size: 1,
+            })
+        }
+    }
+}
 #[test]
 fn test_nop() {
     test_item(
@@ -2811,14 +2735,39 @@ pub struct PermissionRequest {
     pub level: u8,
     pub permission: Permission,
 }
-impl_op_serialized!(
-    PermissionRequest,
-    group,
-    resp,
-    level,
-    permission,
-    Permission
-);
+impl Codec for PermissionRequest {
+    fn encoded_size(&self) -> usize {
+        1 + 1 + encoded_size!(self.permission)
+    }
+    fn encode(&self, out: &mut [u8]) -> usize {
+        out[0] = control_byte!(self.group, self.resp, OpCode::PermissionRequest);
+        out[1] = self.level;
+        1 + serialize_all!(&mut out[2..], self.permission)
+    }
+    fn decode(out: &[u8]) -> ParseResult<Self> {
+        if out.is_empty() {
+            Err(ParseFail::MissingBytes(Some(1)))
+        } else {
+            let mut offset = 1;
+            let level = out[offset];
+            offset += 1;
+            let ParseValue {
+                value: permission,
+                size,
+            } = Permission::decode(&out[offset..]).inc_offset(offset)?;
+            offset += size;
+            Ok(ParseValue {
+                value: Self {
+                    group: out[0] & 0x80 != 0,
+                    resp: out[0] & 0x40 != 0,
+                    level,
+                    permission,
+                },
+                size: offset,
+            })
+        }
+    }
+}
 #[test]
 fn test_permission_request() {
     test_item(
