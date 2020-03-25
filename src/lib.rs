@@ -61,6 +61,7 @@ macro_rules! control_byte {
     }};
 }
 
+// TODO This is now spaguetti code. Let's nuke this macro !
 // Derive replacement (proc-macro would not allow this to be a normal lib)
 macro_rules! impl_op_serialized {
     ($name: ident, $flag7: ident, $flag6: ident) => {
@@ -111,6 +112,41 @@ macro_rules! impl_op_serialized {
                             $flag6: out[0] & 0x40 != 0,
                             $flag7: out[0] & 0x80 != 0,
                             $op1: op1,
+                        },
+                        size: offset,
+                    })
+                }
+            }
+        }
+    };
+    ($name: ident, $flag7: ident, $flag6: ident, $op1: ident, $op2: ident, $op2_type: ident) => {
+        impl Codec for $name {
+            fn encoded_size(&self) -> usize {
+                1 + 1 + encoded_size!(self.$op2)
+            }
+            fn encode(&self, out: &mut [u8]) -> usize {
+                out[0] = control_byte!(self.$flag7, self.$flag6, OpCode::$name);
+                out[1] = self.$op1;
+                1 + serialize_all!(&mut out[2..], self.$op2)
+            }
+            fn decode(out: &[u8]) -> ParseResult<Self> {
+                if (out.is_empty()) {
+                    Err(ParseFail::MissingBytes(Some(1)))
+                } else {
+                    let mut offset = 1;
+                    let op1 = out[offset];
+                    offset += 1;
+                    let ParseValue {
+                        value: op2,
+                        size: op2_size,
+                    } = $op2_type::decode(&out[offset..]).inc_offset(offset)?;
+                    offset += op2_size;
+                    Ok(ParseValue {
+                        value: Self {
+                            $flag6: out[0] & 0x40 != 0,
+                            $flag7: out[0] & 0x80 != 0,
+                            $op1: op1,
+                            $op2: op2,
                         },
                         size: offset,
                     })
@@ -826,6 +862,19 @@ fn test_d7asp_interface_configuration() {
     )
 }
 
+pub struct D7aspInterfaceStatusNew {
+    pub ch_header: u8,
+    pub ch_idx: u16,
+    pub rxlev: u8,
+    pub lb: u8,
+    pub snr: u8,
+    pub status: u8,
+    pub token: u8,
+    pub seq: u8,
+    pub resp_to: u8,
+    pub addressee: Addressee,
+    pub nls_state: Option<[u8; 5]>,
+}
 // ALP SPEC: Add link to D7a section (names do not even match)
 #[derive(Clone, Debug, PartialEq)]
 pub struct D7aspInterfaceStatus {
@@ -841,6 +890,37 @@ pub struct D7aspInterfaceStatus {
     pub resp_to: u8,
     pub addressee: Addressee,
     pub nls_state: Option<[u8; 5]>, // TODO Constrain this existence with addressee nls value
+    _private: (),
+}
+// TODO Document errors
+pub enum D7aspInterfaceStatusError {
+    MissingNlsState,
+}
+impl D7aspInterfaceStatus {
+    pub fn new(new: D7aspInterfaceStatusNew) -> Result<Self, D7aspInterfaceStatusError> {
+        match &new.addressee.nls_method {
+            NlsMethod::None => (),
+            _ => {
+                if new.nls_state.is_none() {
+                    return Err(D7aspInterfaceStatusError::MissingNlsState);
+                }
+            }
+        }
+        Ok(Self {
+            ch_header: new.ch_header,
+            ch_idx: new.ch_idx,
+            rxlev: new.rxlev,
+            lb: new.lb,
+            snr: new.snr,
+            status: new.status,
+            token: new.token,
+            seq: new.seq,
+            resp_to: new.resp_to,
+            addressee: new.addressee,
+            nls_state: new.nls_state,
+            _private: (),
+        })
+    }
 }
 impl Codec for D7aspInterfaceStatus {
     fn encoded_size(&self) -> usize {
@@ -918,6 +998,7 @@ impl Codec for D7aspInterfaceStatus {
                 resp_to: out[9],
                 addressee,
                 nls_state,
+                _private: (),
             },
             size,
         })
@@ -942,6 +1023,7 @@ fn test_d7asp_interface_status() {
                 address: Address::Vid(Box::new([0xAB, 0xCD])),
             },
             nls_state: Some(hex!("00 11 22 33 44")),
+            _private: (),
         },
         &hex!("01 2301 02 03 04 05 06 07 08   37 FF ABCD  0011223344"),
     )
@@ -1036,19 +1118,45 @@ fn test_interface_configuration_host() {
     test_item(InterfaceConfiguration::Host, &hex!("00"))
 }
 
+pub struct InterfaceStatusNew {
+    pub id: u8,
+    pub data: Box<[u8]>,
+}
+#[derive(Clone, Debug, PartialEq)]
+pub struct InterfaceStatusUnknown {
+    pub id: u8,
+    pub data: Box<[u8]>,
+    _private: (),
+}
+// TODO Document errors
+pub enum InterfaceStatusUnknownError {
+    DataTooBig,
+}
+impl InterfaceStatusUnknown {
+    pub fn new(new: InterfaceStatusNew) -> Result<Self, InterfaceStatusUnknownError> {
+        // TODO This cast might be incorrect if usize < u32
+        if new.data.len() > varint::MAX as usize {
+            return Err(InterfaceStatusUnknownError::DataTooBig);
+        }
+        Ok(Self {
+            id: new.id,
+            data: new.data,
+            _private: (),
+        })
+    }
+}
 #[derive(Clone, Debug, PartialEq)]
 pub enum InterfaceStatus {
     Host,
     D7asp(D7aspInterfaceStatus),
-    // TODO Protect with size limit (< varint max size)
-    Unknown { id: u8, data: Box<[u8]> },
+    Unknown(InterfaceStatusUnknown),
 }
 impl Codec for InterfaceStatus {
     fn encoded_size(&self) -> usize {
         let data_size = match self {
             InterfaceStatus::Host => 0,
             InterfaceStatus::D7asp(itf) => itf.encoded_size(),
-            InterfaceStatus::Unknown { data, .. } => data.len(),
+            InterfaceStatus::Unknown(InterfaceStatusUnknown { data, .. }) => data.len(),
         };
         1 + unsafe { varint::size(data_size as u32) as usize } + data_size
     }
@@ -1067,7 +1175,7 @@ impl Codec for InterfaceStatus {
                 offset += size_size as usize;
                 offset += v.encode(&mut out[offset..]);
             }
-            InterfaceStatus::Unknown { id, data } => {
+            InterfaceStatus::Unknown(InterfaceStatusUnknown { id, data, .. }) => {
                 out[0] = *id;
                 let size = data.len() as u32;
                 let size_size = unsafe { varint::encode(size, &mut out[offset..]) };
@@ -1115,7 +1223,11 @@ impl Codec for InterfaceStatus {
                 let mut data = vec![0u8; size].into_boxed_slice();
                 data.clone_from_slice(&out[offset..size]);
                 offset += size;
-                InterfaceStatus::Unknown { id, data }
+                InterfaceStatus::Unknown(InterfaceStatusUnknown {
+                    id,
+                    data,
+                    _private: (),
+                })
             }
         };
         Ok(ParseValue {
@@ -1143,6 +1255,7 @@ fn test_interface_status_d7asp() {
                 address: Address::Vid(Box::new([0xAB, 0xCD])),
             },
             nls_state: Some(hex!("00 11 22 33 44")),
+            _private: (),
         }),
         &hex!("D7 13    01 2301 02 03 04 05 06 07 08   37 FF ABCD  0011223344"),
     )
@@ -1155,10 +1268,31 @@ fn test_interface_status_host() {
 // ===============================================================================
 // Operands
 // ===============================================================================
+pub struct FileOffsetOperandNew {
+    pub id: u8,
+    pub offset: u32,
+}
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FileOffsetOperand {
     pub id: u8,
     pub offset: u32,
+    _private: (),
+}
+pub enum FileOffsetOperandError {
+    OffsetTooBig,
+}
+
+impl FileOffsetOperand {
+    pub fn new(new: FileOffsetOperandNew) -> Result<Self, FileOffsetOperandError> {
+        if new.offset > varint::MAX {
+            return Err(FileOffsetOperandError::OffsetTooBig);
+        }
+        Ok(Self {
+            id: new.id,
+            offset: new.offset,
+            _private: (),
+        })
+    }
 }
 
 impl Codec for FileOffsetOperand {
@@ -1178,7 +1312,11 @@ impl Codec for FileOffsetOperand {
             size,
         } = varint::decode(&out[1..])?;
         Ok(ParseValue {
-            value: Self { id: out[0], offset },
+            value: Self {
+                id: out[0],
+                offset,
+                _private: (),
+            },
             size: 1 + size,
         })
     }
@@ -1189,6 +1327,7 @@ fn test_file_offset_operand() {
         FileOffsetOperand {
             id: 2,
             offset: 0x3F_FF,
+            _private: (),
         },
         &hex!("02 7F FF"),
     )
@@ -1275,7 +1414,7 @@ impl Codec for Permission {
         out[0] = self.id();
         1 + match self {
             Permission::Dash7(token) => {
-                out[1..].clone_from_slice(&token[..]);
+                out[1..1 + token.len()].clone_from_slice(&token[..]);
                 8
             }
         }
@@ -1306,42 +1445,11 @@ impl Codec for Permission {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum PermissionLevel {
+pub mod permission_level {
     // TODO SPEC: Isn't that Guest instead of user?
-    User = 0,
-    Root = 1,
+    pub const USER: u8 = 0;
+    pub const ROOT: u8 = 1;
     // TODO SPEC: Does something else exist?
-}
-impl Codec for PermissionLevel {
-    fn encoded_size(&self) -> usize {
-        1
-    }
-    fn encode(&self, out: &mut [u8]) -> usize {
-        out[0] = *self as u8;
-        1
-    }
-    fn decode(out: &[u8]) -> ParseResult<Self> {
-        if out.is_empty() {
-            return Err(ParseFail::MissingBytes(Some(1)));
-        }
-        Ok(ParseValue {
-            value: match out[0] {
-                0 => PermissionLevel::User,
-                1 => PermissionLevel::Root,
-                x => {
-                    return Err(ParseFail::Error {
-                        error: ParseError::UnknownEnumVariant {
-                            en: Enum::PermissionLevel,
-                            value: x,
-                        },
-                        offset: 0,
-                    })
-                }
-            },
-            size: 1,
-        })
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -1428,11 +1536,30 @@ impl QueryCode {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct NonVoid {
-    // TODO Protect
+pub struct NonVoidNew {
     pub size: u32,
     pub file: FileOffsetOperand,
+}
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct NonVoid {
+    pub size: u32,
+    pub file: FileOffsetOperand,
+    _private: (),
+}
+pub enum NonVoidError {
+    SizeTooBig,
+}
+impl NonVoid {
+    pub fn new(new: NonVoidNew) -> Result<Self, NonVoidError> {
+        if new.size > varint::MAX {
+            return Err(NonVoidError::SizeTooBig);
+        }
+        Ok(Self {
+            size: new.size,
+            file: new.file,
+            _private: (),
+        })
+    }
 }
 impl Codec for NonVoid {
     fn encoded_size(&self) -> usize {
@@ -1461,7 +1588,11 @@ impl Codec for NonVoid {
         } = FileOffsetOperand::decode(&out[offset..])?;
         offset += file_size;
         Ok(ParseValue {
-            value: Self { size, file },
+            value: Self {
+                size,
+                file,
+                _private: (),
+            },
             size: offset,
         })
     }
@@ -1471,21 +1602,57 @@ fn test_non_void_query_operand() {
     test_item(
         NonVoid {
             size: 4,
-            file: FileOffsetOperand { id: 5, offset: 6 },
+            file: FileOffsetOperand {
+                id: 5,
+                offset: 6,
+                _private: (),
+            },
+            _private: (),
         },
         &hex!("00 04  05 06"),
     )
 }
 
-// TODO Check size coherence upon creation
+pub struct ComparisonWithZeroNew {
+    pub signed_data: bool,
+    pub comparison_type: QueryComparisonType,
+    pub size: u32,
+    pub mask: Option<Box<[u8]>>,
+    pub file: FileOffsetOperand,
+}
 #[derive(Clone, Debug, PartialEq)]
 pub struct ComparisonWithZero {
     pub signed_data: bool,
     pub comparison_type: QueryComparisonType,
-    // TODO Protect
     pub size: u32,
     pub mask: Option<Box<[u8]>>,
     pub file: FileOffsetOperand,
+    _private: (),
+}
+pub enum ComparisonWithZeroError {
+    SizeTooBig,
+    MaskBadSize,
+}
+impl ComparisonWithZero {
+    pub fn new(new: ComparisonWithZeroNew) -> Result<Self, ComparisonWithZeroError> {
+        if new.size > varint::MAX {
+            return Err(ComparisonWithZeroError::SizeTooBig);
+        }
+        if let Some(mask) = &new.mask {
+            // TODO This cast might panic if len() > u32::MAX
+            if mask.len() as u32 != new.size {
+                return Err(ComparisonWithZeroError::MaskBadSize);
+            }
+        }
+        Ok(Self {
+            signed_data: new.signed_data,
+            comparison_type: new.comparison_type,
+            size: new.size,
+            mask: new.mask,
+            file: new.file,
+            _private: (),
+        })
+    }
 }
 impl Codec for ComparisonWithZero {
     fn encoded_size(&self) -> usize {
@@ -1547,6 +1714,7 @@ impl Codec for ComparisonWithZero {
                 size,
                 mask,
                 file,
+                _private: (),
             },
             size: offset,
         })
@@ -1560,22 +1728,61 @@ fn test_comparison_with_zero_operand() {
             comparison_type: QueryComparisonType::Inequal,
             size: 3,
             mask: Some(vec![0, 1, 2].into_boxed_slice()),
-            file: FileOffsetOperand { id: 4, offset: 5 },
+            file: FileOffsetOperand {
+                id: 4,
+                offset: 5,
+                _private: (),
+            },
+            _private: (),
         },
         &hex!("38 03  000102  04 05"),
     )
 }
 
-// TODO Check size coherence upon creation
+pub struct ComparisonWithValueNew {
+    pub signed_data: bool,
+    pub comparison_type: QueryComparisonType,
+    pub mask: Option<Box<[u8]>>,
+    pub value: Box<[u8]>,
+    pub file: FileOffsetOperand,
+}
 #[derive(Clone, Debug, PartialEq)]
 pub struct ComparisonWithValue {
     pub signed_data: bool,
     pub comparison_type: QueryComparisonType,
-    // TODO Protect
     pub size: u32,
     pub mask: Option<Box<[u8]>>,
     pub value: Box<[u8]>,
     pub file: FileOffsetOperand,
+    _private: (),
+}
+pub enum ComparisonWithValueError {
+    SizeTooBig,
+    MaskBadSize,
+}
+impl ComparisonWithValue {
+    pub fn new(new: ComparisonWithValueNew) -> Result<Self, ComparisonWithValueError> {
+        // TODO This cast might panic if len() > u32::MAX
+        let size = new.value.len() as u32;
+        if size > varint::MAX {
+            return Err(ComparisonWithValueError::SizeTooBig);
+        }
+        if let Some(mask) = &new.mask {
+            // TODO This cast might panic if len() > u32::MAX
+            if mask.len() as u32 != size {
+                return Err(ComparisonWithValueError::MaskBadSize);
+            }
+        }
+        Ok(Self {
+            signed_data: new.signed_data,
+            comparison_type: new.comparison_type,
+            size,
+            mask: new.mask,
+            value: new.value,
+            file: new.file,
+            _private: (),
+        })
+    }
 }
 impl Codec for ComparisonWithValue {
     fn encoded_size(&self) -> usize {
@@ -1646,6 +1853,7 @@ impl Codec for ComparisonWithValue {
                 mask,
                 value,
                 file,
+                _private: (),
             },
             size: offset,
         })
@@ -1660,22 +1868,60 @@ fn test_comparison_with_value_operand() {
             size: 3,
             mask: None,
             value: vec![9, 9, 9].into_boxed_slice(),
-            file: FileOffsetOperand { id: 4, offset: 5 },
+            file: FileOffsetOperand {
+                id: 4,
+                offset: 5,
+                _private: (),
+            },
+            _private: (),
         },
         &hex!("41 03   090909  04 05"),
     )
 }
 
-// TODO Check size coherence upon creation
-#[derive(Clone, Debug, PartialEq)]
-pub struct ComparisonWithOtherFile {
+pub struct ComparisonWithOtherFileNew {
     pub signed_data: bool,
     pub comparison_type: QueryComparisonType,
-    // TODO Protect
     pub size: u32,
     pub mask: Option<Box<[u8]>>,
     pub file_src: FileOffsetOperand,
     pub file_dst: FileOffsetOperand,
+}
+#[derive(Clone, Debug, PartialEq)]
+pub struct ComparisonWithOtherFile {
+    pub signed_data: bool,
+    pub comparison_type: QueryComparisonType,
+    pub size: u32,
+    pub mask: Option<Box<[u8]>>,
+    pub file_src: FileOffsetOperand,
+    pub file_dst: FileOffsetOperand,
+    _private: (),
+}
+pub enum ComparisonWithOtherFileError {
+    SizeTooBig,
+    MaskBadSize,
+}
+impl ComparisonWithOtherFile {
+    pub fn new(new: ComparisonWithOtherFileNew) -> Result<Self, ComparisonWithOtherFileError> {
+        if new.size > varint::MAX {
+            return Err(ComparisonWithOtherFileError::SizeTooBig);
+        }
+        if let Some(mask) = &new.mask {
+            // TODO This cast might panic if len() > u32::MAX
+            if mask.len() as u32 != new.size {
+                return Err(ComparisonWithOtherFileError::MaskBadSize);
+            }
+        }
+        Ok(Self {
+            signed_data: new.signed_data,
+            comparison_type: new.comparison_type,
+            size: new.size,
+            mask: new.mask,
+            file_src: new.file_src,
+            file_dst: new.file_dst,
+            _private: (),
+        })
+    }
 }
 impl Codec for ComparisonWithOtherFile {
     fn encoded_size(&self) -> usize {
@@ -1748,6 +1994,7 @@ impl Codec for ComparisonWithOtherFile {
                 mask,
                 file_src,
                 file_dst,
+                _private: (),
             },
             size: offset,
         })
@@ -1761,13 +2008,31 @@ fn test_comparison_with_other_file_operand() {
             comparison_type: QueryComparisonType::GreaterThan,
             size: 2,
             mask: Some(vec![0xFF, 0xFF].into_boxed_slice()),
-            file_src: FileOffsetOperand { id: 4, offset: 5 },
-            file_dst: FileOffsetOperand { id: 8, offset: 9 },
+            file_src: FileOffsetOperand {
+                id: 4,
+                offset: 5,
+                _private: (),
+            },
+            file_dst: FileOffsetOperand {
+                id: 8,
+                offset: 9,
+                _private: (),
+            },
+            _private: (),
         },
         &hex!("74 02 FFFF   04 05    08 09"),
     )
 }
 
+pub struct BitmapRangeComparisonNew {
+    pub signed_data: bool,
+    pub comparison_type: QueryRangeComparisonType,
+    // TODO Is u32 a pertinent size?
+    pub start: u32,
+    pub stop: u32,
+    pub bitmap: Box<[u8]>,
+    pub file: FileOffsetOperand,
+}
 // TODO Check size coherence upon creation (start, stop and bitmap)
 #[derive(Clone, Debug, PartialEq)]
 pub struct BitmapRangeComparison {
@@ -1788,6 +2053,47 @@ pub struct BitmapRangeComparison {
     // right? Endianness?
     pub bitmap: Box<[u8]>, // TODO Better type?
     pub file: FileOffsetOperand,
+    _private: (),
+}
+pub enum BitmapRangeComparisonError {
+    SizeTooBig,
+    BitmapBadSize,
+}
+impl BitmapRangeComparison {
+    pub fn new(new: BitmapRangeComparisonNew) -> Result<Self, BitmapRangeComparisonError> {
+        let max = new.start.max(new.stop);
+        let size: u32 = if max <= 0xFF {
+            1
+        } else if max <= 0xFF_FF {
+            2
+        } else if max <= 0xFF_FF_FF {
+            3
+        } else {
+            4
+        };
+        // TODO u32 to usize might panic
+        let mut start = vec![0u8; size as usize].into_boxed_slice();
+        start.clone_from_slice(&new.start.to_le_bytes());
+        // TODO u32 to usize might panic
+        let mut stop = vec![0u8; size as usize].into_boxed_slice();
+        stop.clone_from_slice(&new.stop.to_be_bytes());
+
+        let bitmap_size = (new.stop - new.start + 6) / 8; // ALP SPEC: Thanks for the calculation
+                                                          // TODO u32 to usize might panic
+        if new.bitmap.len() != bitmap_size as usize {
+            return Err(BitmapRangeComparisonError::BitmapBadSize);
+        }
+        Ok(Self {
+            signed_data: new.signed_data,
+            comparison_type: new.comparison_type,
+            size,
+            start,
+            stop,
+            bitmap: new.bitmap,
+            file: new.file,
+            _private: (),
+        })
+    }
 }
 impl Codec for BitmapRangeComparison {
     fn encoded_size(&self) -> usize {
@@ -1860,6 +2166,7 @@ impl Codec for BitmapRangeComparison {
                 stop,
                 bitmap,
                 file,
+                _private: (),
             },
             size: offset,
         })
@@ -1877,21 +2184,58 @@ fn test_bitmap_range_comparison_operand() {
             stop: Box::new(hex!("00 20")),
             bitmap: Box::new(hex!("01020304")),
 
-            file: FileOffsetOperand { id: 0, offset: 4 },
+            file: FileOffsetOperand {
+                id: 0,
+                offset: 4,
+                _private: (),
+            },
+            _private: (),
         },
         &hex!("81 02 0003  0020  01020304  00 04"),
     )
 }
 
-// TODO Check size coherence upon creation
+pub struct StringTokenSearchNew {
+    pub max_errors: u8,
+    pub mask: Option<Box<[u8]>>,
+    pub value: Box<[u8]>,
+    pub file: FileOffsetOperand,
+}
 #[derive(Clone, Debug, PartialEq)]
 pub struct StringTokenSearch {
     pub max_errors: u8,
-    // TODO Protect
     pub size: u32,
     pub mask: Option<Box<[u8]>>,
     pub value: Box<[u8]>,
     pub file: FileOffsetOperand,
+    _private: (),
+}
+pub enum StringTokenSearchError {
+    SizeTooBig,
+    MaskBadSize,
+}
+impl StringTokenSearch {
+    pub fn new(new: StringTokenSearchNew) -> Result<Self, StringTokenSearchError> {
+        // TODO This cast might panic if len() > u32::MAX
+        let size = new.value.len() as u32;
+        if size > varint::MAX {
+            return Err(StringTokenSearchError::SizeTooBig);
+        }
+        if let Some(mask) = &new.mask {
+            // TODO This cast might panic if len() > u32::MAX
+            if mask.len() as u32 != size {
+                return Err(StringTokenSearchError::MaskBadSize);
+            }
+        }
+        Ok(Self {
+            max_errors: new.max_errors,
+            size,
+            mask: new.mask,
+            value: new.value,
+            file: new.file,
+            _private: (),
+        })
+    }
 }
 impl Codec for StringTokenSearch {
     fn encoded_size(&self) -> usize {
@@ -1960,6 +2304,7 @@ impl Codec for StringTokenSearch {
                 mask,
                 value,
                 file,
+                _private: (),
             },
             size: offset,
         })
@@ -1973,7 +2318,12 @@ fn test_string_token_search_operand() {
             size: 4,
             mask: Some(Box::new(hex!("FF00FF00"))),
             value: Box::new(hex!("01020304")),
-            file: FileOffsetOperand { id: 0, offset: 4 },
+            file: FileOffsetOperand {
+                id: 0,
+                offset: 4,
+                _private: (),
+            },
+            _private: (),
         },
         &hex!("F2 04 FF00FF00  01020304  00 04"),
     )
@@ -2088,7 +2438,6 @@ impl Codec for NonOverloadedIndirectInterface {
         1 + self.data.len()
     }
     fn encode(&self, out: &mut [u8]) -> usize {
-        // TODO Add overload flag (with op byte mod) (shift out bytes by 1)
         out[0] = self.interface_file_id;
         let mut offset = 1;
         out[offset..].clone_from_slice(&self.data);
@@ -2156,16 +2505,44 @@ fn test_nop() {
 }
 
 // Read
+pub struct ReadFileDataNew {
+    pub group: bool,
+    pub resp: bool,
+    pub file_id: u8,
+    pub offset: u32,
+    pub size: u32,
+}
 // TODO Protect varint init
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ReadFileData {
     pub group: bool,
     pub resp: bool,
     pub file_id: u8,
-    // TODO Protect
     pub offset: u32,
-    // TODO Protect
     pub size: u32,
+    _private: (),
+}
+pub enum ReadFileDataError {
+    OffsetTooBig,
+    SizeTooBig,
+}
+impl ReadFileData {
+    pub fn new(new: ReadFileDataNew) -> Result<Self, ReadFileDataError> {
+        if new.offset > varint::MAX {
+            return Err(ReadFileDataError::OffsetTooBig);
+        }
+        if new.size > varint::MAX {
+            return Err(ReadFileDataError::SizeTooBig);
+        }
+        Ok(Self {
+            group: new.group,
+            resp: new.resp,
+            file_id: new.file_id,
+            offset: new.offset,
+            size: new.size,
+            _private: (),
+        })
+    }
 }
 
 impl Codec for ReadFileData {
@@ -2203,6 +2580,7 @@ impl Codec for ReadFileData {
                 file_id,
                 offset,
                 size,
+                _private: (),
             },
             size: off,
         })
@@ -2217,6 +2595,7 @@ fn test_read_file_data() {
             file_id: 1,
             offset: 2,
             size: 3,
+            _private: (),
         },
         &hex!("41 01 02 03"),
     )
@@ -2242,15 +2621,45 @@ fn test_read_file_properties() {
 }
 
 // Write
-// TODO Protect varint init, data consistency
+pub struct WriteFileDataNew {
+    pub group: bool,
+    pub resp: bool,
+    pub file_id: u8,
+    pub offset: u32,
+    pub data: Box<[u8]>,
+}
 #[derive(Clone, Debug, PartialEq)]
 pub struct WriteFileData {
     pub group: bool,
     pub resp: bool,
     pub file_id: u8,
-    // TODO Protect
     pub offset: u32,
     pub data: Box<[u8]>,
+    _private: (),
+}
+pub enum WriteFileDataError {
+    OffsetTooBig,
+    SizeTooBig,
+}
+impl WriteFileData {
+    pub fn new(new: WriteFileDataNew) -> Result<Self, WriteFileDataError> {
+        if new.offset > varint::MAX {
+            return Err(WriteFileDataError::OffsetTooBig);
+        }
+        // TODO usize -> u32 might panic
+        let size = new.data.len() as u32;
+        if size > varint::MAX {
+            return Err(WriteFileDataError::SizeTooBig);
+        }
+        Ok(Self {
+            group: new.group,
+            resp: new.resp,
+            file_id: new.file_id,
+            offset: new.offset,
+            data: new.data,
+            _private: (),
+        })
+    }
 }
 impl Codec for WriteFileData {
     fn encoded_size(&self) -> usize {
@@ -2297,6 +2706,7 @@ impl Codec for WriteFileData {
                 file_id,
                 offset,
                 data,
+                _private: (),
             },
             size: off,
         })
@@ -2311,83 +2721,11 @@ fn test_write_file_data() {
             file_id: 9,
             offset: 5,
             data: Box::new(hex!("01 02 03")),
+            _private: (),
         },
         &hex!("84   09 05 03  010203"),
     )
 }
-
-// #[derive(Clone, Copy, Debug, PartialEq)]
-// pub struct WriteFileDataFlush {
-//     pub group: bool,
-//     pub resp: bool,
-//     pub file_id: u8,
-//     // TODO Protect
-//     pub offset: u32,
-//     pub data: Box<[u8]>,
-// }
-// impl Codec for WriteFileDataFlush {
-//     fn encoded_size(&self) -> usize {
-//         1 + 1
-//             + unsafe_varint_serialize_sizes!(self.offset, self.data.len() as u32) as usize
-//             + self.data.len()
-//     }
-//     fn encode(&self, out: &mut [u8]) -> usize {
-//         out[0] = control_byte!(self.group, self.resp, OpCode::WriteFileDataFlush);
-//         out[1] = self.file_id;
-//         let mut offset = 2;
-//         offset += unsafe_varint_serialize!(out[2..], self.offset, self.data.len() as u32) as usize;
-//         out[offset..offset + self.data.len()].clone_from_slice(&self.data[..]);
-//         offset += self.data.len();
-//         offset
-//     }
-//     fn decode(out: &[u8]) -> ParseResult<Self> {
-//         let min_size = 1 + 1 + 1 + 1;
-//         if out.len() < min_size {
-//             return Err(ParseFail::MissingBytes(Some(min_size - out.len())));
-//         }
-//         let group = out[0] & 0x80 != 0;
-//         let resp = out[0] & 0x40 != 0;
-//         let file_id = out[1];
-//         let mut off = 2;
-//         let ParseValue {
-//             value: offset,
-//             size: offset_size,
-//         } = varint::decode(&out[off..])?;
-//         off += offset_size;
-//         let ParseValue {
-//             value: size,
-//             size: size_size,
-//         } = varint::decode(&out[off..])?;
-//         off += size_size;
-//         let size = size as usize;
-//         let mut data = vec![0u8; size].into_boxed_slice();
-//         data.clone_from_slice(&out[off..off + size]);
-//         off += size;
-//         Ok(ParseValue {
-//             value: Self {
-//                 group,
-//                 resp,
-//                 file_id,
-//                 offset,
-//                 data,
-//             },
-//             size: off,
-//         })
-//     }
-// }
-// #[test]
-// fn test_write_file_data_flush() {
-//     test_item(
-//         WriteFileDataFlush {
-//             group: true,
-//             resp: false,
-//             file_id: 9,
-//             offset: 5,
-//             data: Box::new(hex!("01 02 03")),
-//         },
-//         &hex!("84   09 05 03  010203"),
-//     )
-// }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct WriteFileProperties {
@@ -2427,7 +2765,12 @@ fn test_action_query() {
             resp: true,
             query: QueryOperand::NonVoid(NonVoid {
                 size: 4,
-                file: FileOffsetOperand { id: 5, offset: 6 },
+                file: FileOffsetOperand {
+                    id: 5,
+                    offset: 6,
+                    _private: (),
+                },
+                _private: (),
             }),
         },
         &hex!("C8   00 04  05 06"),
@@ -2449,7 +2792,12 @@ fn test_break_query() {
             resp: true,
             query: QueryOperand::NonVoid(NonVoid {
                 size: 4,
-                file: FileOffsetOperand { id: 5, offset: 6 },
+                file: FileOffsetOperand {
+                    id: 5,
+                    offset: 6,
+                    _private: (),
+                },
+                _private: (),
             }),
         },
         &hex!("C9   00 04  05 06"),
@@ -2460,7 +2808,7 @@ fn test_break_query() {
 pub struct PermissionRequest {
     pub group: bool,
     pub resp: bool,
-    pub level: PermissionLevel,
+    pub level: u8,
     pub permission: Permission,
 }
 impl_op_serialized!(
@@ -2468,7 +2816,6 @@ impl_op_serialized!(
     group,
     resp,
     level,
-    PermissionLevel,
     permission,
     Permission
 );
@@ -2478,7 +2825,7 @@ fn test_permission_request() {
         PermissionRequest {
             group: false,
             resp: false,
-            level: PermissionLevel::Root,
+            level: permission_level::ROOT,
             permission: Permission::Dash7(hex!("0102030405060708")),
         },
         &hex!("0A   01 42 0102030405060708"),
@@ -2500,7 +2847,12 @@ fn test_verify_checksum() {
             resp: false,
             query: QueryOperand::NonVoid(NonVoid {
                 size: 4,
-                file: FileOffsetOperand { id: 5, offset: 6 },
+                file: FileOffsetOperand {
+                    id: 5,
+                    offset: 6,
+                    _private: (),
+                },
+                _private: (),
             }),
         },
         &hex!("0B   00 04  05 06"),
@@ -2648,14 +3000,45 @@ fn test_execute_file() {
 }
 
 // Response
+pub struct ReturnFileDataNew {
+    pub group: bool,
+    pub resp: bool,
+    pub file_id: u8,
+    pub offset: u32,
+    pub data: Box<[u8]>,
+}
 #[derive(Clone, Debug, PartialEq)]
 pub struct ReturnFileData {
     pub group: bool,
     pub resp: bool,
     pub file_id: u8,
-    // TODO Protect
     pub offset: u32,
     pub data: Box<[u8]>,
+    _private: (),
+}
+pub enum ReturnFileDataError {
+    OffsetTooBig,
+    SizeTooBig,
+}
+impl ReturnFileData {
+    pub fn new(new: ReturnFileDataNew) -> Result<Self, ReturnFileDataError> {
+        if new.offset > varint::MAX {
+            return Err(ReturnFileDataError::OffsetTooBig);
+        }
+        // TODO usize -> u32 might panic
+        let size = new.data.len() as u32;
+        if size > varint::MAX {
+            return Err(ReturnFileDataError::SizeTooBig);
+        }
+        Ok(Self {
+            group: new.group,
+            resp: new.resp,
+            file_id: new.file_id,
+            offset: new.offset,
+            data: new.data,
+            _private: (),
+        })
+    }
 }
 impl Codec for ReturnFileData {
     fn encoded_size(&self) -> usize {
@@ -2702,6 +3085,7 @@ impl Codec for ReturnFileData {
                 file_id,
                 offset,
                 data,
+                _private: (),
             },
             size: off,
         })
@@ -2716,6 +3100,7 @@ fn test_return_file_data() {
             file_id: 9,
             offset: 5,
             data: Box::new(hex!("01 02 03")),
+            _private: (),
         },
         &hex!("20   09 05 03  010203"),
     )
