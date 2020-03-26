@@ -1,6 +1,9 @@
 #[cfg(test)]
 use crate::test_tools::test_item;
-use crate::{Codec, Enum, ParseError, ParseFail, ParseResult, ParseResultExtension, ParseValue};
+use crate::{
+    codec::{Codec, ParseError, ParseFail, ParseResult, ParseResultExtension, ParseValue},
+    Enum,
+};
 #[cfg(test)]
 use hex_literal::hex;
 
@@ -317,7 +320,7 @@ fn test_d7asp_interface_configuration() {
     )
 }
 
-pub struct D7aspInterfaceStatusNew {
+pub struct NewD7aspInterfaceStatus {
     pub ch_header: u8,
     pub ch_idx: u16,
     pub rxlev: u8,
@@ -330,7 +333,7 @@ pub struct D7aspInterfaceStatusNew {
     pub addressee: Addressee,
     pub nls_state: Option<[u8; 5]>,
 }
-impl D7aspInterfaceStatusNew {
+impl NewD7aspInterfaceStatus {
     pub fn build(self) -> Result<D7aspInterfaceStatus, D7aspInterfaceStatusError> {
         D7aspInterfaceStatus::new(self)
     }
@@ -356,7 +359,7 @@ pub enum D7aspInterfaceStatusError {
     MissingNlsState,
 }
 impl D7aspInterfaceStatus {
-    pub fn new(new: D7aspInterfaceStatusNew) -> Result<Self, D7aspInterfaceStatusError> {
+    pub fn new(new: NewD7aspInterfaceStatus) -> Result<Self, D7aspInterfaceStatusError> {
         match &new.addressee.nls_method {
             NlsMethod::None => (),
             _ => {

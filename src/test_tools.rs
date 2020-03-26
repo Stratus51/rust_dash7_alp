@@ -1,5 +1,5 @@
 #[cfg(test)]
-use crate::{Codec, ParseValue};
+use crate::codec::{Codec, ParseValue};
 
 #[cfg(test)]
 pub fn test_item<T: Codec + std::fmt::Debug + std::cmp::PartialEq>(item: T, data: &[u8]) {

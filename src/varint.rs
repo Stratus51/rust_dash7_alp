@@ -1,4 +1,4 @@
-use crate::{ParseFail, ParseResult, ParseValue};
+use crate::codec::{ParseFail, ParseResult, ParseValue};
 pub const MAX: u32 = 0x3F_FF_FF_FF;
 pub fn is_valid(n: u32) -> Result<(), ()> {
     if n > MAX {

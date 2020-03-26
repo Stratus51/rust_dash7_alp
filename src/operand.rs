@@ -1,17 +1,257 @@
 #[cfg(test)]
 use crate::test_tools::test_item;
 use crate::{
-    dash7::*, varint, Codec, Enum, ParseError, ParseFail, ParseResult, ParseResultExtension,
-    ParseValue,
+    codec::{Codec, ParseError, ParseFail, ParseResult, ParseResultExtension, ParseValue},
+    dash7::*,
+    varint, Enum,
 };
 #[cfg(test)]
 use hex_literal::hex;
 
-pub struct FileOffsetOperandNew {
+// ===============================================================================
+// Alp Interfaces
+// ===============================================================================
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum InterfaceId {
+    Host = 0,
+    D7asp = 0xD7,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum InterfaceConfiguration {
+    Host,
+    D7asp(D7aspInterfaceConfiguration),
+}
+impl Codec for InterfaceConfiguration {
+    fn encoded_size(&self) -> usize {
+        1 + match self {
+            InterfaceConfiguration::Host => 0,
+            InterfaceConfiguration::D7asp(v) => v.encoded_size(),
+        }
+    }
+    fn encode(&self, out: &mut [u8]) -> usize {
+        match self {
+            InterfaceConfiguration::Host => {
+                out[0] = InterfaceId::Host as u8;
+                1
+            }
+            InterfaceConfiguration::D7asp(v) => {
+                out[0] = InterfaceId::D7asp as u8;
+                1 + v.encode(&mut out[1..])
+            }
+        }
+    }
+    fn decode(out: &[u8]) -> ParseResult<Self> {
+        if out.is_empty() {
+            return Err(ParseFail::MissingBytes(Some(1)));
+        }
+        const HOST: u8 = InterfaceId::Host as u8;
+        const D7ASP: u8 = InterfaceId::D7asp as u8;
+        Ok(match out[0] {
+            HOST => ParseValue {
+                value: InterfaceConfiguration::Host,
+                size: 1,
+            },
+            D7ASP => {
+                let ParseValue { value, size } =
+                    D7aspInterfaceConfiguration::decode(&out[1..]).inc_offset(1)?;
+                ParseValue {
+                    value: InterfaceConfiguration::D7asp(value),
+                    size: size + 1,
+                }
+            }
+            id => {
+                return Err(ParseFail::Error {
+                    error: ParseError::UnknownEnumVariant {
+                        en: Enum::InterfaceId,
+                        value: id,
+                    },
+                    offset: 0,
+                })
+            }
+        })
+    }
+}
+#[test]
+fn test_interface_configuration_d7asp() {
+    test_item(
+        InterfaceConfiguration::D7asp(D7aspInterfaceConfiguration {
+            qos: Qos {
+                retry: RetryMode::No,
+                resp: RespMode::Any,
+            },
+            to: 0x23,
+            te: 0x34,
+            addressee: Addressee {
+                nls_method: NlsMethod::AesCcm32,
+                access_class: 0xFF,
+                address: Address::Vid(Box::new([0xAB, 0xCD])),
+            },
+        }),
+        &hex!("D7   02 23 34   37 FF ABCD"),
+    )
+}
+#[test]
+fn test_interface_configuration_host() {
+    test_item(InterfaceConfiguration::Host, &hex!("00"))
+}
+
+pub struct NewInterfaceStatus {
+    pub id: u8,
+    pub data: Box<[u8]>,
+}
+#[derive(Clone, Debug, PartialEq)]
+pub struct InterfaceStatusUnknown {
+    pub id: u8,
+    pub data: Box<[u8]>,
+    _private: (),
+}
+pub enum InterfaceStatusUnknownError {
+    DataTooBig,
+}
+impl InterfaceStatusUnknown {
+    pub fn new(new: NewInterfaceStatus) -> Result<Self, InterfaceStatusUnknownError> {
+        if new.data.len() > varint::MAX as usize {
+            return Err(InterfaceStatusUnknownError::DataTooBig);
+        }
+        Ok(Self {
+            id: new.id,
+            data: new.data,
+            _private: (),
+        })
+    }
+}
+#[derive(Clone, Debug, PartialEq)]
+pub enum InterfaceStatus {
+    Host,
+    D7asp(D7aspInterfaceStatus),
+    Unknown(InterfaceStatusUnknown),
+}
+impl Codec for InterfaceStatus {
+    fn encoded_size(&self) -> usize {
+        let data_size = match self {
+            InterfaceStatus::Host => 0,
+            InterfaceStatus::D7asp(itf) => itf.encoded_size(),
+            InterfaceStatus::Unknown(InterfaceStatusUnknown { data, .. }) => data.len(),
+        };
+        1 + unsafe { varint::size(data_size as u32) as usize } + data_size
+    }
+    fn encode(&self, out: &mut [u8]) -> usize {
+        let mut offset = 1;
+        match self {
+            InterfaceStatus::Host => {
+                out[0] = InterfaceId::Host as u8;
+                out[1] = 0;
+                offset += 1;
+            }
+            InterfaceStatus::D7asp(v) => {
+                out[0] = InterfaceId::D7asp as u8;
+                let size = v.encoded_size() as u32;
+                let size_size = unsafe { varint::encode(size, &mut out[offset..]) };
+                offset += size_size as usize;
+                offset += v.encode(&mut out[offset..]);
+            }
+            InterfaceStatus::Unknown(InterfaceStatusUnknown { id, data, .. }) => {
+                out[0] = *id;
+                let size = data.len() as u32;
+                let size_size = unsafe { varint::encode(size, &mut out[offset..]) };
+                offset += size_size as usize;
+                out[offset..offset + data.len()].clone_from_slice(data);
+                offset += data.len();
+            }
+        };
+        offset
+    }
+    fn decode(out: &[u8]) -> ParseResult<Self> {
+        if out.is_empty() {
+            return Err(ParseFail::MissingBytes(Some(1)));
+        }
+        const HOST: u8 = InterfaceId::Host as u8;
+        const D7ASP: u8 = InterfaceId::D7asp as u8;
+        let mut offset = 1;
+        let value = match out[0] {
+            HOST => {
+                offset += 1;
+                InterfaceStatus::Host
+            }
+            D7ASP => {
+                let ParseValue {
+                    value: size,
+                    size: size_size,
+                } = varint::decode(&out[offset..])?;
+                let size = size as usize;
+                offset += size_size;
+                let ParseValue { value, size } =
+                    D7aspInterfaceStatus::decode(&out[offset..offset + size]).inc_offset(offset)?;
+                offset += size;
+                InterfaceStatus::D7asp(value)
+            }
+            id => {
+                let ParseValue {
+                    value: size,
+                    size: size_size,
+                } = varint::decode(&out[offset..])?;
+                let size = size as usize;
+                offset += size_size;
+                if out.len() < offset + size {
+                    return Err(ParseFail::MissingBytes(Some(offset + size - out.len())));
+                }
+                let mut data = vec![0u8; size].into_boxed_slice();
+                data.clone_from_slice(&out[offset..size]);
+                offset += size;
+                InterfaceStatus::Unknown(InterfaceStatusUnknown {
+                    id,
+                    data,
+                    _private: (),
+                })
+            }
+        };
+        Ok(ParseValue {
+            value,
+            size: offset,
+        })
+    }
+}
+#[test]
+fn test_interface_status_d7asp() {
+    test_item(
+        InterfaceStatus::D7asp(
+            NewD7aspInterfaceStatus {
+                ch_header: 1,
+                ch_idx: 0x0123,
+                rxlev: 2,
+                lb: 3,
+                snr: 4,
+                status: 5,
+                token: 6,
+                seq: 7,
+                resp_to: 8,
+                addressee: Addressee {
+                    nls_method: NlsMethod::AesCcm32,
+                    access_class: 0xFF,
+                    address: Address::Vid(Box::new([0xAB, 0xCD])),
+                },
+                nls_state: Some(hex!("00 11 22 33 44")),
+            }
+            .build()
+            .unwrap(),
+        ),
+        &hex!("D7 13    01 0123 02 03 04 05 06 07 08   37 FF ABCD  0011223344"),
+    )
+}
+#[test]
+fn test_interface_status_host() {
+    test_item(InterfaceStatus::Host, &hex!("00 00"))
+}
+
+// ===============================================================================
+// Operands
+// ===============================================================================
+pub struct NewFileOffsetOperand {
     pub id: u8,
     pub offset: u32,
 }
-impl FileOffsetOperandNew {
+impl NewFileOffsetOperand {
     pub fn build(self) -> Result<FileOffsetOperand, FileOffsetOperandError> {
         FileOffsetOperand::new(self)
     }
@@ -28,7 +268,7 @@ pub enum FileOffsetOperandError {
 }
 
 impl FileOffsetOperand {
-    pub fn new(new: FileOffsetOperandNew) -> Result<Self, FileOffsetOperandError> {
+    pub fn new(new: NewFileOffsetOperand) -> Result<Self, FileOffsetOperandError> {
         if new.offset > varint::MAX {
             return Err(FileOffsetOperandError::OffsetTooBig);
         }
@@ -280,11 +520,11 @@ impl QueryCode {
     }
 }
 
-pub struct NonVoidNew {
+pub struct NewNonVoid {
     pub size: u32,
     pub file: FileOffsetOperand,
 }
-impl NonVoidNew {
+impl NewNonVoid {
     pub fn build(self) -> Result<NonVoid, NonVoidError> {
         NonVoid::new(self)
     }
@@ -300,7 +540,7 @@ pub enum NonVoidError {
     SizeTooBig,
 }
 impl NonVoid {
-    pub fn new(new: NonVoidNew) -> Result<Self, NonVoidError> {
+    pub fn new(new: NewNonVoid) -> Result<Self, NonVoidError> {
         if new.size > varint::MAX {
             return Err(NonVoidError::SizeTooBig);
         }
@@ -363,14 +603,14 @@ fn test_non_void_query_operand() {
     )
 }
 
-pub struct ComparisonWithZeroNew {
+pub struct NewComparisonWithZero {
     pub signed_data: bool,
     pub comparison_type: QueryComparisonType,
     pub size: u32,
     pub mask: Option<Box<[u8]>>,
     pub file: FileOffsetOperand,
 }
-impl ComparisonWithZeroNew {
+impl NewComparisonWithZero {
     pub fn build(self) -> Result<ComparisonWithZero, ComparisonWithZeroError> {
         ComparisonWithZero::new(self)
     }
@@ -390,7 +630,7 @@ pub enum ComparisonWithZeroError {
     MaskBadSize,
 }
 impl ComparisonWithZero {
-    pub fn new(new: ComparisonWithZeroNew) -> Result<Self, ComparisonWithZeroError> {
+    pub fn new(new: NewComparisonWithZero) -> Result<Self, ComparisonWithZeroError> {
         if new.size > varint::MAX {
             return Err(ComparisonWithZeroError::SizeTooBig);
         }
@@ -494,14 +734,14 @@ fn test_comparison_with_zero_operand() {
     )
 }
 
-pub struct ComparisonWithValueNew {
+pub struct NewComparisonWithValue {
     pub signed_data: bool,
     pub comparison_type: QueryComparisonType,
     pub mask: Option<Box<[u8]>>,
     pub value: Box<[u8]>,
     pub file: FileOffsetOperand,
 }
-impl ComparisonWithValueNew {
+impl NewComparisonWithValue {
     pub fn build(self) -> Result<ComparisonWithValue, ComparisonWithValueError> {
         ComparisonWithValue::new(self)
     }
@@ -522,7 +762,7 @@ pub enum ComparisonWithValueError {
     MaskBadSize,
 }
 impl ComparisonWithValue {
-    pub fn new(new: ComparisonWithValueNew) -> Result<Self, ComparisonWithValueError> {
+    pub fn new(new: NewComparisonWithValue) -> Result<Self, ComparisonWithValueError> {
         let size = new.value.len() as u32;
         if size > varint::MAX {
             return Err(ComparisonWithValueError::SizeTooBig);
@@ -638,7 +878,7 @@ fn test_comparison_with_value_operand() {
     )
 }
 
-pub struct ComparisonWithOtherFileNew {
+pub struct NewComparisonWithOtherFile {
     pub signed_data: bool,
     pub comparison_type: QueryComparisonType,
     pub size: u32,
@@ -646,7 +886,7 @@ pub struct ComparisonWithOtherFileNew {
     pub file1: FileOffsetOperand,
     pub file2: FileOffsetOperand,
 }
-impl ComparisonWithOtherFileNew {
+impl NewComparisonWithOtherFile {
     pub fn build(self) -> Result<ComparisonWithOtherFile, ComparisonWithOtherFileError> {
         ComparisonWithOtherFile::new(self)
     }
@@ -667,7 +907,7 @@ pub enum ComparisonWithOtherFileError {
     MaskBadSize,
 }
 impl ComparisonWithOtherFile {
-    pub fn new(new: ComparisonWithOtherFileNew) -> Result<Self, ComparisonWithOtherFileError> {
+    pub fn new(new: NewComparisonWithOtherFile) -> Result<Self, ComparisonWithOtherFileError> {
         if new.size > varint::MAX {
             return Err(ComparisonWithOtherFileError::SizeTooBig);
         }
@@ -787,7 +1027,7 @@ fn test_comparison_with_other_file_operand() {
     )
 }
 
-pub struct BitmapRangeComparisonNew {
+pub struct NewBitmapRangeComparison {
     pub signed_data: bool,
     pub comparison_type: QueryRangeComparisonType,
     // TODO Is u32 a pertinent size?
@@ -796,7 +1036,7 @@ pub struct BitmapRangeComparisonNew {
     pub bitmap: Box<[u8]>,
     pub file: FileOffsetOperand,
 }
-impl BitmapRangeComparisonNew {
+impl NewBitmapRangeComparison {
     pub fn build(self) -> Result<BitmapRangeComparison, BitmapRangeComparisonError> {
         BitmapRangeComparison::new(self)
     }
@@ -825,7 +1065,7 @@ pub enum BitmapRangeComparisonError {
     BitmapBadSize,
 }
 impl BitmapRangeComparison {
-    pub fn new(new: BitmapRangeComparisonNew) -> Result<Self, BitmapRangeComparisonError> {
+    pub fn new(new: NewBitmapRangeComparison) -> Result<Self, BitmapRangeComparisonError> {
         if new.start > new.stop {
             return Err(BitmapRangeComparisonError::StartGreaterThanStop);
         }
@@ -959,13 +1199,13 @@ fn test_bitmap_range_comparison_operand() {
     )
 }
 
-pub struct StringTokenSearchNew {
+pub struct NewStringTokenSearch {
     pub max_errors: u8,
     pub mask: Option<Box<[u8]>>,
     pub value: Box<[u8]>,
     pub file: FileOffsetOperand,
 }
-impl StringTokenSearchNew {
+impl NewStringTokenSearch {
     pub fn build(self) -> Result<StringTokenSearch, StringTokenSearchError> {
         StringTokenSearch::new(self)
     }
@@ -985,7 +1225,7 @@ pub enum StringTokenSearchError {
     MaskBadSize,
 }
 impl StringTokenSearch {
-    pub fn new(new: StringTokenSearchNew) -> Result<Self, StringTokenSearchError> {
+    pub fn new(new: NewStringTokenSearch) -> Result<Self, StringTokenSearchError> {
         let size = new.value.len() as u32;
         if size > varint::MAX {
             return Err(StringTokenSearchError::SizeTooBig);

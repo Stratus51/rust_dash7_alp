@@ -1,6 +1,6 @@
+use crate::codec::{Codec, ParseFail, ParseResult, ParseValue};
 #[cfg(test)]
 use crate::test_tools::test_item;
-use crate::{Codec, ParseFail, ParseResult, ParseValue};
 #[cfg(test)]
 use hex_literal::hex;
 
