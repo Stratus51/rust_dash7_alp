@@ -15,6 +15,7 @@ pub use codec::{ParseError, ParseFail, ParseResult, ParseResultExtension, ParseV
 // TODO usize is target dependent. In other words, on a 16 bit processor, we will run into
 // troubles if we were to convert u32 to usize (even if a 64Ko payload seems a bit big).
 // Maybe we should just embrace this limitation? (Not to be lazy or anything...)
+// The bad thing is that u32 to u16 will compile and panic at runtime if the value is too big.
 // TODO Slice copies still check length consistency dynamically. Is there a way to get rid of that
 // at runtime while still testing it at compile/test time?
 //      - For simple index access, get_unchecked_mut can do the trick. But It makes the code hard to
@@ -252,7 +253,7 @@ pub enum OpCode {
 
     // Write
     WriteFileData = 4,
-    // TODO ALP SPEC: This is out of spec. Can't write + flush already do that job. Is it worth
+    // ALP SPEC: This is out of spec. Can't write + flush already do that job. Is it worth
     //  saving 2 bytes by taking an opcode?
     // WriteFileDataFlush = 5,
     WriteFileProperties = 6,
@@ -296,7 +297,6 @@ impl OpCode {
 
             // Write
             4 => OpCode::WriteFileData,
-            // 5 => OpCode::WriteFileDataFlush, // TODO
             6 => OpCode::WriteFileProperties,
             8 => OpCode::ActionQuery,
             9 => OpCode::BreakQuery,
@@ -371,7 +371,6 @@ pub mod varint {
         }
     }
 
-    // TODO Is this serialization correct? Check the SPEC!
     /// # Safety
     /// Only call this on u32 that are less than 0x3F_FF_FF_FF.
     ///
@@ -618,7 +617,7 @@ fn test_addressee_vid() {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-// TODO ALP_SPEC: Aren't there supposed to be more retry modes?
+// ALP_SPEC: Aren't there supposed to be more retry modes?
 pub enum RetryMode {
     No = 0,
 }
@@ -785,7 +784,6 @@ pub struct D7aspInterfaceStatusNew {
 #[derive(Clone, Debug, PartialEq)]
 pub struct D7aspInterfaceStatus {
     pub ch_header: u8,
-    // ALP SPEC: The endianesse of this variable is not specified in section 9.2.12
     pub ch_idx: u16,
     pub rxlev: u8,
     pub lb: u8,
@@ -795,10 +793,9 @@ pub struct D7aspInterfaceStatus {
     pub seq: u8,
     pub resp_to: u8,
     pub addressee: Addressee,
-    pub nls_state: Option<[u8; 5]>, // TODO Constrain this existence with addressee nls value
+    pub nls_state: Option<[u8; 5]>,
     _private: (),
 }
-// TODO Document errors
 pub enum D7aspInterfaceStatusError {
     MissingNlsState,
 }
@@ -952,7 +949,6 @@ pub enum InterfaceId {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum InterfaceConfiguration {
-    // TODO: ALP SPEC: Is this specified?
     Host,
     D7asp(D7aspInterfaceConfiguration),
 }
@@ -1040,13 +1036,11 @@ pub struct InterfaceStatusUnknown {
     pub data: Box<[u8]>,
     _private: (),
 }
-// TODO Document errors
 pub enum InterfaceStatusUnknownError {
     DataTooBig,
 }
 impl InterfaceStatusUnknown {
     pub fn new(new: InterfaceStatusNew) -> Result<Self, InterfaceStatusUnknownError> {
-        // TODO This cast might be incorrect if usize < u32
         if new.data.len() > varint::MAX as usize {
             return Err(InterfaceStatusUnknownError::DataTooBig);
         }
@@ -1553,10 +1547,9 @@ impl Codec for Permission {
 }
 
 pub mod permission_level {
-    // TODO SPEC: Isn't that Guest instead of user?
     pub const USER: u8 = 0;
     pub const ROOT: u8 = 1;
-    // TODO SPEC: Does something else exist?
+    // ALP SPEC: Does something else exist?
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -1746,7 +1739,6 @@ impl ComparisonWithZero {
             return Err(ComparisonWithZeroError::SizeTooBig);
         }
         if let Some(mask) = &new.mask {
-            // TODO This cast might panic if len() > u32::MAX
             if mask.len() as u32 != new.size {
                 return Err(ComparisonWithZeroError::MaskBadSize);
             }
@@ -1869,13 +1861,11 @@ pub enum ComparisonWithValueError {
 }
 impl ComparisonWithValue {
     pub fn new(new: ComparisonWithValueNew) -> Result<Self, ComparisonWithValueError> {
-        // TODO This cast might panic if len() > u32::MAX
         let size = new.value.len() as u32;
         if size > varint::MAX {
             return Err(ComparisonWithValueError::SizeTooBig);
         }
         if let Some(mask) = &new.mask {
-            // TODO This cast might panic if len() > u32::MAX
             if mask.len() as u32 != size {
                 return Err(ComparisonWithValueError::MaskBadSize);
             }
@@ -1991,8 +1981,8 @@ pub struct ComparisonWithOtherFileNew {
     pub comparison_type: QueryComparisonType,
     pub size: u32,
     pub mask: Option<Box<[u8]>>,
-    pub file_src: FileOffsetOperand,
-    pub file_dst: FileOffsetOperand,
+    pub file1: FileOffsetOperand,
+    pub file2: FileOffsetOperand,
 }
 #[derive(Clone, Debug, PartialEq)]
 pub struct ComparisonWithOtherFile {
@@ -2000,8 +1990,8 @@ pub struct ComparisonWithOtherFile {
     pub comparison_type: QueryComparisonType,
     pub size: u32,
     pub mask: Option<Box<[u8]>>,
-    pub file_src: FileOffsetOperand,
-    pub file_dst: FileOffsetOperand,
+    pub file1: FileOffsetOperand,
+    pub file2: FileOffsetOperand,
     _private: (),
 }
 pub enum ComparisonWithOtherFileError {
@@ -2014,7 +2004,6 @@ impl ComparisonWithOtherFile {
             return Err(ComparisonWithOtherFileError::SizeTooBig);
         }
         if let Some(mask) = &new.mask {
-            // TODO This cast might panic if len() > u32::MAX
             if mask.len() as u32 != new.size {
                 return Err(ComparisonWithOtherFileError::MaskBadSize);
             }
@@ -2024,8 +2013,8 @@ impl ComparisonWithOtherFile {
             comparison_type: new.comparison_type,
             size: new.size,
             mask: new.mask,
-            file_src: new.file_src,
-            file_dst: new.file_dst,
+            file1: new.file1,
+            file2: new.file2,
             _private: (),
         })
     }
@@ -2038,8 +2027,8 @@ impl Codec for ComparisonWithOtherFile {
         };
         1 + unsafe { varint::size(self.size) } as usize
             + mask_size
-            + self.file_src.encoded_size()
-            + self.file_dst.encoded_size()
+            + self.file1.encoded_size()
+            + self.file2.encoded_size()
     }
     fn encode(&self, out: &mut [u8]) -> usize {
         let mask_flag = match self.mask {
@@ -2058,9 +2047,8 @@ impl Codec for ComparisonWithOtherFile {
             out[offset..offset + self.size as usize].clone_from_slice(&mask);
             offset += mask.len();
         }
-        // TODO ALP SPEC: Which of the offset operand is the source and the dest? (file 1 and 2)
-        offset += self.file_src.encode(&mut out[offset..]);
-        offset += self.file_dst.encode(&mut out[offset..]);
+        offset += self.file1.encode(&mut out[offset..]);
+        offset += self.file2.encode(&mut out[offset..]);
         offset
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
@@ -2084,23 +2072,23 @@ impl Codec for ComparisonWithOtherFile {
             None
         };
         let ParseValue {
-            value: file_src,
-            size: file_src_size,
+            value: file1,
+            size: file1_size,
         } = FileOffsetOperand::decode(&out[offset..])?;
-        offset += file_src_size;
+        offset += file1_size;
         let ParseValue {
-            value: file_dst,
-            size: file_dst_size,
+            value: file2,
+            size: file2_size,
         } = FileOffsetOperand::decode(&out[offset..])?;
-        offset += file_dst_size;
+        offset += file2_size;
         Ok(ParseValue {
             value: Self {
                 signed_data,
                 comparison_type,
                 size,
                 mask,
-                file_src,
-                file_dst,
+                file1,
+                file2,
                 _private: (),
             },
             size: offset,
@@ -2115,12 +2103,12 @@ fn test_comparison_with_other_file_operand() {
             comparison_type: QueryComparisonType::GreaterThan,
             size: 2,
             mask: Some(vec![0xFF, 0xFF].into_boxed_slice()),
-            file_src: FileOffsetOperand {
+            file1: FileOffsetOperand {
                 id: 4,
                 offset: 5,
                 _private: (),
             },
-            file_dst: FileOffsetOperand {
+            file2: FileOffsetOperand {
                 id: 8,
                 offset: 9,
                 _private: (),
@@ -2145,30 +2133,29 @@ pub struct BitmapRangeComparisonNew {
 pub struct BitmapRangeComparison {
     pub signed_data: bool,
     pub comparison_type: QueryRangeComparisonType,
-    // TODO Protect
     pub size: u32,
-    // ALP SPEC: TODO In theory, start and stop can be huge array thus impossible to cast into any trivial
+    // ALP SPEC: In theory, start and stop can be huge array thus impossible to cast into any trivial
     // number. How do we deal with this.
-    // ALP SPEC: TODO What is the endianness of those start and stop fields?
-    // TODO Enforce stop > start
-    // TODO If the max size is settled, replace the buffer by the max size. This may take up more
+    // If the max size is ever settled by the spec, replace the buffer by the max size. This may take up more
     // memory, but would be way easier to use. Also it would avoid having to specify the ".size"
     // field.
     pub start: Box<[u8]>,
     pub stop: Box<[u8]>,
-    // ALP SPEC: TODO How does the bitmap has to be aligned in the byte array? Aligned left or
-    // right? Endianness?
-    pub bitmap: Box<[u8]>, // TODO Better type?
+    pub bitmap: Box<[u8]>,
     pub file: FileOffsetOperand,
     _private: (),
 }
 pub enum BitmapRangeComparisonError {
+    StartGreaterThanStop,
     SizeTooBig,
     BitmapBadSize,
 }
 impl BitmapRangeComparison {
     pub fn new(new: BitmapRangeComparisonNew) -> Result<Self, BitmapRangeComparisonError> {
-        let max = new.start.max(new.stop);
+        if new.start > new.stop {
+            return Err(BitmapRangeComparisonError::StartGreaterThanStop);
+        }
+        let max = new.stop;
         let size: u32 = if max <= 0xFF {
             1
         } else if max <= 0xFF_FF {
@@ -2319,13 +2306,11 @@ pub enum StringTokenSearchError {
 }
 impl StringTokenSearch {
     pub fn new(new: StringTokenSearchNew) -> Result<Self, StringTokenSearchError> {
-        // TODO This cast might panic if len() > u32::MAX
         let size = new.value.len() as u32;
         if size > varint::MAX {
             return Err(StringTokenSearchError::SizeTooBig);
         }
         if let Some(mask) = &new.mask {
-            // TODO This cast might panic if len() > u32::MAX
             if mask.len() as u32 != size {
                 return Err(StringTokenSearchError::MaskBadSize);
             }
@@ -2530,6 +2515,7 @@ fn test_overloaded_indirect_interface() {
 
 #[derive(Clone, Debug, PartialEq)]
 // ALP SPEC: This seems undoable if we do not know the interface (per protocol specific support)
+//  which is still a pretty legitimate policy on a low power protocol.
 pub struct NonOverloadedIndirectInterface {
     pub interface_file_id: u8,
     // ALP SPEC: Where is this defined? Is this ID specific?
@@ -2543,10 +2529,9 @@ impl Codec for NonOverloadedIndirectInterface {
     fn encode(&self, out: &mut [u8]) -> usize {
         out[0] = self.interface_file_id;
         let mut offset = 1;
-        out[offset..].clone_from_slice(&self.data);
+        out[offset..offset + self.data.len()].clone_from_slice(&self.data);
         offset += self.data.len();
-        // ALP SPEC: TODO: What should we do
-        todo!("{}", offset)
+        offset
     }
     fn decode(_out: &[u8]) -> ParseResult<Self> {
         todo!("TODO")
@@ -2636,7 +2621,6 @@ pub struct ReadFileDataNew {
     pub offset: u32,
     pub size: u32,
 }
-// TODO Protect varint init
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ReadFileData {
     pub group: bool,
@@ -2770,7 +2754,6 @@ impl WriteFileData {
         if new.offset > varint::MAX {
             return Err(WriteFileDataError::OffsetTooBig);
         }
-        // TODO usize -> u32 might panic
         let size = new.data.len() as u32;
         if size > varint::MAX {
             return Err(WriteFileDataError::SizeTooBig);
@@ -3218,7 +3201,6 @@ impl ReturnFileData {
         if new.offset > varint::MAX {
             return Err(ReturnFileDataError::OffsetTooBig);
         }
-        // TODO usize -> u32 might panic
         let size = new.data.len() as u32;
         if size > varint::MAX {
             return Err(ReturnFileDataError::SizeTooBig);
