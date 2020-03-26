@@ -2,8 +2,7 @@
 use crate::test_tools::test_item;
 use crate::{
     codec::{Codec, ParseError, ParseFail, ParseResult, ParseResultExtension, ParseValue},
-    dash7::*,
-    varint, Enum,
+    dash7, varint, Enum,
 };
 #[cfg(test)]
 use hex_literal::hex;
@@ -20,7 +19,7 @@ pub enum InterfaceId {
 #[derive(Clone, Debug, PartialEq)]
 pub enum InterfaceConfiguration {
     Host,
-    D7asp(D7aspInterfaceConfiguration),
+    D7asp(dash7::InterfaceConfiguration),
 }
 impl Codec for InterfaceConfiguration {
     fn encoded_size(&self) -> usize {
@@ -54,7 +53,7 @@ impl Codec for InterfaceConfiguration {
             },
             D7ASP => {
                 let ParseValue { value, size } =
-                    D7aspInterfaceConfiguration::decode(&out[1..]).inc_offset(1)?;
+                    dash7::InterfaceConfiguration::decode(&out[1..]).inc_offset(1)?;
                 ParseValue {
                     value: InterfaceConfiguration::D7asp(value),
                     size: size + 1,
@@ -75,17 +74,17 @@ impl Codec for InterfaceConfiguration {
 #[test]
 fn test_interface_configuration_d7asp() {
     test_item(
-        InterfaceConfiguration::D7asp(D7aspInterfaceConfiguration {
-            qos: Qos {
-                retry: RetryMode::No,
-                resp: RespMode::Any,
+        InterfaceConfiguration::D7asp(dash7::InterfaceConfiguration {
+            qos: dash7::Qos {
+                retry: dash7::RetryMode::No,
+                resp: dash7::RespMode::Any,
             },
             to: 0x23,
             te: 0x34,
-            addressee: Addressee {
-                nls_method: NlsMethod::AesCcm32,
+            addressee: dash7::Addressee {
+                nls_method: dash7::NlsMethod::AesCcm32,
                 access_class: 0xFF,
-                address: Address::Vid(Box::new([0xAB, 0xCD])),
+                address: dash7::Address::Vid(Box::new([0xAB, 0xCD])),
             },
         }),
         &hex!("D7   02 23 34   37 FF ABCD"),
@@ -124,7 +123,7 @@ impl InterfaceStatusUnknown {
 #[derive(Clone, Debug, PartialEq)]
 pub enum InterfaceStatus {
     Host,
-    D7asp(D7aspInterfaceStatus),
+    D7asp(dash7::InterfaceStatus),
     Unknown(InterfaceStatusUnknown),
 }
 impl Codec for InterfaceStatus {
@@ -182,7 +181,8 @@ impl Codec for InterfaceStatus {
                 let size = size as usize;
                 offset += size_size;
                 let ParseValue { value, size } =
-                    D7aspInterfaceStatus::decode(&out[offset..offset + size]).inc_offset(offset)?;
+                    dash7::InterfaceStatus::decode(&out[offset..offset + size])
+                        .inc_offset(offset)?;
                 offset += size;
                 InterfaceStatus::D7asp(value)
             }
@@ -216,7 +216,7 @@ impl Codec for InterfaceStatus {
 fn test_interface_status_d7asp() {
     test_item(
         InterfaceStatus::D7asp(
-            NewD7aspInterfaceStatus {
+            dash7::NewInterfaceStatus {
                 ch_header: 1,
                 ch_idx: 0x0123,
                 rxlev: 2,
@@ -226,10 +226,10 @@ fn test_interface_status_d7asp() {
                 token: 6,
                 seq: 7,
                 resp_to: 8,
-                addressee: Addressee {
-                    nls_method: NlsMethod::AesCcm32,
+                addressee: dash7::Addressee {
+                    nls_method: dash7::NlsMethod::AesCcm32,
                     access_class: 0xFF,
-                    address: Address::Vid(Box::new([0xAB, 0xCD])),
+                    address: dash7::Address::Vid(Box::new([0xAB, 0xCD])),
                 },
                 nls_state: Some(hex!("00 11 22 33 44")),
             }
@@ -247,30 +247,30 @@ fn test_interface_status_host() {
 // ===============================================================================
 // Operands
 // ===============================================================================
-pub struct NewFileOffsetOperand {
+pub struct NewFileOffset {
     pub id: u8,
     pub offset: u32,
 }
-impl NewFileOffsetOperand {
-    pub fn build(self) -> Result<FileOffsetOperand, FileOffsetOperandError> {
-        FileOffsetOperand::new(self)
+impl NewFileOffset {
+    pub fn build(self) -> Result<FileOffset, FileOffsetError> {
+        FileOffset::new(self)
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct FileOffsetOperand {
+pub struct FileOffset {
     pub id: u8,
     pub offset: u32,
     _private: (),
 }
 #[derive(Clone, Debug, PartialEq)]
-pub enum FileOffsetOperandError {
+pub enum FileOffsetError {
     OffsetTooBig,
 }
 
-impl FileOffsetOperand {
-    pub fn new(new: NewFileOffsetOperand) -> Result<Self, FileOffsetOperandError> {
+impl FileOffset {
+    pub fn new(new: NewFileOffset) -> Result<Self, FileOffsetError> {
         if new.offset > varint::MAX {
-            return Err(FileOffsetOperandError::OffsetTooBig);
+            return Err(FileOffsetError::OffsetTooBig);
         }
         Ok(Self {
             id: new.id,
@@ -280,7 +280,7 @@ impl FileOffsetOperand {
     }
 }
 
-impl Codec for FileOffsetOperand {
+impl Codec for FileOffset {
     fn encoded_size(&self) -> usize {
         1 + unsafe { varint::size(self.offset) } as usize
     }
@@ -309,7 +309,7 @@ impl Codec for FileOffsetOperand {
 #[test]
 fn test_file_offset_operand() {
     test_item(
-        FileOffsetOperand {
+        FileOffset {
             id: 2,
             offset: 0x3F_FF,
             _private: (),
@@ -337,11 +337,11 @@ pub mod status_code {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct StatusOperand {
+pub struct Status {
     pub action_id: u8,
     pub status: u8,
 }
-impl Codec for StatusOperand {
+impl Codec for Status {
     fn encoded_size(&self) -> usize {
         1 + 1
     }
@@ -366,7 +366,7 @@ impl Codec for StatusOperand {
 #[test]
 fn test_status_operand() {
     test_item(
-        StatusOperand {
+        Status {
             action_id: 2,
             status: status_code::UNKNOWN_OPERATION,
         },
@@ -522,7 +522,7 @@ impl QueryCode {
 
 pub struct NewNonVoid {
     pub size: u32,
-    pub file: FileOffsetOperand,
+    pub file: FileOffset,
 }
 impl NewNonVoid {
     pub fn build(self) -> Result<NonVoid, NonVoidError> {
@@ -532,7 +532,7 @@ impl NewNonVoid {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct NonVoid {
     pub size: u32,
-    pub file: FileOffsetOperand,
+    pub file: FileOffset,
     _private: (),
 }
 #[derive(Clone, Debug, PartialEq)]
@@ -575,7 +575,7 @@ impl Codec for NonVoid {
         let ParseValue {
             value: file,
             size: file_size,
-        } = FileOffsetOperand::decode(&out[offset..])?;
+        } = FileOffset::decode(&out[offset..])?;
         offset += file_size;
         Ok(ParseValue {
             value: Self {
@@ -592,7 +592,7 @@ fn test_non_void_query_operand() {
     test_item(
         NonVoid {
             size: 4,
-            file: FileOffsetOperand {
+            file: FileOffset {
                 id: 5,
                 offset: 6,
                 _private: (),
@@ -608,7 +608,7 @@ pub struct NewComparisonWithZero {
     pub comparison_type: QueryComparisonType,
     pub size: u32,
     pub mask: Option<Box<[u8]>>,
-    pub file: FileOffsetOperand,
+    pub file: FileOffset,
 }
 impl NewComparisonWithZero {
     pub fn build(self) -> Result<ComparisonWithZero, ComparisonWithZeroError> {
@@ -621,7 +621,7 @@ pub struct ComparisonWithZero {
     pub comparison_type: QueryComparisonType,
     pub size: u32,
     pub mask: Option<Box<[u8]>>,
-    pub file: FileOffsetOperand,
+    pub file: FileOffset,
     _private: (),
 }
 #[derive(Clone, Debug, PartialEq)]
@@ -700,7 +700,7 @@ impl Codec for ComparisonWithZero {
         let ParseValue {
             value: file,
             size: offset_size,
-        } = FileOffsetOperand::decode(&out[offset..])?;
+        } = FileOffset::decode(&out[offset..])?;
         offset += offset_size;
         Ok(ParseValue {
             value: Self {
@@ -723,7 +723,7 @@ fn test_comparison_with_zero_operand() {
             comparison_type: QueryComparisonType::Inequal,
             size: 3,
             mask: Some(vec![0, 1, 2].into_boxed_slice()),
-            file: FileOffsetOperand {
+            file: FileOffset {
                 id: 4,
                 offset: 5,
                 _private: (),
@@ -739,7 +739,7 @@ pub struct NewComparisonWithValue {
     pub comparison_type: QueryComparisonType,
     pub mask: Option<Box<[u8]>>,
     pub value: Box<[u8]>,
-    pub file: FileOffsetOperand,
+    pub file: FileOffset,
 }
 impl NewComparisonWithValue {
     pub fn build(self) -> Result<ComparisonWithValue, ComparisonWithValueError> {
@@ -753,7 +753,7 @@ pub struct ComparisonWithValue {
     pub size: u32,
     pub mask: Option<Box<[u8]>>,
     pub value: Box<[u8]>,
-    pub file: FileOffsetOperand,
+    pub file: FileOffset,
     _private: (),
 }
 #[derive(Clone, Debug, PartialEq)]
@@ -842,7 +842,7 @@ impl Codec for ComparisonWithValue {
         let ParseValue {
             value: file,
             size: offset_size,
-        } = FileOffsetOperand::decode(&out[offset..])?;
+        } = FileOffset::decode(&out[offset..])?;
         offset += offset_size;
         Ok(ParseValue {
             value: Self {
@@ -867,7 +867,7 @@ fn test_comparison_with_value_operand() {
             size: 3,
             mask: None,
             value: vec![9, 9, 9].into_boxed_slice(),
-            file: FileOffsetOperand {
+            file: FileOffset {
                 id: 4,
                 offset: 5,
                 _private: (),
@@ -883,8 +883,8 @@ pub struct NewComparisonWithOtherFile {
     pub comparison_type: QueryComparisonType,
     pub size: u32,
     pub mask: Option<Box<[u8]>>,
-    pub file1: FileOffsetOperand,
-    pub file2: FileOffsetOperand,
+    pub file1: FileOffset,
+    pub file2: FileOffset,
 }
 impl NewComparisonWithOtherFile {
     pub fn build(self) -> Result<ComparisonWithOtherFile, ComparisonWithOtherFileError> {
@@ -897,8 +897,8 @@ pub struct ComparisonWithOtherFile {
     pub comparison_type: QueryComparisonType,
     pub size: u32,
     pub mask: Option<Box<[u8]>>,
-    pub file1: FileOffsetOperand,
-    pub file2: FileOffsetOperand,
+    pub file1: FileOffset,
+    pub file2: FileOffset,
     _private: (),
 }
 #[derive(Clone, Debug, PartialEq)]
@@ -982,12 +982,12 @@ impl Codec for ComparisonWithOtherFile {
         let ParseValue {
             value: file1,
             size: file1_size,
-        } = FileOffsetOperand::decode(&out[offset..])?;
+        } = FileOffset::decode(&out[offset..])?;
         offset += file1_size;
         let ParseValue {
             value: file2,
             size: file2_size,
-        } = FileOffsetOperand::decode(&out[offset..])?;
+        } = FileOffset::decode(&out[offset..])?;
         offset += file2_size;
         Ok(ParseValue {
             value: Self {
@@ -1011,12 +1011,12 @@ fn test_comparison_with_other_file_operand() {
             comparison_type: QueryComparisonType::GreaterThan,
             size: 2,
             mask: Some(vec![0xFF, 0xFF].into_boxed_slice()),
-            file1: FileOffsetOperand {
+            file1: FileOffset {
                 id: 4,
                 offset: 5,
                 _private: (),
             },
-            file2: FileOffsetOperand {
+            file2: FileOffset {
                 id: 8,
                 offset: 9,
                 _private: (),
@@ -1034,7 +1034,7 @@ pub struct NewBitmapRangeComparison {
     pub start: u32,
     pub stop: u32,
     pub bitmap: Box<[u8]>,
-    pub file: FileOffsetOperand,
+    pub file: FileOffset,
 }
 impl NewBitmapRangeComparison {
     pub fn build(self) -> Result<BitmapRangeComparison, BitmapRangeComparisonError> {
@@ -1055,7 +1055,7 @@ pub struct BitmapRangeComparison {
     pub start: Box<[u8]>,
     pub stop: Box<[u8]>,
     pub bitmap: Box<[u8]>,
-    pub file: FileOffsetOperand,
+    pub file: FileOffset,
     _private: (),
 }
 #[derive(Clone, Debug, PartialEq)]
@@ -1159,7 +1159,7 @@ impl Codec for BitmapRangeComparison {
         let ParseValue {
             value: file,
             size: file_size,
-        } = FileOffsetOperand::decode(&out[offset..])?;
+        } = FileOffset::decode(&out[offset..])?;
         offset += file_size;
         Ok(ParseValue {
             value: Self {
@@ -1188,7 +1188,7 @@ fn test_bitmap_range_comparison_operand() {
             stop: Box::new(hex!("00 20")),
             bitmap: Box::new(hex!("01020304")),
 
-            file: FileOffsetOperand {
+            file: FileOffset {
                 id: 0,
                 offset: 4,
                 _private: (),
@@ -1203,7 +1203,7 @@ pub struct NewStringTokenSearch {
     pub max_errors: u8,
     pub mask: Option<Box<[u8]>>,
     pub value: Box<[u8]>,
-    pub file: FileOffsetOperand,
+    pub file: FileOffset,
 }
 impl NewStringTokenSearch {
     pub fn build(self) -> Result<StringTokenSearch, StringTokenSearchError> {
@@ -1216,7 +1216,7 @@ pub struct StringTokenSearch {
     pub size: u32,
     pub mask: Option<Box<[u8]>>,
     pub value: Box<[u8]>,
-    pub file: FileOffsetOperand,
+    pub file: FileOffset,
     _private: (),
 }
 #[derive(Clone, Debug, PartialEq)]
@@ -1303,7 +1303,7 @@ impl Codec for StringTokenSearch {
         let ParseValue {
             value: file,
             size: offset_size,
-        } = FileOffsetOperand::decode(&out[offset..])?;
+        } = FileOffset::decode(&out[offset..])?;
         offset += offset_size;
         Ok(ParseValue {
             value: Self {
@@ -1326,7 +1326,7 @@ fn test_string_token_search_operand() {
             size: 4,
             mask: Some(Box::new(hex!("FF00FF00"))),
             value: Box::new(hex!("01020304")),
-            file: FileOffsetOperand {
+            file: FileOffset {
                 id: 0,
                 offset: 4,
                 _private: (),
@@ -1338,7 +1338,7 @@ fn test_string_token_search_operand() {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum QueryOperand {
+pub enum Query {
     NonVoid(NonVoid),
     ComparisonWithZero(ComparisonWithZero),
     ComparisonWithValue(ComparisonWithValue),
@@ -1346,42 +1346,43 @@ pub enum QueryOperand {
     BitmapRangeComparison(BitmapRangeComparison),
     StringTokenSearch(StringTokenSearch),
 }
-impl Codec for QueryOperand {
+impl Codec for Query {
     fn encoded_size(&self) -> usize {
         match self {
-            QueryOperand::NonVoid(v) => v.encoded_size(),
-            QueryOperand::ComparisonWithZero(v) => v.encoded_size(),
-            QueryOperand::ComparisonWithValue(v) => v.encoded_size(),
-            QueryOperand::ComparisonWithOtherFile(v) => v.encoded_size(),
-            QueryOperand::BitmapRangeComparison(v) => v.encoded_size(),
-            QueryOperand::StringTokenSearch(v) => v.encoded_size(),
+            Query::NonVoid(v) => v.encoded_size(),
+            Query::ComparisonWithZero(v) => v.encoded_size(),
+            Query::ComparisonWithValue(v) => v.encoded_size(),
+            Query::ComparisonWithOtherFile(v) => v.encoded_size(),
+            Query::BitmapRangeComparison(v) => v.encoded_size(),
+            Query::StringTokenSearch(v) => v.encoded_size(),
         }
     }
     fn encode(&self, out: &mut [u8]) -> usize {
         match self {
-            QueryOperand::NonVoid(v) => v.encode(out),
-            QueryOperand::ComparisonWithZero(v) => v.encode(out),
-            QueryOperand::ComparisonWithValue(v) => v.encode(out),
-            QueryOperand::ComparisonWithOtherFile(v) => v.encode(out),
-            QueryOperand::BitmapRangeComparison(v) => v.encode(out),
-            QueryOperand::StringTokenSearch(v) => v.encode(out),
+            Query::NonVoid(v) => v.encode(out),
+            Query::ComparisonWithZero(v) => v.encode(out),
+            Query::ComparisonWithValue(v) => v.encode(out),
+            Query::ComparisonWithOtherFile(v) => v.encode(out),
+            Query::BitmapRangeComparison(v) => v.encode(out),
+            Query::StringTokenSearch(v) => v.encode(out),
         }
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
         Ok(match QueryCode::from(out[0] >> 5)? {
-            QueryCode::NonVoid => {
-                NonVoid::decode(out).map(|ok| ok.map_value(QueryOperand::NonVoid))
+            QueryCode::NonVoid => NonVoid::decode(out).map(|ok| ok.map_value(Query::NonVoid)),
+            QueryCode::ComparisonWithZero => {
+                ComparisonWithZero::decode(out).map(|ok| ok.map_value(Query::ComparisonWithZero))
             }
-            QueryCode::ComparisonWithZero => ComparisonWithZero::decode(out)
-                .map(|ok| ok.map_value(QueryOperand::ComparisonWithZero)),
-            QueryCode::ComparisonWithValue => ComparisonWithValue::decode(out)
-                .map(|ok| ok.map_value(QueryOperand::ComparisonWithValue)),
+            QueryCode::ComparisonWithValue => {
+                ComparisonWithValue::decode(out).map(|ok| ok.map_value(Query::ComparisonWithValue))
+            }
             QueryCode::ComparisonWithOtherFile => ComparisonWithOtherFile::decode(out)
-                .map(|ok| ok.map_value(QueryOperand::ComparisonWithOtherFile)),
+                .map(|ok| ok.map_value(Query::ComparisonWithOtherFile)),
             QueryCode::BitmapRangeComparison => BitmapRangeComparison::decode(out)
-                .map(|ok| ok.map_value(QueryOperand::BitmapRangeComparison)),
-            QueryCode::StringTokenSearch => StringTokenSearch::decode(out)
-                .map(|ok| ok.map_value(QueryOperand::StringTokenSearch)),
+                .map(|ok| ok.map_value(Query::BitmapRangeComparison)),
+            QueryCode::StringTokenSearch => {
+                StringTokenSearch::decode(out).map(|ok| ok.map_value(Query::StringTokenSearch))
+            }
         }?)
     }
 }
@@ -1389,7 +1390,7 @@ impl Codec for QueryOperand {
 #[derive(Clone, Debug, PartialEq)]
 pub struct OverloadedIndirectInterface {
     pub interface_file_id: u8,
-    pub addressee: Addressee,
+    pub addressee: dash7::Addressee,
 }
 
 impl Codec for OverloadedIndirectInterface {
@@ -1408,7 +1409,7 @@ impl Codec for OverloadedIndirectInterface {
         let ParseValue {
             value: addressee,
             size: addressee_size,
-        } = Addressee::decode(&out[1..]).inc_offset(1)?;
+        } = dash7::Addressee::decode(&out[1..]).inc_offset(1)?;
         Ok(ParseValue {
             value: Self {
                 interface_file_id,
@@ -1423,10 +1424,10 @@ fn test_overloaded_indirect_interface() {
     test_item(
         OverloadedIndirectInterface {
             interface_file_id: 4,
-            addressee: Addressee {
-                nls_method: NlsMethod::AesCcm32,
+            addressee: dash7::Addressee {
+                nls_method: dash7::NlsMethod::AesCcm32,
                 access_class: 0xFF,
-                address: Address::Vid(Box::new([0xAB, 0xCD])),
+                address: dash7::Address::Vid(Box::new([0xAB, 0xCD])),
             },
         },
         &hex!("04   37 FF ABCD"),

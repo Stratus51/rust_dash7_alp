@@ -260,14 +260,14 @@ fn test_qos() {
 
 // ALP SPEC: Add link to D7a section
 #[derive(Clone, Debug, PartialEq)]
-pub struct D7aspInterfaceConfiguration {
+pub struct InterfaceConfiguration {
     pub qos: Qos,
     pub to: u8,
     pub te: u8,
     pub addressee: Addressee,
 }
 
-impl Codec for D7aspInterfaceConfiguration {
+impl Codec for InterfaceConfiguration {
     fn encoded_size(&self) -> usize {
         self.qos.encoded_size() + 2 + self.addressee.encoded_size()
     }
@@ -301,9 +301,9 @@ impl Codec for D7aspInterfaceConfiguration {
     }
 }
 #[test]
-fn test_d7asp_interface_configuration() {
+fn test_interface_configuration() {
     test_item(
-        D7aspInterfaceConfiguration {
+        InterfaceConfiguration {
             qos: Qos {
                 retry: RetryMode::No,
                 resp: RespMode::Any,
@@ -320,7 +320,7 @@ fn test_d7asp_interface_configuration() {
     )
 }
 
-pub struct NewD7aspInterfaceStatus {
+pub struct NewInterfaceStatus {
     pub ch_header: u8,
     pub ch_idx: u16,
     pub rxlev: u8,
@@ -333,14 +333,14 @@ pub struct NewD7aspInterfaceStatus {
     pub addressee: Addressee,
     pub nls_state: Option<[u8; 5]>,
 }
-impl NewD7aspInterfaceStatus {
-    pub fn build(self) -> Result<D7aspInterfaceStatus, D7aspInterfaceStatusError> {
-        D7aspInterfaceStatus::new(self)
+impl NewInterfaceStatus {
+    pub fn build(self) -> Result<InterfaceStatus, InterfaceStatusError> {
+        InterfaceStatus::new(self)
     }
 }
 // ALP SPEC: Add link to D7a section (names do not even match)
 #[derive(Clone, Debug, PartialEq)]
-pub struct D7aspInterfaceStatus {
+pub struct InterfaceStatus {
     pub ch_header: u8,
     pub ch_idx: u16,
     pub rxlev: u8,
@@ -355,16 +355,16 @@ pub struct D7aspInterfaceStatus {
     _private: (),
 }
 #[derive(Clone, Debug, PartialEq)]
-pub enum D7aspInterfaceStatusError {
+pub enum InterfaceStatusError {
     MissingNlsState,
 }
-impl D7aspInterfaceStatus {
-    pub fn new(new: NewD7aspInterfaceStatus) -> Result<Self, D7aspInterfaceStatusError> {
+impl InterfaceStatus {
+    pub fn new(new: NewInterfaceStatus) -> Result<Self, InterfaceStatusError> {
         match &new.addressee.nls_method {
             NlsMethod::None => (),
             _ => {
                 if new.nls_state.is_none() {
-                    return Err(D7aspInterfaceStatusError::MissingNlsState);
+                    return Err(InterfaceStatusError::MissingNlsState);
                 }
             }
         }
@@ -384,7 +384,7 @@ impl D7aspInterfaceStatus {
         })
     }
 }
-impl Codec for D7aspInterfaceStatus {
+impl Codec for InterfaceStatus {
     fn encoded_size(&self) -> usize {
         10 + self.addressee.encoded_size()
             + match self.nls_state {
@@ -465,9 +465,9 @@ impl Codec for D7aspInterfaceStatus {
     }
 }
 #[test]
-fn test_d7asp_interface_status() {
+fn test_interface_status() {
     test_item(
-        D7aspInterfaceStatus {
+        InterfaceStatus {
             ch_header: 1,
             ch_idx: 0x0123,
             rxlev: 2,

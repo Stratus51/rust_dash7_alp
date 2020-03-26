@@ -604,21 +604,19 @@ fn test_write_file_properties() {
 pub struct ActionQuery {
     pub group: bool,
     pub resp: bool,
-    pub query: operand::QueryOperand,
+    pub query: operand::Query,
 }
-impl_op_serialized!(ActionQuery, group, resp, query, QueryOperand);
+impl_op_serialized!(ActionQuery, group, resp, query, Query);
 #[test]
 fn test_action_query() {
     test_item(
         ActionQuery {
             group: true,
             resp: true,
-            query: operand::QueryOperand::NonVoid(
+            query: operand::Query::NonVoid(
                 operand::NewNonVoid {
                     size: 4,
-                    file: operand::NewFileOffsetOperand { id: 5, offset: 6 }
-                        .build()
-                        .unwrap(),
+                    file: operand::NewFileOffset { id: 5, offset: 6 }.build().unwrap(),
                 }
                 .build()
                 .unwrap(),
@@ -632,21 +630,19 @@ fn test_action_query() {
 pub struct BreakQuery {
     pub group: bool,
     pub resp: bool,
-    pub query: operand::QueryOperand,
+    pub query: operand::Query,
 }
-impl_op_serialized!(BreakQuery, group, resp, query, QueryOperand);
+impl_op_serialized!(BreakQuery, group, resp, query, Query);
 #[test]
 fn test_break_query() {
     test_item(
         BreakQuery {
             group: true,
             resp: true,
-            query: operand::QueryOperand::NonVoid(
+            query: operand::Query::NonVoid(
                 operand::NewNonVoid {
                     size: 4,
-                    file: operand::NewFileOffsetOperand { id: 5, offset: 6 }
-                        .build()
-                        .unwrap(),
+                    file: operand::NewFileOffset { id: 5, offset: 6 }.build().unwrap(),
                 }
                 .build()
                 .unwrap(),
@@ -713,21 +709,19 @@ fn test_permission_request() {
 pub struct VerifyChecksum {
     pub group: bool,
     pub resp: bool,
-    pub query: operand::QueryOperand,
+    pub query: operand::Query,
 }
-impl_op_serialized!(VerifyChecksum, group, resp, query, QueryOperand);
+impl_op_serialized!(VerifyChecksum, group, resp, query, Query);
 #[test]
 fn test_verify_checksum() {
     test_item(
         VerifyChecksum {
             group: false,
             resp: false,
-            query: operand::QueryOperand::NonVoid(
+            query: operand::Query::NonVoid(
                 operand::NewNonVoid {
                     size: 4,
-                    file: operand::NewFileOffsetOperand { id: 5, offset: 6 }
-                        .build()
-                        .unwrap(),
+                    file: operand::NewFileOffset { id: 5, offset: 6 }.build().unwrap(),
                 }
                 .build()
                 .unwrap(),
@@ -1077,7 +1071,7 @@ impl StatusType {
 pub enum Status {
     // ALP SPEC: This is named status, but it should be named action status compared to the '2'
     // other statuses.
-    Action(operand::StatusOperand),
+    Action(operand::Status),
     Interface(operand::InterfaceStatus),
     // ALP SPEC: Where are the stack errors?
 }
@@ -1107,8 +1101,9 @@ impl Codec for Status {
         }
         let status_type = out[0] >> 6;
         Ok(match StatusType::from(status_type)? {
-            StatusType::Action => operand::StatusOperand::decode(&out[1..])?
-                .map(|v, size| (Status::Action(v), size + 1)),
+            StatusType::Action => {
+                operand::Status::decode(&out[1..])?.map(|v, size| (Status::Action(v), size + 1))
+            }
             StatusType::Interface => operand::InterfaceStatus::decode(&out[1..])
                 .inc_offset(1)?
                 .map(|v, size| (Status::Interface(v), size + 1)),
@@ -1118,7 +1113,7 @@ impl Codec for Status {
 #[test]
 fn test_status() {
     test_item(
-        Status::Action(operand::StatusOperand {
+        Status::Action(operand::Status {
             action_id: 2,
             status: operand::status_code::UNKNOWN_OPERATION,
         }),
