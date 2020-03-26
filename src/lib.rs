@@ -840,8 +840,7 @@ impl Codec for D7aspInterfaceStatus {
         let mut i = 0;
         out[i] = self.ch_header;
         i += 1;
-        // TODO SPEC Endianness unspecified
-        out[i..(i + 2)].clone_from_slice(&self.ch_idx.to_le_bytes());
+        out[i..(i + 2)].clone_from_slice(&self.ch_idx.to_be_bytes());
         i += 2;
         out[i] = self.rxlev;
         i += 1;
@@ -893,8 +892,7 @@ impl Codec for D7aspInterfaceStatus {
         Ok(ParseValue {
             value: Self {
                 ch_header: out[0],
-                // TODO SPEC Endianness unspecified
-                ch_idx: ((out[2] as u16) << 8) + out[1] as u16,
+                ch_idx: ((out[1] as u16) << 8) + out[2] as u16,
                 rxlev: out[3],
                 lb: out[4],
                 snr: out[5],
@@ -931,7 +929,7 @@ fn test_d7asp_interface_status() {
             nls_state: Some(hex!("00 11 22 33 44")),
             _private: (),
         },
-        &hex!("01 2301 02 03 04 05 06 07 08   37 FF ABCD  0011223344"),
+        &hex!("01 0123 02 03 04 05 06 07 08   37 FF ABCD  0011223344"),
     )
 }
 
@@ -1163,7 +1161,7 @@ fn test_interface_status_d7asp() {
             nls_state: Some(hex!("00 11 22 33 44")),
             _private: (),
         }),
-        &hex!("D7 13    01 2301 02 03 04 05 06 07 08   37 FF ABCD  0011223344"),
+        &hex!("D7 13    01 0123 02 03 04 05 06 07 08   37 FF ABCD  0011223344"),
     )
 }
 #[test]
@@ -2172,15 +2170,12 @@ impl BitmapRangeComparison {
         } else {
             4
         };
-        // TODO u32 to usize might panic
         let mut start = vec![0u8; size as usize].into_boxed_slice();
-        start.clone_from_slice(&new.start.to_le_bytes());
-        // TODO u32 to usize might panic
+        start.clone_from_slice(&new.start.to_be_bytes());
         let mut stop = vec![0u8; size as usize].into_boxed_slice();
         stop.clone_from_slice(&new.stop.to_be_bytes());
 
         let bitmap_size = (new.stop - new.start + 6) / 8; // ALP SPEC: Thanks for the calculation
-                                                          // TODO u32 to usize might panic
         if new.bitmap.len() != bitmap_size as usize {
             return Err(BitmapRangeComparisonError::BitmapBadSize);
         }
@@ -2241,10 +2236,9 @@ impl Codec for BitmapRangeComparison {
         offset += size;
         // TODO Current max start/stop size chosen is u32 because that is the file size limit.
         // But in theory there is no requirement for the bitmap to have any relation with the
-        // file sizes.
+        // file sizes. So this might panic if you download your amazon bluerays over ALP.
         let mut start_n = 0u32;
         let mut stop_n = 0u32;
-        // TODO Endianness?
         for i in 0..size {
             start_n = (start_n << 8) + start[i] as u32;
             stop_n = (stop_n << 8) + stop[i] as u32;
