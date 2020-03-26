@@ -5,6 +5,9 @@ mod codec;
 pub use codec::Codec;
 pub use codec::{ParseError, ParseFail, ParseResult, ParseResultExtension, ParseValue};
 
+// TODO Document int Enum values meanings (Error & Spec enums)
+// TODO Split this file into submodules
+
 // TODO Look into const function to replace some macros?
 // TODO Use uninitialized memory where possible
 // TODO Int enums: fn from(): find a way to avoid double value definition
@@ -22,7 +25,6 @@ pub use codec::{ParseError, ParseFail, ParseResult, ParseResultExtension, ParseV
 //      read...
 // TODO is {out = &out[offset..]; out[..size]} more efficient than {out[offset..offset+size]} ?
 // TODO Add function to encode without having to define a temporary structure
-// TODO Document int Enum values meanings (Error & Spec enums)
 
 // ===============================================================================
 // Macros
@@ -1217,13 +1219,16 @@ impl Permissions {
         }
     }
 }
-// TODO Should this be consts to avoid crashing on unknown action conditions?
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ActionCondition {
     List = 0,
     Read = 1,
     Write = 2,
     WriteFlush = 3,
+    Unknown4 = 4,
+    Unknown5 = 5,
+    Unknown6 = 6,
+    Unknown7 = 7,
 }
 impl ActionCondition {
     fn from(n: u8) -> Result<Self, ParseFail> {
@@ -1232,15 +1237,11 @@ impl ActionCondition {
             1 => ActionCondition::Read,
             2 => ActionCondition::Write,
             3 => ActionCondition::WriteFlush,
-            x => {
-                return Err(ParseFail::Error {
-                    error: ParseError::UnknownEnumVariant {
-                        en: Enum::ActionCondition,
-                        value: x,
-                    },
-                    offset: 0,
-                })
-            }
+            4 => ActionCondition::Unknown4,
+            5 => ActionCondition::Unknown5,
+            6 => ActionCondition::Unknown6,
+            7 => ActionCondition::Unknown7,
+            _ => panic!(),
         })
     }
 }
