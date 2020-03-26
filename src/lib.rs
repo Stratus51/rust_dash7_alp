@@ -933,6 +933,14 @@ fn test_d7asp_interface_status() {
     )
 }
 
+pub mod d7a_fid {
+    pub const ROOT_KEY: u8 = 0x18;
+    pub const USER_KEY: u8 = 0x19;
+    pub const SENSOR_DESCRIPTION: u8 = 0x1B;
+    pub const RTC: u8 = 0x1C;
+    // TODO Signal that 0x00-0x17 and 0x20-0x2F are reserved.
+}
+
 // ===============================================================================
 // Alp Interfaces
 // ===============================================================================
