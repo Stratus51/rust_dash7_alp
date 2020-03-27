@@ -342,6 +342,11 @@ pub struct NewReadFileData {
     pub offset: u32,
     pub size: u32,
 }
+impl NewReadFileData {
+    pub fn build(self) -> Result<ReadFileData, ReadFileDataError> {
+        ReadFileData::new(self)
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ReadFileData {
     pub group: bool,
@@ -351,6 +356,7 @@ pub struct ReadFileData {
     pub size: u32,
     _private: (),
 }
+#[derive(Clone, Debug, PartialEq)]
 pub enum ReadFileDataError {
     OffsetTooBig,
     SizeTooBig,
@@ -457,6 +463,11 @@ pub struct NewWriteFileData {
     pub offset: u32,
     pub data: Box<[u8]>,
 }
+impl NewWriteFileData {
+    pub fn build(self) -> Result<WriteFileData, WriteFileDataError> {
+        WriteFileData::new(self)
+    }
+}
 #[derive(Clone, Debug, PartialEq)]
 pub struct WriteFileData {
     pub group: bool,
@@ -466,6 +477,7 @@ pub struct WriteFileData {
     pub data: Box<[u8]>,
     _private: (),
 }
+#[derive(Clone, Debug, PartialEq)]
 pub enum WriteFileDataError {
     OffsetTooBig,
     SizeTooBig,
@@ -901,6 +913,11 @@ pub struct NewReturnFileData {
     pub offset: u32,
     pub data: Box<[u8]>,
 }
+impl NewReturnFileData {
+    pub fn build(self) -> Result<ReturnFileData, ReturnFileDataError> {
+        ReturnFileData::new(self)
+    }
+}
 #[derive(Clone, Debug, PartialEq)]
 pub struct ReturnFileData {
     pub group: bool,
@@ -910,6 +927,7 @@ pub struct ReturnFileData {
     pub data: Box<[u8]>,
     _private: (),
 }
+#[derive(Clone, Debug, PartialEq)]
 pub enum ReturnFileDataError {
     OffsetTooBig,
     SizeTooBig,

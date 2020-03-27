@@ -95,9 +95,14 @@ fn test_interface_configuration_host() {
     test_item(InterfaceConfiguration::Host, &hex!("00"))
 }
 
-pub struct NewInterfaceStatus {
+pub struct NewInterfaceStatusUnknown {
     pub id: u8,
     pub data: Box<[u8]>,
+}
+impl NewInterfaceStatusUnknown {
+    pub fn build(self) -> Result<InterfaceStatusUnknown, InterfaceStatusUnknownError> {
+        InterfaceStatusUnknown::new(self)
+    }
 }
 #[derive(Clone, Debug, PartialEq)]
 pub struct InterfaceStatusUnknown {
@@ -105,11 +110,12 @@ pub struct InterfaceStatusUnknown {
     pub data: Box<[u8]>,
     _private: (),
 }
+#[derive(Clone, Debug, PartialEq)]
 pub enum InterfaceStatusUnknownError {
     DataTooBig,
 }
 impl InterfaceStatusUnknown {
-    pub fn new(new: NewInterfaceStatus) -> Result<Self, InterfaceStatusUnknownError> {
+    pub fn new(new: NewInterfaceStatusUnknown) -> Result<Self, InterfaceStatusUnknownError> {
         if new.data.len() > varint::MAX as usize {
             return Err(InterfaceStatusUnknownError::DataTooBig);
         }
