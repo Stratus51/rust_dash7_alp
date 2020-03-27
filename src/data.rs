@@ -4,18 +4,29 @@ use crate::test_tools::test_item;
 #[cfg(test)]
 use hex_literal::hex;
 
+/// Permissions of a given user regarding a specific file.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct UserPermissions {
     pub read: bool,
     pub write: bool,
     pub run: bool,
 }
+/// Description of the permissions for a file for all users.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Permissions {
+    /// Whether data element is encrypted
+    /// WARNING: This meaning might be deprecated
     pub encrypted: bool,
+    /// Whether data element is executable
+    /// WARNING: This meaning might be deprecated
     pub executable: bool,
+    // ALP_SPEC: Why can't we set {read, write, run} level permission encoded on 2 bit instead?
+    // Because allowing guest but not user makes no sense.
+    /// Permissions for role "user"
     pub user: UserPermissions,
+    /// Permissions for role "guest"
     pub guest: UserPermissions,
+    // ALP_SPEC: Where are the permissions for role root?
 }
 impl Permissions {
     pub fn to_byte(self) -> u8 {
@@ -47,11 +58,17 @@ impl Permissions {
         }
     }
 }
+/// File access type event that will trigger an ALP action.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ActionCondition {
+    /// Check for existence
     List = 0,
+    /// Trigger upon file read
     Read = 1,
+    /// Trigger upon file write
     Write = 2,
+    /// Trigger upon file write-flush
+    // ALP_SPEC Action write-flush does not exist. Only write and flush exist.
     WriteFlush = 3,
     Unknown4 = 4,
     Unknown5 = 5,
@@ -73,11 +90,20 @@ impl ActionCondition {
         })
     }
 }
+/// Type of storage
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum StorageClass {
+    /// The content is not kept in memory. It cannot be read back.
     Transient = 0,
+    /// The content is kept in a volatile memory of the device. It is accessible for
+    /// read, and is lost on power off.
     Volatile = 1,
+    /// The content is kept in a volatile memory of the device. It is accessible for
+    /// read, and can be backed-up upon request in a permanent storage
+    /// location. It is restored from the permanent location on device power on.
     Restorable = 2,
+    /// The content is kept in a permanent memory of the device. It is accessible
+    /// for read and write.
     Permanent = 3,
 }
 impl StorageClass {
@@ -93,8 +119,11 @@ impl StorageClass {
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FileProperties {
+    /// Enables the D7AActP (ALP action to trigger upon some type of access to this file)
     pub act_en: bool,
+    /// Type of access needed to trigger the D7AActP
     pub act_cond: ActionCondition,
+    /// Type of storage of this file
     pub storage_class: StorageClass,
 }
 impl FileProperties {
@@ -116,12 +145,25 @@ impl FileProperties {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FileHeader {
+    /// Permissions of the file
     pub permissions: Permissions,
+    /// Properties of the file
     pub properties: FileProperties,
+    /// Index of the File containing the ALP Command, executed
+    /// by D7AActP. Discarded if the ACT_EN field in Properties
+    /// is set to 0.
     pub alp_cmd_fid: u8,
+    /// Index of the File containing the Interface, on which the
+    /// result of D7AActP is sent. Discarded if the ACT_EN field
+    /// in Properties is set to 0.
     pub interface_file_id: u8,
+    /// Current size of the file.
     pub file_size: u32,
+    /// Size, allocated for the file in memory (appending data to
+    /// the file cannot exceed this value)
     pub allocated_size: u32,
+    // ALP_SPEC What is the difference between file_size and allocated_size? When a file is
+    // declared, less than its size is allocated and then it grows dynamically?
 }
 impl Codec for FileHeader {
     fn encoded_size(&self) -> usize {
