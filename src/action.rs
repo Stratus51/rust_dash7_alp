@@ -281,7 +281,7 @@ impl OpCode {
             // On unknown OpCode return an error
             x => {
                 return Err(ParseFail::Error {
-                    error: ParseError::UnknownEnumVariant {
+                    error: ParseError::ImpossibleValue {
                         en: Enum::OpCode,
                         value: x,
                     },
@@ -1074,7 +1074,7 @@ impl StatusType {
             1 => StatusType::Interface,
             x => {
                 return Err(ParseFail::Error {
-                    error: ParseError::UnknownEnumVariant {
+                    error: ParseError::ImpossibleValue {
                         en: Enum::StatusType,
                         value: x,
                     },

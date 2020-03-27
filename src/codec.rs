@@ -22,7 +22,7 @@ use crate::Enum;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ParseError {
-    UnknownEnumVariant { en: Enum, value: u8 },
+    ImpossibleValue { en: Enum, value: u8 },
 }
 
 #[derive(Clone, Debug, PartialEq)]

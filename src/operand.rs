@@ -61,7 +61,7 @@ impl Codec for InterfaceConfiguration {
             }
             id => {
                 return Err(ParseFail::Error {
-                    error: ParseError::UnknownEnumVariant {
+                    error: ParseError::ImpossibleValue {
                         en: Enum::InterfaceId,
                         value: id,
                     },
@@ -426,7 +426,7 @@ impl Codec for Permission {
                 })
             }
             x => Err(ParseFail::Error {
-                error: ParseError::UnknownEnumVariant {
+                error: ParseError::ImpossibleValue {
                     en: Enum::PermissionId,
                     value: x,
                 },
@@ -462,7 +462,7 @@ impl QueryComparisonType {
             5 => QueryComparisonType::GreaterThanOrEqual,
             x => {
                 return Err(ParseFail::Error {
-                    error: ParseError::UnknownEnumVariant {
+                    error: ParseError::ImpossibleValue {
                         en: Enum::QueryComparisonType,
                         value: x,
                     },
@@ -485,7 +485,7 @@ impl QueryRangeComparisonType {
             1 => QueryRangeComparisonType::InRange,
             x => {
                 return Err(ParseFail::Error {
-                    error: ParseError::UnknownEnumVariant {
+                    error: ParseError::ImpossibleValue {
                         en: Enum::QueryRangeComparisonType,
                         value: x,
                     },
@@ -515,7 +515,7 @@ impl QueryCode {
             7 => QueryCode::StringTokenSearch,
             x => {
                 return Err(ParseFail::Error {
-                    error: ParseError::UnknownEnumVariant {
+                    error: ParseError::ImpossibleValue {
                         en: Enum::QueryCode,
                         value: x,
                     },

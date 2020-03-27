@@ -31,7 +31,7 @@ impl NlsMethod {
             7 => NlsMethod::AesCcm32,
             x => {
                 return Err(ParseFail::Error {
-                    error: ParseError::UnknownEnumVariant {
+                    error: ParseError::ImpossibleValue {
                         en: Enum::NlsMethod,
                         value: x,
                     },
@@ -180,7 +180,7 @@ impl RetryMode {
             0 => RetryMode::No,
             x => {
                 return Err(ParseFail::Error {
-                    error: ParseError::UnknownEnumVariant {
+                    error: ParseError::ImpossibleValue {
                         en: Enum::RetryMode,
                         value: x,
                     },
@@ -211,7 +211,7 @@ impl RespMode {
             6 => RespMode::RespPreferred,
             x => {
                 return Err(ParseFail::Error {
-                    error: ParseError::UnknownEnumVariant {
+                    error: ParseError::ImpossibleValue {
                         en: Enum::RespMode,
                         value: x,
                     },
