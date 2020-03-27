@@ -59,7 +59,7 @@ macro_rules! impl_op_serialized {
             }
             fn decode(out: &[u8]) -> ParseResult<Self> {
                 if (out.is_empty()) {
-                    Err(ParseFail::MissingBytes(Some(1)))
+                    Err(ParseFail::MissingBytes(1))
                 } else {
                     let mut offset = 1;
                     let ParseValue {
@@ -144,7 +144,7 @@ macro_rules! impl_simple_op {
             fn decode(out: &[u8]) -> ParseResult<Self> {
                 const SIZE: usize = 1 + count!($( $x )*);
                 if(out.len() < SIZE) {
-                    Err(ParseFail::MissingBytes(Some(SIZE - out.len())))
+                    Err(ParseFail::MissingBytes(SIZE - out.len()))
                 } else {
                     Ok(ParseValue {
                         value: build_simple_op!($name, out, $flag7, $flag6, $($x),*),
@@ -172,7 +172,7 @@ macro_rules! impl_header_op {
             fn decode(out: &[u8]) -> ParseResult<Self> {
                 const SIZE: usize = 1 + 1 + 12;
                 if (out.len() < SIZE) {
-                    Err(ParseFail::MissingBytes(Some(SIZE - out.len())))
+                    Err(ParseFail::MissingBytes(SIZE - out.len()))
                 } else {
                     let ParseValue { value: header, .. } =
                         data::FileHeader::decode(&out[2..]).inc_offset(2)?;
@@ -311,7 +311,7 @@ impl Codec for Nop {
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.is_empty() {
-            Err(ParseFail::MissingBytes(Some(1)))
+            Err(ParseFail::MissingBytes(1))
         } else {
             Ok(ParseValue {
                 value: Self {
@@ -392,7 +392,7 @@ impl Codec for ReadFileData {
     fn decode(out: &[u8]) -> ParseResult<Self> {
         let min_size = 1 + 1 + 1 + 1;
         if out.len() < min_size {
-            return Err(ParseFail::MissingBytes(Some(min_size - out.len())));
+            return Err(ParseFail::MissingBytes(min_size - out.len()));
         }
         let group = out[0] & 0x80 != 0;
         let resp = out[0] & 0x40 != 0;
@@ -519,7 +519,7 @@ impl Codec for WriteFileData {
     fn decode(out: &[u8]) -> ParseResult<Self> {
         let min_size = 1 + 1 + 1 + 1;
         if out.len() < min_size {
-            return Err(ParseFail::MissingBytes(Some(min_size - out.len())));
+            return Err(ParseFail::MissingBytes(min_size - out.len()));
         }
         let group = out[0] & 0x80 != 0;
         let resp = out[0] & 0x40 != 0;
@@ -682,7 +682,7 @@ impl Codec for PermissionRequest {
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.is_empty() {
-            Err(ParseFail::MissingBytes(Some(1)))
+            Err(ParseFail::MissingBytes(1))
         } else {
             let mut offset = 1;
             let level = out[offset];
@@ -969,7 +969,7 @@ impl Codec for ReturnFileData {
     fn decode(out: &[u8]) -> ParseResult<Self> {
         let min_size = 1 + 1 + 1 + 1;
         if out.len() < min_size {
-            return Err(ParseFail::MissingBytes(Some(min_size - out.len())));
+            return Err(ParseFail::MissingBytes(min_size - out.len()));
         }
         let group = out[0] & 0x80 != 0;
         let resp = out[0] & 0x40 != 0;
@@ -1115,7 +1115,7 @@ impl Codec for Status {
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.is_empty() {
-            return Err(ParseFail::MissingBytes(Some(1)));
+            return Err(ParseFail::MissingBytes(1));
         }
         let status_type = out[0] >> 6;
         Ok(match StatusType::from(status_type)? {
@@ -1192,7 +1192,7 @@ impl Codec for Chunk {
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.is_empty() {
-            return Err(ParseFail::MissingBytes(Some(1)));
+            return Err(ParseFail::MissingBytes(1));
         }
         Ok(ParseValue {
             value: Self {
@@ -1245,7 +1245,7 @@ impl Codec for Logic {
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.is_empty() {
-            return Err(ParseFail::MissingBytes(Some(1)));
+            return Err(ParseFail::MissingBytes(1));
         }
         Ok(ParseValue {
             value: Self {
@@ -1281,7 +1281,7 @@ impl Codec for Forward {
     fn decode(out: &[u8]) -> ParseResult<Self> {
         let min_size = 1 + 1;
         if out.len() < min_size {
-            return Err(ParseFail::MissingBytes(Some(min_size - out.len())));
+            return Err(ParseFail::MissingBytes(min_size - out.len()));
         }
         let ParseValue {
             value: conf,
@@ -1326,7 +1326,7 @@ impl Codec for IndirectForward {
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.is_empty() {
-            Err(ParseFail::MissingBytes(Some(1)))
+            Err(ParseFail::MissingBytes(1))
         } else {
             let mut offset = 0;
             let ParseValue {
@@ -1381,7 +1381,7 @@ impl Codec for RequestTag {
     fn decode(out: &[u8]) -> ParseResult<Self> {
         let min_size = 1 + 1;
         if out.len() < min_size {
-            return Err(ParseFail::MissingBytes(Some(min_size - out.len())));
+            return Err(ParseFail::MissingBytes(min_size - out.len()));
         }
         Ok(ParseValue {
             value: Self {
@@ -1522,7 +1522,7 @@ impl Codec for Action {
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.is_empty() {
-            return Err(ParseFail::MissingBytes(Some(1)));
+            return Err(ParseFail::MissingBytes(1));
         }
         let opcode = OpCode::from(out[0] & 0x3F)?;
         Ok(match opcode {

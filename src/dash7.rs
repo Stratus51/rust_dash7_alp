@@ -83,7 +83,7 @@ impl Codec for Addressee {
     fn decode(out: &[u8]) -> ParseResult<Self> {
         const SIZE: usize = 1 + 1;
         if out.len() < SIZE {
-            return Err(ParseFail::MissingBytes(Some(SIZE - out.len())));
+            return Err(ParseFail::MissingBytes(SIZE - out.len()));
         }
         let id_type = (out[0] & 0x30) >> 4;
         let nls_method = NlsMethod::from(out[0] & 0x0F)?;
@@ -91,14 +91,14 @@ impl Codec for Addressee {
         let (address, address_size) = match id_type {
             0 => {
                 if out.len() < 3 {
-                    return Err(ParseFail::MissingBytes(Some(1)));
+                    return Err(ParseFail::MissingBytes(1));
                 }
                 (Address::NbId(out[2]), 1)
             }
             1 => (Address::NoId, 0),
             2 => {
                 if out.len() < 2 + 8 {
-                    return Err(ParseFail::MissingBytes(Some(2 + 8 - out.len())));
+                    return Err(ParseFail::MissingBytes(2 + 8 - out.len()));
                 }
                 let mut data = Box::new([0u8; 8]);
                 data.clone_from_slice(&out[2..2 + 8]);
@@ -106,7 +106,7 @@ impl Codec for Addressee {
             }
             3 => {
                 if out.len() < 2 + 2 {
-                    return Err(ParseFail::MissingBytes(Some(2 + 2 - out.len())));
+                    return Err(ParseFail::MissingBytes(2 + 2 - out.len()));
                 }
                 let mut data = Box::new([0u8; 2]);
                 data.clone_from_slice(&out[2..2 + 2]);
@@ -237,7 +237,7 @@ impl Codec for Qos {
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.is_empty() {
-            return Err(ParseFail::MissingBytes(Some(1)));
+            return Err(ParseFail::MissingBytes(1));
         }
         let retry = RetryMode::from((out[0] & 0x38) >> 3)?;
         let resp = RespMode::from(out[0] & 0x07)?;
@@ -279,7 +279,7 @@ impl Codec for InterfaceConfiguration {
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.len() < 3 {
-            return Err(ParseFail::MissingBytes(Some(3 - out.len())));
+            return Err(ParseFail::MissingBytes(3 - out.len()));
         }
         let ParseValue {
             value: qos,
@@ -421,7 +421,7 @@ impl Codec for InterfaceStatus {
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.len() < 10 {
-            return Err(ParseFail::MissingBytes(Some(10 - out.len())));
+            return Err(ParseFail::MissingBytes(10 - out.len()));
         }
         let ParseValue {
             value: addressee,
@@ -432,7 +432,7 @@ impl Codec for InterfaceStatus {
             NlsMethod::None => None,
             _ => {
                 if out.len() < offset + 5 {
-                    return Err(ParseFail::MissingBytes(Some(offset + 5 - out.len())));
+                    return Err(ParseFail::MissingBytes(offset + 5 - out.len()));
                 } else {
                     let mut nls_state = [0u8; 5];
                     nls_state.clone_from_slice(&out[offset..offset + 5]);

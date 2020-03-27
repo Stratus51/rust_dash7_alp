@@ -42,11 +42,11 @@ pub unsafe fn encode(n: u32, out: &mut [u8]) -> u8 {
 
 pub fn decode(out: &[u8]) -> ParseResult<u32> {
     if out.is_empty() {
-        return Err(ParseFail::MissingBytes(Some(1)));
+        return Err(ParseFail::MissingBytes(1));
     }
     let size = ((out[0] >> 6) + 1) as usize;
     if out.len() < size as usize {
-        return Err(ParseFail::MissingBytes(Some(size as usize - out.len())));
+        return Err(ParseFail::MissingBytes(size as usize - out.len()));
     }
     let mut ret = (out[0] & 0x3F) as u32;
     for byte in out.iter().take(size).skip(1) {

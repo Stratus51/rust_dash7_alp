@@ -138,7 +138,7 @@ impl Codec for FileHeader {
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.len() < 12 {
-            return Err(ParseFail::MissingBytes(Some(12 - out.len())));
+            return Err(ParseFail::MissingBytes(12 - out.len()));
         }
         let mut file_size_bytes = [0u8; 4];
         file_size_bytes.clone_from_slice(&out[4..4 + 4]);

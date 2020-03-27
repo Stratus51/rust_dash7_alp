@@ -27,7 +27,7 @@ pub enum ParseError {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ParseFail {
-    MissingBytes(Option<usize>),
+    MissingBytes(usize),
     Error { error: ParseError, offset: usize },
 }
 impl ParseFail {

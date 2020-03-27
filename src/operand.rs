@@ -42,7 +42,7 @@ impl Codec for InterfaceConfiguration {
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.is_empty() {
-            return Err(ParseFail::MissingBytes(Some(1)));
+            return Err(ParseFail::MissingBytes(1));
         }
         const HOST: u8 = InterfaceId::Host as u8;
         const D7ASP: u8 = InterfaceId::D7asp as u8;
@@ -169,7 +169,7 @@ impl Codec for InterfaceStatus {
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.is_empty() {
-            return Err(ParseFail::MissingBytes(Some(1)));
+            return Err(ParseFail::MissingBytes(1));
         }
         const HOST: u8 = InterfaceId::Host as u8;
         const D7ASP: u8 = InterfaceId::D7asp as u8;
@@ -200,7 +200,7 @@ impl Codec for InterfaceStatus {
                 let size = size as usize;
                 offset += size_size;
                 if out.len() < offset + size {
-                    return Err(ParseFail::MissingBytes(Some(offset + size - out.len())));
+                    return Err(ParseFail::MissingBytes(offset + size - out.len()));
                 }
                 let mut data = vec![0u8; size].into_boxed_slice();
                 data.clone_from_slice(&out[offset..size]);
@@ -296,7 +296,7 @@ impl Codec for FileOffset {
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.len() < 2 {
-            return Err(ParseFail::MissingBytes(Some(2 - out.len())));
+            return Err(ParseFail::MissingBytes(2 - out.len()));
         }
         let ParseValue {
             value: offset,
@@ -358,7 +358,7 @@ impl Codec for Status {
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.len() < 2 {
-            return Err(ParseFail::MissingBytes(Some(2 - out.len())));
+            return Err(ParseFail::MissingBytes(2 - out.len()));
         }
         Ok(ParseValue {
             value: Self {
@@ -412,7 +412,7 @@ impl Codec for Permission {
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.is_empty() {
-            return Err(ParseFail::MissingBytes(Some(1)));
+            return Err(ParseFail::MissingBytes(1));
         }
         let mut offset = 1;
         match out[0] {
@@ -570,7 +570,7 @@ impl Codec for NonVoid {
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.len() < 3 {
-            return Err(ParseFail::MissingBytes(Some(3 - out.len())));
+            return Err(ParseFail::MissingBytes(3 - out.len()));
         }
         let mut offset = 1;
         let ParseValue {
@@ -685,7 +685,7 @@ impl Codec for ComparisonWithZero {
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.len() < 1 + 1 + 2 {
-            return Err(ParseFail::MissingBytes(Some(1 + 1 + 2 - out.len())));
+            return Err(ParseFail::MissingBytes(1 + 1 + 2 - out.len()));
         }
         let mask_flag = out[0] & (1 << 4) != 0;
         let signed_data = out[0] & (1 << 3) != 0;
@@ -824,7 +824,7 @@ impl Codec for ComparisonWithValue {
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.len() < 1 + 1 + 2 {
-            return Err(ParseFail::MissingBytes(Some(1 + 1 + 2 - out.len())));
+            return Err(ParseFail::MissingBytes(1 + 1 + 2 - out.len()));
         }
         let mask_flag = out[0] & (1 << 4) != 0;
         let signed_data = out[0] & (1 << 3) != 0;
@@ -967,7 +967,7 @@ impl Codec for ComparisonWithOtherFile {
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.len() < 1 + 1 + 2 + 2 {
-            return Err(ParseFail::MissingBytes(Some(1 + 1 + 2 + 2 - out.len())));
+            return Err(ParseFail::MissingBytes(1 + 1 + 2 + 2 - out.len()));
         }
         let mask_flag = out[0] & (1 << 4) != 0;
         let signed_data = out[0] & (1 << 3) != 0;
@@ -1133,7 +1133,7 @@ impl Codec for BitmapRangeComparison {
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.len() < 1 + 1 + 2 {
-            return Err(ParseFail::MissingBytes(Some(1 + 1 + 2 - out.len())));
+            return Err(ParseFail::MissingBytes(1 + 1 + 2 - out.len()));
         }
         let signed_data = out[0] & (1 << 3) != 0;
         let comparison_type = QueryRangeComparisonType::from(out[0] & 0x07)?;
@@ -1285,7 +1285,7 @@ impl Codec for StringTokenSearch {
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.len() < 1 + 1 + 2 {
-            return Err(ParseFail::MissingBytes(Some(1 + 1 + 2 - out.len())));
+            return Err(ParseFail::MissingBytes(1 + 1 + 2 - out.len()));
         }
         let mask_flag = out[0] & (1 << 4) != 0;
         let max_errors = out[0] & 0x07;
@@ -1409,7 +1409,7 @@ impl Codec for OverloadedIndirectInterface {
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.len() < 1 + 2 {
-            return Err(ParseFail::MissingBytes(Some(1 + 2 - out.len())));
+            return Err(ParseFail::MissingBytes(1 + 2 - out.len()));
         }
         let interface_file_id = out[0];
         let ParseValue {
@@ -1486,7 +1486,7 @@ impl Codec for IndirectInterface {
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.is_empty() {
-            return Err(ParseFail::MissingBytes(Some(1)));
+            return Err(ParseFail::MissingBytes(1));
         }
         Ok(if out[0] & 0x80 != 0 {
             OverloadedIndirectInterface::decode(&out[1..])?
