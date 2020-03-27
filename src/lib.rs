@@ -1,18 +1,42 @@
+//! Implementation of a [Dash7](https://dash7-alliance.org/) ALP protocol parser from its
+//! public specification.
+//!
+//! The protocol
+//! ==============================================================================
+//! The protocol specifies ALP Commands that can be sent to another system to communicate.
+//! Each command is an aggregation of ALP Actions.
+//!
+//! The protocol is "filesystem oriented". Indeed most actions interact with a filesystem
+//! composed of up to 256 files.
+//!
+//! About this library
+//! ==============================================================================
+//! The goal of this library is to implement a specification with a emphasis on correctness, then
+//! on usability. Performance is currently considered secondary.
+
 #[cfg(test)]
 mod test_tools;
 #[cfg(test)]
 use hex_literal::hex;
+
 #[cfg(test)]
 use test_tools::test_item;
 
+/// ALP basic Actions used to build Commands
 pub mod action;
+/// A Codec module specifying how to encode/decode each encodable items
 pub mod codec;
+/// Dash7 specific items (most of the ALP protocol could be in theory be used over any
+/// communication link)
 pub mod dash7;
+/// Filesystem related items
 pub mod data;
+/// Operands used to build the ALP Actions
 pub mod operand;
+/// ALP variable int codec implementation
 pub mod varint;
-use action::Action;
-use codec::Codec;
+pub use action::Action;
+pub use codec::Codec;
 
 // TODO Document int Enum values meanings (Error & Spec enums)
 // TODO Split this file into more pertinent submodules and choose a better naming convention
