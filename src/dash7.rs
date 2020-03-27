@@ -7,6 +7,7 @@ use crate::{
 #[cfg(test)]
 use hex_literal::hex;
 
+/// Encryption algorigthm for over-the-air packets
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum NlsMethod {
     None = 0,
@@ -42,19 +43,28 @@ impl NlsMethod {
     }
 }
 
+/// Dash7 address types
 // ALP SPEC: Where is this defined?
 #[derive(Clone, Debug, PartialEq)]
 pub enum Address {
     // D7A SPEC: It is not clear that the estimated reached has to be placed on the "ID" field.
+    /// Broadcast to an estimated number of receivers encoded in compressed format on a byte.
     NbId(u8),
+    /// Broadcast to everyone
     NoId,
+    /// Unicast to target via its UID (Unique Dash7 ID)
     Uid(Box<[u8; 8]>),
+    /// Unicast to target via its VID (Virtual ID)
     Vid(Box<[u8; 2]>),
 }
+/// All the parameters required to address a target
 #[derive(Clone, Debug, PartialEq)]
 pub struct Addressee {
+    /// Encrypting method
     pub nls_method: NlsMethod,
+    /// Listening access class of the target
     pub access_class: u8,
+    /// Address of the target
     pub address: Address,
 }
 impl Codec for Addressee {
@@ -171,6 +181,9 @@ fn test_addressee_vid() {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 // ALP_SPEC: Aren't there supposed to be more retry modes?
+/// The Retry Modes define the pattern for re-flushing a FIFO that terminates on error.
+///
+/// In other words, what is the retry policy when sending your payload.
 pub enum RetryMode {
     No = 0,
 }
@@ -191,13 +204,47 @@ impl RetryMode {
     }
 }
 
+/// The Response Modes define the condition for termination on success of a Request
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum RespMode {
+    /// A Request is acknowledged if the DLL CSMA-CA routine succeeds. No
+    /// responses are expected.
+    ///
+    /// Eg. The request is successful if your packet was successfully sent on the radio.
     No = 0,
+    /// If the addressee is broadcast, a Request is acknowledged if as many as
+    /// possible D7ATP responses to this Request are received (may be zero).
+    ///
+    /// If the addressee is unicast, a Request is acknowledged if the addressee provides a
+    /// D7ATP response. All responses received during the D7ATP Receive Period
+    /// are vectored to upper layer.
+    ///
+    /// Eg. Succeeds if everyone addressed responds to the radio packet.
     All = 1,
+    /// A Request is acknowledged if at least one D7ATP response to this Request is
+    /// received.
+    ///
+    /// Eg. Succeeds if you receive one response to the radio packet.
     Any = 2,
+    /// A Request is acknowledged if the DLL CSMA-CA routine succeeds REPEAT
+    /// times. No responses are expected. The parameters REPEAT is defined in the
+    /// SEL configuration file.
     RespNoRpt = 4,
+    /// A Request is acknowledged if the DLL CSMA-CA routine succeeds. It is un-
+    /// acknowledged when a response does not acknowledge the Request. The
+    /// procedure behaves as RESP_ALL, but Responders provide responses only
+    /// when their D7ATP ACK Templates is not void or if the upper layer provides a
+    /// response.
+    ///
+    /// Eg. Succeeds only if the responder gives back an ALP packet in response (which is more
+    /// restrictive than succeeding upon successful radio ACK).
     RespOnData = 5,
+    /// A Request is acknowledged if at least one D7ATP response to this Request is
+    /// received. The procedure behaves as RESP_ANY, but the Addressee is
+    /// managed dynamically. It is set to broadcast after failure to receive an
+    /// acknowledgement. On acknowledgement success, it is set to the
+    /// Addressee of one of the responders that acknowledged the Request (preferred
+    /// addressee). The preferred addressee selection is implementation dependent.
     RespPreferred = 6,
 }
 impl RespMode {
@@ -222,6 +269,7 @@ impl RespMode {
     }
 }
 
+/// Qos of the request
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Qos {
     pub retry: RetryMode,
@@ -258,12 +306,29 @@ fn test_qos() {
     )
 }
 
+/// Section 9.2.1
+///
+/// Parameters to handle the sending of a request.
 // ALP SPEC: Add link to D7a section
 #[derive(Clone, Debug, PartialEq)]
 pub struct InterfaceConfiguration {
     pub qos: Qos,
+    /// Flush Start Timeout in Compressed Format, unit is in seconds
+    ///
+    /// Maximum time to send the packet. This means that the modem will wait for a "good opportunity"
+    /// to send the packet until the timeout, after which it will just send the packet over the
+    /// air.
+    ///
+    /// A good opportunity is, for example, if we are sending another packet to the same target,
+    /// then we can aggregate the requests, to avoid advertising twice. Another example would be if
+    /// the target sends us a packet, the modem can aggregate our request to the response of the
+    /// request of the target.
     pub to: u8,
+    /// Response Execution Delay in Compressed Format, unit is in milliseconds.
+    ///
+    /// Time given to the target to process the request.
     pub te: u8,
+    /// Addressee of the target.
     pub addressee: Addressee,
 }
 
@@ -338,24 +403,44 @@ impl NewInterfaceStatus {
         InterfaceStatus::new(self)
     }
 }
+/// Dash7 metadata upon packet reception.
 // ALP SPEC: Add link to D7a section (names do not even match)
 #[derive(Clone, Debug, PartialEq)]
 pub struct InterfaceStatus {
+    /// PHY layer channel header
     pub ch_header: u8,
+    /// PHY layer channel index
     pub ch_idx: u16,
+    /// PHY layer RX level in -dBm
     pub rxlev: u8,
+    /// PHY layer link budget in dB
     pub lb: u8,
+    /// Signal-to-noise Ratio (in dB)
     pub snr: u8,
+    /// D7ASP Status
+    ///
+    /// TODO: Parse this.
     pub status: u8,
+    /// Value of the D7ATP Dialog ID
     pub token: u8,
+    /// Value of the D7ATP Transaction ID
     pub seq: u8,
+    // D7A SPEC: What is that?
+    /// Time during which the response is expected in Compressed Format
     pub resp_to: u8,
+    // TODO Should I digress from the pure ALP description to restructure (addressee + nls_state)
+    // into a type protected NLS based structure? Maybe yes.
+    /// D7ANP Origin Addressee.
     pub addressee: Addressee,
+    /// Security token
+    ///
+    /// Required if a non NONE NlsMethod is specified in the addressee
     pub nls_state: Option<[u8; 5]>,
     _private: (),
 }
 #[derive(Clone, Debug, PartialEq)]
 pub enum InterfaceStatusError {
+    /// An NLS state is required by the specified Addressee. Please provide one.
     MissingNlsState,
 }
 impl InterfaceStatus {
@@ -490,9 +575,9 @@ fn test_interface_status() {
 }
 
 pub mod d7a_fid {
+    //! File IDs 0x00-0x17 and 0x20-0x2F are reserved.
     pub const ROOT_KEY: u8 = 0x18;
     pub const USER_KEY: u8 = 0x19;
     pub const SENSOR_DESCRIPTION: u8 = 0x1B;
     pub const RTC: u8 = 0x1C;
-    // TODO Signal that 0x00-0x17 and 0x20-0x2F are reserved.
 }
