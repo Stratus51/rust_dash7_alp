@@ -1,5 +1,9 @@
 #[cfg(test)]
 mod test_tools;
+#[cfg(test)]
+use hex_literal::hex;
+#[cfg(test)]
+use test_tools::test_item;
 
 pub mod action;
 pub mod codec;
@@ -77,7 +81,7 @@ impl Command {
         let mut actions = vec![];
         let mut offset = 0;
         loop {
-            if out.is_empty() {
+            if offset == out.len() {
                 break;
             }
             match Action::decode(&out[offset..]) {
@@ -113,4 +117,30 @@ impl Codec for Command {
     fn decode(out: &[u8]) -> codec::ParseResult<Self> {
         Self::partial_decode(out).map_err(|v| v.error)
     }
+}
+#[test]
+fn test_command() {
+    test_item(
+        Command {
+            actions: vec![
+                Action::RequestTag(action::RequestTag { id: 66, eop: true }),
+                Action::ReadFileData(
+                    action::NewReadFileData {
+                        resp: true,
+                        group: false,
+                        file_id: 0,
+                        offset: 0,
+                        size: 8,
+                    }
+                    .build()
+                    .unwrap(),
+                ),
+                Action::Nop(action::Nop {
+                    resp: true,
+                    group: true,
+                }),
+            ],
+        },
+        &hex!("B4 42   41 00 00 08   C0"),
+    )
 }
