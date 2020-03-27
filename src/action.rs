@@ -1,11 +1,12 @@
 #[cfg(test)]
-use crate::test_tools::test_item;
-use crate::{
-    codec::{Codec, ParseError, ParseFail, ParseResult, ParseResultExtension, ParseValue},
-    dash7, data, operand, varint, Enum,
-};
+use crate::{dash7, test_tools::test_item};
 #[cfg(test)]
 use hex_literal::hex;
+
+use crate::{
+    codec::{Codec, ParseError, ParseFail, ParseResult, ParseResultExtension, ParseValue},
+    data, operand, varint, Enum,
+};
 
 // ===============================================================================
 // Macros
