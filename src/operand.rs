@@ -28,7 +28,7 @@ impl Codec for InterfaceConfiguration {
             InterfaceConfiguration::D7asp(v) => v.encoded_size(),
         }
     }
-    fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode(&self, out: &mut [u8]) -> usize {
         match self {
             InterfaceConfiguration::Host => {
                 out[0] = InterfaceId::Host as u8;
@@ -139,9 +139,9 @@ impl Codec for InterfaceStatus {
             InterfaceStatus::D7asp(itf) => itf.encoded_size(),
             InterfaceStatus::Unknown(InterfaceStatusUnknown { data, .. }) => data.len(),
         };
-        1 + unsafe { varint::size(data_size as u32) as usize } + data_size
+        1 + unsafe { varint::size(data_size as u32) } as usize + data_size
     }
-    fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode(&self, out: &mut [u8]) -> usize {
         let mut offset = 1;
         match self {
             InterfaceStatus::Host => {
@@ -152,14 +152,14 @@ impl Codec for InterfaceStatus {
             InterfaceStatus::D7asp(v) => {
                 out[0] = InterfaceId::D7asp as u8;
                 let size = v.encoded_size() as u32;
-                let size_size = unsafe { varint::encode(size, &mut out[offset..]) };
+                let size_size = varint::encode(size, &mut out[offset..]);
                 offset += size_size as usize;
                 offset += v.encode(&mut out[offset..]);
             }
             InterfaceStatus::Unknown(InterfaceStatusUnknown { id, data, .. }) => {
                 out[0] = *id;
                 let size = data.len() as u32;
-                let size_size = unsafe { varint::encode(size, &mut out[offset..]) };
+                let size_size = varint::encode(size, &mut out[offset..]);
                 offset += size_size as usize;
                 out[offset..offset + data.len()].clone_from_slice(data);
                 offset += data.len();
@@ -290,9 +290,9 @@ impl Codec for FileOffset {
     fn encoded_size(&self) -> usize {
         1 + unsafe { varint::size(self.offset) } as usize
     }
-    fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode(&self, out: &mut [u8]) -> usize {
         out[0] = self.id;
-        1 + unsafe { varint::encode(self.offset, &mut out[1..]) } as usize
+        1 + varint::encode(self.offset, &mut out[1..]) as usize
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
         if out.len() < 2 {
@@ -351,7 +351,7 @@ impl Codec for Status {
     fn encoded_size(&self) -> usize {
         1 + 1
     }
-    fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode(&self, out: &mut [u8]) -> usize {
         out[0] = self.action_id;
         out[1] = self.status as u8;
         2
@@ -401,7 +401,7 @@ impl Codec for Permission {
             Permission::Dash7(_) => 8,
         }
     }
-    fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode(&self, out: &mut [u8]) -> usize {
         out[0] = self.id();
         1 + match self {
             Permission::Dash7(token) => {
@@ -561,10 +561,10 @@ impl Codec for NonVoid {
     fn encoded_size(&self) -> usize {
         1 + unsafe { varint::size(self.size) } as usize + self.file.encoded_size()
     }
-    fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode(&self, out: &mut [u8]) -> usize {
         out[0] = QueryCode::NonVoid as u8;
         let mut offset = 1;
-        offset += unsafe { varint::encode(self.size, &mut out[offset..]) } as usize;
+        offset += varint::encode(self.size, &mut out[offset..]) as usize;
         offset += self.file.encode(&mut out[offset..]);
         offset
     }
@@ -663,7 +663,7 @@ impl Codec for ComparisonWithZero {
         };
         1 + unsafe { varint::size(self.size) } as usize + mask_size + self.file.encoded_size()
     }
-    fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode(&self, out: &mut [u8]) -> usize {
         let mask_flag = match self.mask {
             Some(_) => 1,
             None => 0,
@@ -675,7 +675,7 @@ impl Codec for ComparisonWithZero {
             | (signed_flag << 3)
             | self.comparison_type as u8;
         offset += 1;
-        offset += unsafe { varint::encode(self.size, &mut out[offset..]) } as usize;
+        offset += varint::encode(self.size, &mut out[offset..]) as usize;
         if let Some(mask) = &self.mask {
             out[offset..offset + (self.size as usize)].clone_from_slice(&mask);
             offset += mask.len();
@@ -800,7 +800,7 @@ impl Codec for ComparisonWithValue {
             + self.value.len()
             + self.file.encoded_size()
     }
-    fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode(&self, out: &mut [u8]) -> usize {
         let mask_flag = match self.mask {
             Some(_) => 1,
             None => 0,
@@ -812,7 +812,7 @@ impl Codec for ComparisonWithValue {
             | (signed_flag << 3)
             | self.comparison_type as u8;
         offset += 1;
-        offset += unsafe { varint::encode(self.size, &mut out[offset..]) } as usize;
+        offset += varint::encode(self.size, &mut out[offset..]) as usize;
         if let Some(mask) = &self.mask {
             out[offset..offset + self.size as usize].clone_from_slice(&mask);
             offset += mask.len();
@@ -944,7 +944,7 @@ impl Codec for ComparisonWithOtherFile {
             + self.file1.encoded_size()
             + self.file2.encoded_size()
     }
-    fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode(&self, out: &mut [u8]) -> usize {
         let mask_flag = match self.mask {
             Some(_) => 1,
             None => 0,
@@ -956,7 +956,7 @@ impl Codec for ComparisonWithOtherFile {
             | (signed_flag << 3)
             | self.comparison_type as u8;
         offset += 1;
-        offset += unsafe { varint::encode(self.size, &mut out[offset..]) } as usize;
+        offset += varint::encode(self.size, &mut out[offset..]) as usize;
         if let Some(mask) = &self.mask {
             out[offset..offset + self.size as usize].clone_from_slice(&mask);
             offset += mask.len();
@@ -1113,7 +1113,7 @@ impl Codec for BitmapRangeComparison {
             + self.bitmap.len()
             + self.file.encoded_size()
     }
-    fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode(&self, out: &mut [u8]) -> usize {
         let mut offset = 0;
         let signed_flag = if self.signed_data { 1 } else { 0 };
         out[0] = ((QueryCode::BitmapRangeComparison as u8) << 5)
@@ -1121,7 +1121,7 @@ impl Codec for BitmapRangeComparison {
             | (signed_flag << 3)
             | self.comparison_type as u8;
         offset += 1;
-        offset += unsafe { varint::encode(self.size, &mut out[offset..]) } as usize;
+        offset += varint::encode(self.size, &mut out[offset..]) as usize;
         out[offset..offset + self.size as usize].clone_from_slice(&self.start[..]);
         offset += self.start.len();
         out[offset..offset + self.size as usize].clone_from_slice(&self.stop[..]);
@@ -1262,7 +1262,7 @@ impl Codec for StringTokenSearch {
             + self.value.len()
             + self.file.encoded_size()
     }
-    fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode(&self, out: &mut [u8]) -> usize {
         let mask_flag = match self.mask {
             Some(_) => 1,
             None => 0,
@@ -1273,7 +1273,7 @@ impl Codec for StringTokenSearch {
             // | (0 << 3)
             | self.max_errors;
         offset += 1;
-        offset += unsafe { varint::encode(self.size, &mut out[offset..]) } as usize;
+        offset += varint::encode(self.size, &mut out[offset..]) as usize;
         if let Some(mask) = &self.mask {
             out[offset..offset + self.size as usize].clone_from_slice(&mask);
             offset += mask.len();
@@ -1363,7 +1363,7 @@ impl Codec for Query {
             Query::StringTokenSearch(v) => v.encoded_size(),
         }
     }
-    fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode(&self, out: &mut [u8]) -> usize {
         match self {
             Query::NonVoid(v) => v.encode(out),
             Query::ComparisonWithZero(v) => v.encode(out),
@@ -1403,7 +1403,7 @@ impl Codec for OverloadedIndirectInterface {
     fn encoded_size(&self) -> usize {
         1 + self.addressee.encoded_size()
     }
-    fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode(&self, out: &mut [u8]) -> usize {
         out[0] = self.interface_file_id;
         1 + self.addressee.encode(&mut out[1..])
     }
@@ -1453,7 +1453,7 @@ impl Codec for NonOverloadedIndirectInterface {
     fn encoded_size(&self) -> usize {
         1 + self.data.len()
     }
-    fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode(&self, out: &mut [u8]) -> usize {
         out[0] = self.interface_file_id;
         let mut offset = 1;
         out[offset..offset + self.data.len()].clone_from_slice(&self.data);
@@ -1478,7 +1478,7 @@ impl Codec for IndirectInterface {
             IndirectInterface::NonOverloaded(v) => v.encoded_size(),
         }
     }
-    fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode(&self, out: &mut [u8]) -> usize {
         match self {
             IndirectInterface::Overloaded(v) => v.encode(out),
             IndirectInterface::NonOverloaded(v) => v.encode(out),

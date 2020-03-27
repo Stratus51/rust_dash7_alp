@@ -131,7 +131,7 @@ impl Codec for Command {
     fn encoded_size(&self) -> usize {
         self.actions.iter().map(|act| act.encoded_size()).sum()
     }
-    fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode(&self, out: &mut [u8]) -> usize {
         let mut offset = 0;
         for action in self.actions.iter() {
             offset += action.encode(&mut out[offset..]);

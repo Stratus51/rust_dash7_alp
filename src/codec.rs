@@ -61,13 +61,13 @@ impl<T> ParseResultExtension for ParseResult<T> {
 
 pub trait Codec {
     fn encoded_size(&self) -> usize;
-    fn encode(&self, out: &mut [u8]) -> usize;
+    unsafe fn encode(&self, out: &mut [u8]) -> usize;
     fn decode(out: &[u8]) -> ParseResult<Self>
     where
         Self: std::marker::Sized;
     fn encode_to_box(&self) -> Box<[u8]> {
         let mut data = vec![0; self.encoded_size()].into_boxed_slice();
-        self.encode(&mut data);
+        unsafe { self.encode(&mut data) };
         data
     }
 }

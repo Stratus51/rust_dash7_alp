@@ -127,7 +127,7 @@ impl Codec for FileHeader {
     fn encoded_size(&self) -> usize {
         12
     }
-    fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode(&self, out: &mut [u8]) -> usize {
         out[0] = self.permissions.to_byte();
         out[1] = self.properties.to_byte();
         out[2] = self.alp_cmd_fid;

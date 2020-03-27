@@ -53,7 +53,7 @@ macro_rules! impl_op_serialized {
             fn encoded_size(&self) -> usize {
                 1 + encoded_size!(self.$op1)
             }
-            fn encode(&self, out: &mut [u8]) -> usize {
+            unsafe fn encode(&self, out: &mut [u8]) -> usize {
                 out[0] = control_byte!(self.$flag7, self.$flag6, OpCode::$name);
                 1 + serialize_all!(&mut out[1..], &self.$op1)
             }
@@ -95,7 +95,7 @@ macro_rules! unsafe_varint_serialize {
     ($out: expr, $($x: expr),*) => {
         {
             let mut offset: usize = 0;
-            $(unsafe {
+            $({
                 offset += varint::encode($x, &mut $out[offset..]) as usize;
             })*
             offset
@@ -132,7 +132,7 @@ macro_rules! impl_simple_op {
             fn encoded_size(&self) -> usize {
                 1 + count!($( $x )*)
             }
-            fn encode(&self, out: &mut [u8]) -> usize {
+            unsafe fn encode(&self, out: &mut [u8]) -> usize {
                 out[0] = control_byte!(self.$flag7, self.$flag6, OpCode::$name);
                 let mut offset = 1;
                 $({
@@ -162,7 +162,7 @@ macro_rules! impl_header_op {
             fn encoded_size(&self) -> usize {
                 1 + 1 + 12
             }
-            fn encode(&self, out: &mut [u8]) -> usize {
+            unsafe fn encode(&self, out: &mut [u8]) -> usize {
                 out[0] = control_byte!(self.group, self.resp, OpCode::$name);
                 out[1] = self.file_id;
                 let mut offset = 2;
@@ -305,7 +305,7 @@ impl Codec for Nop {
     fn encoded_size(&self) -> usize {
         1
     }
-    fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode(&self, out: &mut [u8]) -> usize {
         out[0] = control_byte!(self.group, self.resp, OpCode::Nop);
         1
     }
@@ -384,7 +384,7 @@ impl Codec for ReadFileData {
     fn encoded_size(&self) -> usize {
         1 + 1 + unsafe_varint_serialize_sizes!(self.offset, self.size) as usize
     }
-    fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode(&self, out: &mut [u8]) -> usize {
         out[0] = control_byte!(self.group, self.resp, OpCode::ReadFileData);
         out[1] = self.file_id;
         1 + 1 + unsafe_varint_serialize!(out[2..], self.offset, self.size)
@@ -507,7 +507,7 @@ impl Codec for WriteFileData {
             + unsafe_varint_serialize_sizes!(self.offset, self.data.len() as u32) as usize
             + self.data.len()
     }
-    fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode(&self, out: &mut [u8]) -> usize {
         out[0] = control_byte!(self.group, self.resp, OpCode::WriteFileData);
         out[1] = self.file_id;
         let mut offset = 2;
@@ -675,7 +675,7 @@ impl Codec for PermissionRequest {
     fn encoded_size(&self) -> usize {
         1 + 1 + encoded_size!(self.permission)
     }
-    fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode(&self, out: &mut [u8]) -> usize {
         out[0] = control_byte!(self.group, self.resp, OpCode::PermissionRequest);
         out[1] = self.level;
         1 + serialize_all!(&mut out[2..], self.permission)
@@ -957,7 +957,7 @@ impl Codec for ReturnFileData {
             + unsafe_varint_serialize_sizes!(self.offset, self.data.len() as u32) as usize
             + self.data.len()
     }
-    fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode(&self, out: &mut [u8]) -> usize {
         out[0] = control_byte!(self.group, self.resp, OpCode::ReturnFileData);
         out[1] = self.file_id;
         let mut offset = 2;
@@ -1100,7 +1100,7 @@ impl Codec for Status {
             Status::Interface(op) => op.encoded_size(),
         }
     }
-    fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode(&self, out: &mut [u8]) -> usize {
         out[0] = OpCode::Status as u8
             + ((match self {
                 Status::Action(_) => StatusType::Action,
@@ -1186,7 +1186,7 @@ impl Codec for Chunk {
     fn encoded_size(&self) -> usize {
         1
     }
-    fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode(&self, out: &mut [u8]) -> usize {
         out[0] = OpCode::Chunk as u8 + ((self.step as u8) << 6);
         1
     }
@@ -1239,7 +1239,7 @@ impl Codec for Logic {
     fn encoded_size(&self) -> usize {
         1
     }
-    fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode(&self, out: &mut [u8]) -> usize {
         out[0] = OpCode::Logic as u8 + ((self.logic as u8) << 6);
         1
     }
@@ -1274,7 +1274,7 @@ impl Codec for Forward {
     fn encoded_size(&self) -> usize {
         1 + self.conf.encoded_size()
     }
-    fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode(&self, out: &mut [u8]) -> usize {
         out[0] = control_byte!(false, self.resp, OpCode::Forward);
         1 + self.conf.encode(&mut out[1..])
     }
@@ -1316,7 +1316,7 @@ impl Codec for IndirectForward {
     fn encoded_size(&self) -> usize {
         1 + self.interface.encoded_size()
     }
-    fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode(&self, out: &mut [u8]) -> usize {
         let overload = match self.interface {
             operand::IndirectInterface::Overloaded(_) => true,
             operand::IndirectInterface::NonOverloaded(_) => false,
@@ -1373,7 +1373,7 @@ impl Codec for RequestTag {
     fn encoded_size(&self) -> usize {
         1 + 1
     }
-    fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode(&self, out: &mut [u8]) -> usize {
         out[0] = control_byte!(self.eop, false, OpCode::RequestTag);
         out[1] = self.id;
         1 + 1
@@ -1406,7 +1406,7 @@ impl Codec for Extension {
     fn encoded_size(&self) -> usize {
         todo!()
     }
-    fn encode(&self, _out: &mut [u8]) -> usize {
+    unsafe fn encode(&self, _out: &mut [u8]) -> usize {
         todo!()
     }
     fn decode(_out: &[u8]) -> ParseResult<Self> {
@@ -1489,7 +1489,7 @@ impl Codec for Action {
             Action::Extension(x) => x.encoded_size(),
         }
     }
-    fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode(&self, out: &mut [u8]) -> usize {
         match self {
             Action::Nop(x) => x.encode(out),
             Action::ReadFileData(x) => x.encode(out),

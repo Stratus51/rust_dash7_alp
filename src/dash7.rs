@@ -67,7 +67,7 @@ impl Codec for Addressee {
                 Address::Vid(_) => 2,
             }
     }
-    fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode(&self, out: &mut [u8]) -> usize {
         let (id_type, id): (u8, Box<[u8]>) = match &self.address {
             Address::NbId(n) => (0, Box::new([*n])),
             Address::NoId => (1, Box::new([])),
@@ -231,7 +231,7 @@ impl Codec for Qos {
     fn encoded_size(&self) -> usize {
         1
     }
-    fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode(&self, out: &mut [u8]) -> usize {
         out[0] = ((self.retry as u8) << 3) + self.resp as u8;
         1
     }
@@ -271,7 +271,7 @@ impl Codec for InterfaceConfiguration {
     fn encoded_size(&self) -> usize {
         self.qos.encoded_size() + 2 + self.addressee.encoded_size()
     }
-    fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode(&self, out: &mut [u8]) -> usize {
         self.qos.encode(out);
         out[1] = self.to;
         out[2] = self.te;
@@ -392,7 +392,7 @@ impl Codec for InterfaceStatus {
                 None => 0,
             }
     }
-    fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode(&self, out: &mut [u8]) -> usize {
         let mut i = 0;
         out[i] = self.ch_header;
         i += 1;
