@@ -1,5 +1,6 @@
 use crate::codec::{ParseFail, ParseResult, ParseValue};
 pub const MAX: u32 = 0x3F_FF_FF_FF;
+/// Returns whether the value is encodable into a varint or not.
 pub fn is_valid(n: u32) -> Result<(), ()> {
     if n > MAX {
         Err(())
@@ -8,6 +9,8 @@ pub fn is_valid(n: u32) -> Result<(), ()> {
     }
 }
 
+/// Calculate the size in bytes of the value encoded as a varint.
+///
 /// # Safety
 /// Only call this on u32 that are less than 0x3F_FF_FF_FF.
 ///
@@ -25,6 +28,8 @@ pub unsafe fn size(n: u32) -> u8 {
     }
 }
 
+/// Encode the value into a varint.
+///
 /// # Safety
 /// Only call this on u32 that are less than 0x3F_FF_FF_FF.
 ///
@@ -40,6 +45,7 @@ pub unsafe fn encode(n: u32, out: &mut [u8]) -> u8 {
     u8_size
 }
 
+/// Decode a byte array as a varint.
 pub fn decode(out: &[u8]) -> ParseResult<u32> {
     if out.is_empty() {
         return Err(ParseFail::MissingBytes(1));
