@@ -297,9 +297,12 @@ impl OpCode {
 // Actions
 // ===============================================================================
 // Nop
+/// Does nothing
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Nop {
+    /// Group with next action
     pub group: bool,
+    /// Ask for a response (status)
     pub resp: bool,
 }
 impl Codec for Nop {
@@ -348,9 +351,14 @@ impl NewReadFileData {
         ReadFileData::new(self)
     }
 }
+/// Read data from a file
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ReadFileData {
+    /// Group with next action
     pub group: bool,
+    /// Ask for a response (read data via ReturnFileData)
+    ///
+    /// Generally true unless you just want to trigger a read on the filesystem
     pub resp: bool,
     pub file_id: u8,
     pub offset: u32,
@@ -437,9 +445,12 @@ fn test_read_file_data() {
     )
 }
 
+/// Read properties of a file
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ReadFileProperties {
+    /// Group with next action
     pub group: bool,
+    /// Ask for a response (ReturnFileProperties)
     pub resp: bool,
     pub file_id: u8,
 }
@@ -469,9 +480,12 @@ impl NewWriteFileData {
         WriteFileData::new(self)
     }
 }
+/// Write data to a file
 #[derive(Clone, Debug, PartialEq)]
 pub struct WriteFileData {
+    /// Group with next action
     pub group: bool,
+    /// Ask for a response (a status)
     pub resp: bool,
     pub file_id: u8,
     pub offset: u32,
@@ -568,9 +582,12 @@ fn test_write_file_data() {
     )
 }
 
+/// Write the properties of a file
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct WriteFileProperties {
+    /// Group with next action
     pub group: bool,
+    /// Ask for a response (a status)
     pub resp: bool,
     pub file_id: u8,
     pub header: data::FileHeader,
@@ -613,9 +630,14 @@ fn test_write_file_properties() {
     )
 }
 
+/// Add a condition on the execution of the next group of action.
+///
+/// If the condition is not met, the next group of action should be skipped.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ActionQuery {
+    /// Group with next action
     pub group: bool,
+    /// Does not make sense.
     pub resp: bool,
     pub query: operand::Query,
 }
@@ -639,9 +661,14 @@ fn test_action_query() {
     )
 }
 
+/// Add a condition to continue the processing of this ALP command.
+///
+/// If the condition is not met the all the next ALP action of this command should be ignored.
 #[derive(Clone, Debug, PartialEq)]
 pub struct BreakQuery {
+    /// Group with next action
     pub group: bool,
+    /// Does not make sense.
     pub resp: bool,
     pub query: operand::Query,
 }
@@ -665,10 +692,14 @@ fn test_break_query() {
     )
 }
 
+/// Request a level of permission using some permission type
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PermissionRequest {
+    /// Group with next action
     pub group: bool,
+    /// Ask for a response (a status)
     pub resp: bool,
+    /// See operand::permission_level
     pub level: u8,
     pub permission: operand::Permission,
 }
@@ -718,9 +749,13 @@ fn test_permission_request() {
     )
 }
 
+/// Calculate checksum of file and compare with checksum in query
+// ALP_SPEC: Is the checksum calculated on the targeted data (offset, size) or the whole file?
 #[derive(Clone, Debug, PartialEq)]
 pub struct VerifyChecksum {
+    /// Group with next action
     pub group: bool,
+    /// Ask for a response (status?)
     pub resp: bool,
     pub query: operand::Query,
 }
@@ -745,9 +780,13 @@ fn test_verify_checksum() {
 }
 
 // Management
+/// Checks whether a file exists
+// ALP_SPEC: How is the result of this command different from a read file of size 0?
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ExistFile {
+    /// Group with next action
     pub group: bool,
+    /// Ask for a response (status?)
     pub resp: bool,
     pub file_id: u8,
 }
@@ -764,9 +803,13 @@ fn test_exist_file() {
     )
 }
 
+/// Create a new file
+// ALP_SPEC: How do you create a remote file? Is this Wizzilab specific.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CreateNewFile {
+    /// Group with next action
     pub group: bool,
+    /// Ask for a response (status)
     pub resp: bool,
     pub file_id: u8,
     pub header: data::FileHeader,
@@ -809,9 +852,12 @@ fn test_create_new_file() {
     )
 }
 
+/// Deletes a file.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DeleteFile {
+    /// Group with next action
     pub group: bool,
+    /// Ask for a response (status)
     pub resp: bool,
     pub file_id: u8,
 }
@@ -828,9 +874,12 @@ fn test_delete_file() {
     )
 }
 
+/// Restores a restorable file
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RestoreFile {
+    /// Group with next action
     pub group: bool,
+    /// Ask for a response (status)
     pub resp: bool,
     pub file_id: u8,
 }
@@ -847,9 +896,12 @@ fn test_restore_file() {
     )
 }
 
+/// Flush a file
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FlushFile {
+    /// Group with next action
     pub group: bool,
+    /// Ask for a response (status)
     pub resp: bool,
     pub file_id: u8,
 }
@@ -866,9 +918,17 @@ fn test_flush_file() {
     )
 }
 
+/// Copy a file to another file
+// ALP_SPEC: What does that mean? Is it a complete file copy including the file properties or just
+// the data? If not then if the destination file is bigger than the source, does the copy only
+// overwrite the first part of the destination file?
+//
+// Wouldn't it be more appropriate to have 1 size and 2 file offsets?
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CopyFile {
+    /// Group with next action
     pub group: bool,
+    /// Ask for a response (status)
     pub resp: bool,
     pub src_file_id: u8,
     pub dst_file_id: u8,
@@ -887,9 +947,13 @@ fn test_copy_file() {
     )
 }
 
+/// Execute a file if executable
+// ALP_SPEC: Is that an "ALP executable" or a binary executable?
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ExecuteFile {
+    /// Group with next action
     pub group: bool,
+    /// Ask for a response (status)
     pub resp: bool,
     pub file_id: u8,
 }
@@ -919,9 +983,14 @@ impl NewReturnFileData {
         ReturnFileData::new(self)
     }
 }
+/// Responds to a ReadFileData request.
+///
+/// This can also be used to report unsollicited data.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ReturnFileData {
+    /// Group with next action
     pub group: bool,
+    /// Ask for a response (status)
     pub resp: bool,
     pub file_id: u8,
     pub offset: u32,
@@ -1018,9 +1087,12 @@ fn test_return_file_data() {
     )
 }
 
+/// Result of a ReadFileProperties request
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ReturnFileProperties {
+    /// Group with next action
     pub group: bool,
+    /// Ask for a response (status)
     pub resp: bool,
     pub file_id: u8,
     pub header: data::FileHeader,
@@ -1086,6 +1158,7 @@ impl StatusType {
     }
 }
 
+/// Statuses regarding actions sent in a request
 #[derive(Clone, Debug, PartialEq)]
 pub enum Status {
     // ALP SPEC: This is named status, but it should be named action status compared to the '2'
@@ -1140,9 +1213,16 @@ fn test_status() {
     )
 }
 
+/// Action received before any responses to a request that contained a RequestTag
+///
+/// This allows matching responses to requests when doing multiple requests in parallel.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ResponseTag {
-    pub eop: bool, // End of packet
+    /// End of packet
+    ///
+    /// Signal the last response packet for the request `id`
+    pub eop: bool,
+    /// An error occured
     pub err: bool,
     pub id: u8,
 }
@@ -1179,6 +1259,7 @@ impl ChunkStep {
         }
     }
 }
+/// Provide chunk information
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Chunk {
     pub step: ChunkStep,
@@ -1213,6 +1294,7 @@ fn test_chunk() {
     )
 }
 
+/// Provide logical link of a group of queries
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum LogicOp {
     Or = 0,
@@ -1266,8 +1348,10 @@ fn test_logic() {
     )
 }
 
+/// Forward rest of the command over the interface
 #[derive(Clone, Debug, PartialEq)]
 pub struct Forward {
+    // TODO ALP_SPEC Ask for response ?
     pub resp: bool,
     pub conf: operand::InterfaceConfiguration,
 }
@@ -1308,8 +1392,10 @@ fn test_forward() {
     )
 }
 
+/// Forward rest of the command over the interface
 #[derive(Clone, Debug, PartialEq)]
 pub struct IndirectForward {
+    // TODO ALP_SPEC Ask for response ?
     pub resp: bool,
     pub interface: operand::IndirectInterface,
 }
@@ -1365,9 +1451,13 @@ fn test_indirect_forward() {
     )
 }
 
+/// Provide command payload identifier
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RequestTag {
-    pub eop: bool, // End of packet
+    /// Ask for end of packet
+    ///
+    /// Signal the last response packet for the request `id`
+    pub eop: bool,
     pub id: u8,
 }
 impl Codec for RequestTag {
@@ -1398,9 +1488,12 @@ fn test_request_tag() {
     test_item(RequestTag { eop: true, id: 8 }, &hex!("B4 08"))
 }
 
+/// TODO Panics
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Extension {
+    /// Group with next action
     pub group: bool,
+    /// Ask for a response
     pub resp: bool,
 }
 impl Codec for Extension {
@@ -1415,6 +1508,7 @@ impl Codec for Extension {
     }
 }
 
+/// An ALP Action
 #[derive(Clone, Debug, PartialEq)]
 pub enum Action {
     // Nop
