@@ -3,6 +3,12 @@ name = "dash7_alp"
 version = "0.1.0"
 authors = ["Igor Valet <igor_valet@hotmail.com>"]
 edition = "2018"
+description = "Implementation of a DASH7 ALP protocol codec."
+readme = "README.md"
+repository = "https://github.com/Stratus51/rust_dash7_alp"
+license = "MIT"
+keywords = ["dash7", "alp", "parser", "protocol"]
+categories = ["encoding", "parser-implementations"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
