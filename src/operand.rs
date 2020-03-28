@@ -526,12 +526,23 @@ impl QueryCode {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub enum QueryError {
+    /// Size does not fit in a varint
+    SizeTooBig,
+    /// Mask size is different from item size attribute
+    MaskBadSize,
+    StartGreaterThanStop,
+    /// Bitmap size is different from what is expected by given the start and stop parameters
+    BitmapBadSize,
+}
+
 pub struct NewNonVoid {
     pub size: u32,
     pub file: FileOffset,
 }
 impl NewNonVoid {
-    pub fn build(self) -> Result<NonVoid, NonVoidError> {
+    pub fn build(self) -> Result<NonVoid, QueryError> {
         NonVoid::new(self)
     }
 }
@@ -541,14 +552,10 @@ pub struct NonVoid {
     pub file: FileOffset,
     _private: (),
 }
-#[derive(Clone, Debug, PartialEq)]
-pub enum NonVoidError {
-    SizeTooBig,
-}
 impl NonVoid {
-    pub fn new(new: NewNonVoid) -> Result<Self, NonVoidError> {
+    pub fn new(new: NewNonVoid) -> Result<Self, QueryError> {
         if new.size > varint::MAX {
-            return Err(NonVoidError::SizeTooBig);
+            return Err(QueryError::SizeTooBig);
         }
         Ok(Self {
             size: new.size,
@@ -617,7 +624,7 @@ pub struct NewComparisonWithZero {
     pub file: FileOffset,
 }
 impl NewComparisonWithZero {
-    pub fn build(self) -> Result<ComparisonWithZero, ComparisonWithZeroError> {
+    pub fn build(self) -> Result<ComparisonWithZero, QueryError> {
         ComparisonWithZero::new(self)
     }
 }
@@ -630,19 +637,14 @@ pub struct ComparisonWithZero {
     pub file: FileOffset,
     _private: (),
 }
-#[derive(Clone, Debug, PartialEq)]
-pub enum ComparisonWithZeroError {
-    SizeTooBig,
-    MaskBadSize,
-}
 impl ComparisonWithZero {
-    pub fn new(new: NewComparisonWithZero) -> Result<Self, ComparisonWithZeroError> {
+    pub fn new(new: NewComparisonWithZero) -> Result<Self, QueryError> {
         if new.size > varint::MAX {
-            return Err(ComparisonWithZeroError::SizeTooBig);
+            return Err(QueryError::SizeTooBig);
         }
         if let Some(mask) = &new.mask {
             if mask.len() as u32 != new.size {
-                return Err(ComparisonWithZeroError::MaskBadSize);
+                return Err(QueryError::MaskBadSize);
             }
         }
         Ok(Self {
@@ -748,7 +750,7 @@ pub struct NewComparisonWithValue {
     pub file: FileOffset,
 }
 impl NewComparisonWithValue {
-    pub fn build(self) -> Result<ComparisonWithValue, ComparisonWithValueError> {
+    pub fn build(self) -> Result<ComparisonWithValue, QueryError> {
         ComparisonWithValue::new(self)
     }
 }
@@ -762,20 +764,15 @@ pub struct ComparisonWithValue {
     pub file: FileOffset,
     _private: (),
 }
-#[derive(Clone, Debug, PartialEq)]
-pub enum ComparisonWithValueError {
-    SizeTooBig,
-    MaskBadSize,
-}
 impl ComparisonWithValue {
-    pub fn new(new: NewComparisonWithValue) -> Result<Self, ComparisonWithValueError> {
+    pub fn new(new: NewComparisonWithValue) -> Result<Self, QueryError> {
         let size = new.value.len() as u32;
         if size > varint::MAX {
-            return Err(ComparisonWithValueError::SizeTooBig);
+            return Err(QueryError::SizeTooBig);
         }
         if let Some(mask) = &new.mask {
             if mask.len() as u32 != size {
-                return Err(ComparisonWithValueError::MaskBadSize);
+                return Err(QueryError::MaskBadSize);
             }
         }
         Ok(Self {
@@ -893,7 +890,7 @@ pub struct NewComparisonWithOtherFile {
     pub file2: FileOffset,
 }
 impl NewComparisonWithOtherFile {
-    pub fn build(self) -> Result<ComparisonWithOtherFile, ComparisonWithOtherFileError> {
+    pub fn build(self) -> Result<ComparisonWithOtherFile, QueryError> {
         ComparisonWithOtherFile::new(self)
     }
 }
@@ -907,19 +904,14 @@ pub struct ComparisonWithOtherFile {
     pub file2: FileOffset,
     _private: (),
 }
-#[derive(Clone, Debug, PartialEq)]
-pub enum ComparisonWithOtherFileError {
-    SizeTooBig,
-    MaskBadSize,
-}
 impl ComparisonWithOtherFile {
-    pub fn new(new: NewComparisonWithOtherFile) -> Result<Self, ComparisonWithOtherFileError> {
+    pub fn new(new: NewComparisonWithOtherFile) -> Result<Self, QueryError> {
         if new.size > varint::MAX {
-            return Err(ComparisonWithOtherFileError::SizeTooBig);
+            return Err(QueryError::SizeTooBig);
         }
         if let Some(mask) = &new.mask {
             if mask.len() as u32 != new.size {
-                return Err(ComparisonWithOtherFileError::MaskBadSize);
+                return Err(QueryError::MaskBadSize);
             }
         }
         Ok(Self {
@@ -1043,7 +1035,7 @@ pub struct NewBitmapRangeComparison {
     pub file: FileOffset,
 }
 impl NewBitmapRangeComparison {
-    pub fn build(self) -> Result<BitmapRangeComparison, BitmapRangeComparisonError> {
+    pub fn build(self) -> Result<BitmapRangeComparison, QueryError> {
         BitmapRangeComparison::new(self)
     }
 }
@@ -1064,16 +1056,10 @@ pub struct BitmapRangeComparison {
     pub file: FileOffset,
     _private: (),
 }
-#[derive(Clone, Debug, PartialEq)]
-pub enum BitmapRangeComparisonError {
-    StartGreaterThanStop,
-    SizeTooBig,
-    BitmapBadSize,
-}
 impl BitmapRangeComparison {
-    pub fn new(new: NewBitmapRangeComparison) -> Result<Self, BitmapRangeComparisonError> {
+    pub fn new(new: NewBitmapRangeComparison) -> Result<Self, QueryError> {
         if new.start > new.stop {
-            return Err(BitmapRangeComparisonError::StartGreaterThanStop);
+            return Err(QueryError::StartGreaterThanStop);
         }
         let max = new.stop;
         let size: u32 = if max <= 0xFF {
@@ -1092,7 +1078,7 @@ impl BitmapRangeComparison {
 
         let bitmap_size = (new.stop - new.start + 6) / 8; // ALP SPEC: Thanks for the calculation
         if new.bitmap.len() != bitmap_size as usize {
-            return Err(BitmapRangeComparisonError::BitmapBadSize);
+            return Err(QueryError::BitmapBadSize);
         }
         Ok(Self {
             signed_data: new.signed_data,
@@ -1212,7 +1198,7 @@ pub struct NewStringTokenSearch {
     pub file: FileOffset,
 }
 impl NewStringTokenSearch {
-    pub fn build(self) -> Result<StringTokenSearch, StringTokenSearchError> {
+    pub fn build(self) -> Result<StringTokenSearch, QueryError> {
         StringTokenSearch::new(self)
     }
 }
@@ -1225,20 +1211,15 @@ pub struct StringTokenSearch {
     pub file: FileOffset,
     _private: (),
 }
-#[derive(Clone, Debug, PartialEq)]
-pub enum StringTokenSearchError {
-    SizeTooBig,
-    MaskBadSize,
-}
 impl StringTokenSearch {
-    pub fn new(new: NewStringTokenSearch) -> Result<Self, StringTokenSearchError> {
+    pub fn new(new: NewStringTokenSearch) -> Result<Self, QueryError> {
         let size = new.value.len() as u32;
         if size > varint::MAX {
-            return Err(StringTokenSearchError::SizeTooBig);
+            return Err(QueryError::SizeTooBig);
         }
         if let Some(mask) = &new.mask {
             if mask.len() as u32 != size {
-                return Err(StringTokenSearchError::MaskBadSize);
+                return Err(QueryError::MaskBadSize);
             }
         }
         Ok(Self {
