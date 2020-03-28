@@ -6,13 +6,14 @@
 //! The protocol specifies ALP Commands that can be sent to another system to communicate.
 //! Each command is an aggregation of ALP Actions.
 //!
-//! The protocol is "filesystem oriented". Indeed most actions interact with a filesystem
-//! composed of up to 256 files.
+//! The protocol is based on the fact that each communicating party hold a Dash7 filesystem.
+//! Each request toward an other device is then composed as an array of simple filesystem operation
+//! (ALP actions).
 //!
 //! About this library
 //! ==============================================================================
-//! The goal of this library is to implement a specification with a emphasis on correctness, then
-//! on usability. Performance is currently considered secondary.
+//! The goal of this library is to implement a specification with an emphasis on correctness, then
+//! on usability. Performance and memory usage are currently considered a secondary objective.
 
 #[cfg(test)]
 mod test_tools;
@@ -82,6 +83,7 @@ pub enum Enum {
 // ===============================================================================
 // Command
 // ===============================================================================
+/// ALP request that can be sent to an ALP compatible device.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Command {
     pub actions: Vec<Action>,
