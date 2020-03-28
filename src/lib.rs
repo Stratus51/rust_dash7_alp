@@ -31,6 +31,8 @@ pub mod codec;
 pub mod dash7;
 /// Filesystem related items
 pub mod data;
+/// Module managing the creation of protected items
+pub mod new;
 /// Operands used to build the ALP Actions
 pub mod operand;
 /// ALP variable int codec implementation
@@ -149,7 +151,7 @@ fn test_command() {
             actions: vec![
                 Action::RequestTag(action::RequestTag { id: 66, eop: true }),
                 Action::ReadFileData(
-                    action::NewReadFileData {
+                    action::new::ReadFileData {
                         resp: true,
                         group: false,
                         file_id: 0,

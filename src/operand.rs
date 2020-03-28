@@ -96,30 +96,16 @@ fn test_interface_configuration_host() {
     test_item(InterfaceConfiguration::Host, &hex!("00"))
 }
 
-pub struct NewInterfaceStatusUnknown {
-    pub id: u8,
-    pub data: Box<[u8]>,
-}
-impl NewInterfaceStatusUnknown {
-    pub fn build(self) -> Result<InterfaceStatusUnknown, InterfaceStatusUnknownError> {
-        InterfaceStatusUnknown::new(self)
-    }
-}
 #[derive(Clone, Debug, PartialEq)]
 pub struct InterfaceStatusUnknown {
     pub id: u8,
     pub data: Box<[u8]>,
     _private: (),
 }
-#[derive(Clone, Debug, PartialEq)]
-pub enum InterfaceStatusUnknownError {
-    /// Data length does not fit in a varint
-    DataTooBig,
-}
 impl InterfaceStatusUnknown {
-    pub fn new(new: NewInterfaceStatusUnknown) -> Result<Self, InterfaceStatusUnknownError> {
+    pub fn new(new: new::InterfaceStatusUnknown) -> Result<Self, new::Error> {
         if new.data.len() > varint::MAX as usize {
-            return Err(InterfaceStatusUnknownError::DataTooBig);
+            return Err(new::Error::DataTooBig);
         }
         Ok(Self {
             id: new.id,
@@ -225,7 +211,7 @@ impl Codec for InterfaceStatus {
 fn test_interface_status_d7asp() {
     test_item(
         InterfaceStatus::D7asp(
-            dash7::NewInterfaceStatus {
+            dash7::new::InterfaceStatus {
                 ch_header: 1,
                 ch_idx: 0x0123,
                 rxlev: 2,
@@ -256,15 +242,6 @@ fn test_interface_status_host() {
 // ===============================================================================
 // Operands
 // ===============================================================================
-pub struct NewFileOffset {
-    pub id: u8,
-    pub offset: u32,
-}
-impl NewFileOffset {
-    pub fn build(self) -> Result<FileOffset, FileOffsetError> {
-        FileOffset::new(self)
-    }
-}
 /// Describe the location of some data on the filesystem (file + data offset).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FileOffset {
@@ -272,16 +249,11 @@ pub struct FileOffset {
     pub offset: u32,
     _private: (),
 }
-#[derive(Clone, Debug, PartialEq)]
-pub enum FileOffsetError {
-    /// Offset does not fit in a varint
-    OffsetTooBig,
-}
 
 impl FileOffset {
-    pub fn new(new: NewFileOffset) -> Result<Self, FileOffsetError> {
+    pub fn new(new: new::FileOffset) -> Result<Self, new::Error> {
         if new.offset > varint::MAX {
-            return Err(FileOffsetError::OffsetTooBig);
+            return Err(new::Error::OffsetTooBig);
         }
         Ok(Self {
             id: new.id,
@@ -540,26 +512,6 @@ impl QueryCode {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub enum QueryError {
-    /// Size does not fit in a varint
-    SizeTooBig,
-    /// Mask size is different from item size attribute
-    MaskBadSize,
-    StartGreaterThanStop,
-    /// Bitmap size is different from what is expected by given the start and stop parameters
-    BitmapBadSize,
-}
-
-pub struct NewNonVoid {
-    pub size: u32,
-    pub file: FileOffset,
-}
-impl NewNonVoid {
-    pub fn build(self) -> Result<NonVoid, QueryError> {
-        NonVoid::new(self)
-    }
-}
 // ALP_SPEC Does this fail if the content overflows the file?
 /// Checks if the file content exists.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -569,9 +521,9 @@ pub struct NonVoid {
     _private: (),
 }
 impl NonVoid {
-    pub fn new(new: NewNonVoid) -> Result<Self, QueryError> {
+    pub fn new(new: new::NonVoid) -> Result<Self, new::Error> {
         if new.size > varint::MAX {
-            return Err(QueryError::SizeTooBig);
+            return Err(new::Error::SizeTooBig);
         }
         Ok(Self {
             size: new.size,
@@ -632,18 +584,6 @@ fn test_non_void_query_operand() {
     )
 }
 
-pub struct NewComparisonWithZero {
-    pub signed_data: bool,
-    pub comparison_type: QueryComparisonType,
-    pub size: u32,
-    pub mask: Option<Box<[u8]>>,
-    pub file: FileOffset,
-}
-impl NewComparisonWithZero {
-    pub fn build(self) -> Result<ComparisonWithZero, QueryError> {
-        ComparisonWithZero::new(self)
-    }
-}
 /// Compare file content, optionally masked, with 0.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ComparisonWithZero {
@@ -655,13 +595,13 @@ pub struct ComparisonWithZero {
     _private: (),
 }
 impl ComparisonWithZero {
-    pub fn new(new: NewComparisonWithZero) -> Result<Self, QueryError> {
+    pub fn new(new: new::ComparisonWithZero) -> Result<Self, new::Error> {
         if new.size > varint::MAX {
-            return Err(QueryError::SizeTooBig);
+            return Err(new::Error::SizeTooBig);
         }
         if let Some(mask) = &new.mask {
             if mask.len() as u32 != new.size {
-                return Err(QueryError::MaskBadSize);
+                return Err(new::Error::MaskBadSize);
             }
         }
         Ok(Self {
@@ -759,18 +699,6 @@ fn test_comparison_with_zero_operand() {
     )
 }
 
-pub struct NewComparisonWithValue {
-    pub signed_data: bool,
-    pub comparison_type: QueryComparisonType,
-    pub mask: Option<Box<[u8]>>,
-    pub value: Box<[u8]>,
-    pub file: FileOffset,
-}
-impl NewComparisonWithValue {
-    pub fn build(self) -> Result<ComparisonWithValue, QueryError> {
-        ComparisonWithValue::new(self)
-    }
-}
 /// Compare some file content optionally masked, with a value
 #[derive(Clone, Debug, PartialEq)]
 pub struct ComparisonWithValue {
@@ -783,14 +711,14 @@ pub struct ComparisonWithValue {
     _private: (),
 }
 impl ComparisonWithValue {
-    pub fn new(new: NewComparisonWithValue) -> Result<Self, QueryError> {
+    pub fn new(new: new::ComparisonWithValue) -> Result<Self, new::Error> {
         let size = new.value.len() as u32;
         if size > varint::MAX {
-            return Err(QueryError::SizeTooBig);
+            return Err(new::Error::SizeTooBig);
         }
         if let Some(mask) = &new.mask {
             if mask.len() as u32 != size {
-                return Err(QueryError::MaskBadSize);
+                return Err(new::Error::MaskBadSize);
             }
         }
         Ok(Self {
@@ -899,19 +827,6 @@ fn test_comparison_with_value_operand() {
     )
 }
 
-pub struct NewComparisonWithOtherFile {
-    pub signed_data: bool,
-    pub comparison_type: QueryComparisonType,
-    pub size: u32,
-    pub mask: Option<Box<[u8]>>,
-    pub file1: FileOffset,
-    pub file2: FileOffset,
-}
-impl NewComparisonWithOtherFile {
-    pub fn build(self) -> Result<ComparisonWithOtherFile, QueryError> {
-        ComparisonWithOtherFile::new(self)
-    }
-}
 /// Compare content of 2 files optionally masked
 #[derive(Clone, Debug, PartialEq)]
 pub struct ComparisonWithOtherFile {
@@ -924,13 +839,13 @@ pub struct ComparisonWithOtherFile {
     _private: (),
 }
 impl ComparisonWithOtherFile {
-    pub fn new(new: NewComparisonWithOtherFile) -> Result<Self, QueryError> {
+    pub fn new(new: new::ComparisonWithOtherFile) -> Result<Self, new::Error> {
         if new.size > varint::MAX {
-            return Err(QueryError::SizeTooBig);
+            return Err(new::Error::SizeTooBig);
         }
         if let Some(mask) = &new.mask {
             if mask.len() as u32 != new.size {
-                return Err(QueryError::MaskBadSize);
+                return Err(new::Error::MaskBadSize);
             }
         }
         Ok(Self {
@@ -1044,20 +959,6 @@ fn test_comparison_with_other_file_operand() {
     )
 }
 
-pub struct NewBitmapRangeComparison {
-    pub signed_data: bool,
-    pub comparison_type: QueryRangeComparisonType,
-    // TODO Is u32 a pertinent size?
-    pub start: u32,
-    pub stop: u32,
-    pub bitmap: Box<[u8]>,
-    pub file: FileOffset,
-}
-impl NewBitmapRangeComparison {
-    pub fn build(self) -> Result<BitmapRangeComparison, QueryError> {
-        BitmapRangeComparison::new(self)
-    }
-}
 /// Check if the content of a file is (not) contained in the sent bitmap values
 #[derive(Clone, Debug, PartialEq)]
 pub struct BitmapRangeComparison {
@@ -1076,9 +977,9 @@ pub struct BitmapRangeComparison {
     _private: (),
 }
 impl BitmapRangeComparison {
-    pub fn new(new: NewBitmapRangeComparison) -> Result<Self, QueryError> {
+    pub fn new(new: new::BitmapRangeComparison) -> Result<Self, new::Error> {
         if new.start > new.stop {
-            return Err(QueryError::StartGreaterThanStop);
+            return Err(new::Error::StartGreaterThanStop);
         }
         let max = new.stop;
         let size: u32 = if max <= 0xFF {
@@ -1097,7 +998,7 @@ impl BitmapRangeComparison {
 
         let bitmap_size = (new.stop - new.start + 6) / 8; // ALP SPEC: Thanks for the calculation
         if new.bitmap.len() != bitmap_size as usize {
-            return Err(QueryError::BitmapBadSize);
+            return Err(new::Error::BitmapBadSize);
         }
         Ok(Self {
             signed_data: new.signed_data,
@@ -1210,17 +1111,6 @@ fn test_bitmap_range_comparison_operand() {
     )
 }
 
-pub struct NewStringTokenSearch {
-    pub max_errors: u8,
-    pub mask: Option<Box<[u8]>>,
-    pub value: Box<[u8]>,
-    pub file: FileOffset,
-}
-impl NewStringTokenSearch {
-    pub fn build(self) -> Result<StringTokenSearch, QueryError> {
-        StringTokenSearch::new(self)
-    }
-}
 /// Compare some file content, optional masked, with an array of bytes and up to a certain number
 /// of errors.
 #[derive(Clone, Debug, PartialEq)]
@@ -1233,14 +1123,14 @@ pub struct StringTokenSearch {
     _private: (),
 }
 impl StringTokenSearch {
-    pub fn new(new: NewStringTokenSearch) -> Result<Self, QueryError> {
+    pub fn new(new: new::StringTokenSearch) -> Result<Self, new::Error> {
         let size = new.value.len() as u32;
         if size > varint::MAX {
-            return Err(QueryError::SizeTooBig);
+            return Err(new::Error::SizeTooBig);
         }
         if let Some(mask) = &new.mask {
             if mask.len() as u32 != size {
-                return Err(QueryError::MaskBadSize);
+                return Err(new::Error::MaskBadSize);
             }
         }
         Ok(Self {
@@ -1502,5 +1392,101 @@ impl Codec for IndirectInterface {
             NonOverloadedIndirectInterface::decode(&out[1..])?
                 .map(|v, i| (IndirectInterface::NonOverloaded(v), i + 1))
         })
+    }
+}
+
+pub mod new {
+    pub use crate::new::Error;
+
+    pub struct InterfaceStatusUnknown {
+        pub id: u8,
+        pub data: Box<[u8]>,
+    }
+    impl InterfaceStatusUnknown {
+        pub fn build(self) -> Result<super::InterfaceStatusUnknown, Error> {
+            super::InterfaceStatusUnknown::new(self)
+        }
+    }
+
+    pub struct StringTokenSearch {
+        pub max_errors: u8,
+        pub mask: Option<Box<[u8]>>,
+        pub value: Box<[u8]>,
+        pub file: super::FileOffset,
+    }
+    impl StringTokenSearch {
+        pub fn build(self) -> Result<super::StringTokenSearch, Error> {
+            super::StringTokenSearch::new(self)
+        }
+    }
+
+    pub struct FileOffset {
+        pub id: u8,
+        pub offset: u32,
+    }
+    impl FileOffset {
+        pub fn build(self) -> Result<super::FileOffset, Error> {
+            super::FileOffset::new(self)
+        }
+    }
+    pub struct NonVoid {
+        pub size: u32,
+        pub file: super::FileOffset,
+    }
+    impl NonVoid {
+        pub fn build(self) -> Result<super::NonVoid, Error> {
+            super::NonVoid::new(self)
+        }
+    }
+    pub struct ComparisonWithZero {
+        pub signed_data: bool,
+        pub comparison_type: super::QueryComparisonType,
+        pub size: u32,
+        pub mask: Option<Box<[u8]>>,
+        pub file: super::FileOffset,
+    }
+    impl ComparisonWithZero {
+        pub fn build(self) -> Result<super::ComparisonWithZero, Error> {
+            super::ComparisonWithZero::new(self)
+        }
+    }
+    pub struct ComparisonWithValue {
+        pub signed_data: bool,
+        pub comparison_type: super::QueryComparisonType,
+        pub mask: Option<Box<[u8]>>,
+        pub value: Box<[u8]>,
+        pub file: super::FileOffset,
+    }
+    impl ComparisonWithValue {
+        pub fn build(self) -> Result<super::ComparisonWithValue, Error> {
+            super::ComparisonWithValue::new(self)
+        }
+    }
+    pub struct ComparisonWithOtherFile {
+        pub signed_data: bool,
+        pub comparison_type: super::QueryComparisonType,
+        pub size: u32,
+        pub mask: Option<Box<[u8]>>,
+        pub file1: super::FileOffset,
+        pub file2: super::FileOffset,
+    }
+    impl ComparisonWithOtherFile {
+        pub fn build(self) -> Result<super::ComparisonWithOtherFile, Error> {
+            super::ComparisonWithOtherFile::new(self)
+        }
+    }
+    pub struct BitmapRangeComparison {
+        pub signed_data: bool,
+        pub comparison_type: super::QueryRangeComparisonType,
+        // TODO Is u32 a pertinent size?
+        pub start: u32,
+        pub stop: u32,
+        pub bitmap: Box<[u8]>,
+        pub file: super::FileOffset,
+    }
+    impl BitmapRangeComparison {
+        pub fn build(self) -> Result<super::BitmapRangeComparison, Error> {
+            super::BitmapRangeComparison::new(self)
+        }
     }
 }

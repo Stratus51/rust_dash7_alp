@@ -385,24 +385,6 @@ fn test_interface_configuration() {
     )
 }
 
-pub struct NewInterfaceStatus {
-    pub ch_header: u8,
-    pub ch_idx: u16,
-    pub rxlev: u8,
-    pub lb: u8,
-    pub snr: u8,
-    pub status: u8,
-    pub token: u8,
-    pub seq: u8,
-    pub resp_to: u8,
-    pub addressee: Addressee,
-    pub nls_state: Option<[u8; 5]>,
-}
-impl NewInterfaceStatus {
-    pub fn build(self) -> Result<InterfaceStatus, InterfaceStatusError> {
-        InterfaceStatus::new(self)
-    }
-}
 /// Dash7 metadata upon packet reception.
 // ALP SPEC: Add link to D7a section (names do not even match)
 #[derive(Clone, Debug, PartialEq)]
@@ -438,18 +420,13 @@ pub struct InterfaceStatus {
     pub nls_state: Option<[u8; 5]>,
     _private: (),
 }
-#[derive(Clone, Debug, PartialEq)]
-pub enum InterfaceStatusError {
-    /// An NLS state is required by the specified Addressee. Please provide one.
-    MissingNlsState,
-}
 impl InterfaceStatus {
-    pub fn new(new: NewInterfaceStatus) -> Result<Self, InterfaceStatusError> {
+    pub fn new(new: new::InterfaceStatus) -> Result<Self, new::Error> {
         match &new.addressee.nls_method {
             NlsMethod::None => (),
             _ => {
                 if new.nls_state.is_none() {
-                    return Err(InterfaceStatusError::MissingNlsState);
+                    return Err(new::Error::MissingNlsState);
                 }
             }
         }
@@ -580,4 +557,26 @@ pub mod d7a_fid {
     pub const USER_KEY: u8 = 0x19;
     pub const SENSOR_DESCRIPTION: u8 = 0x1B;
     pub const RTC: u8 = 0x1C;
+}
+
+pub mod new {
+    pub use crate::new::Error;
+    pub struct InterfaceStatus {
+        pub ch_header: u8,
+        pub ch_idx: u16,
+        pub rxlev: u8,
+        pub lb: u8,
+        pub snr: u8,
+        pub status: u8,
+        pub token: u8,
+        pub seq: u8,
+        pub resp_to: u8,
+        pub addressee: super::Addressee,
+        pub nls_state: Option<[u8; 5]>,
+    }
+    impl InterfaceStatus {
+        pub fn build(self) -> Result<super::InterfaceStatus, Error> {
+            super::InterfaceStatus::new(self)
+        }
+    }
 }

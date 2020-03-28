@@ -339,18 +339,6 @@ fn test_nop() {
 }
 
 // Read
-pub struct NewReadFileData {
-    pub group: bool,
-    pub resp: bool,
-    pub file_id: u8,
-    pub offset: u32,
-    pub size: u32,
-}
-impl NewReadFileData {
-    pub fn build(self) -> Result<ReadFileData, ReadFileDataError> {
-        ReadFileData::new(self)
-    }
-}
 /// Read data from a file
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ReadFileData {
@@ -365,18 +353,13 @@ pub struct ReadFileData {
     pub size: u32,
     _private: (),
 }
-#[derive(Clone, Debug, PartialEq)]
-pub enum ReadFileDataError {
-    OffsetTooBig,
-    SizeTooBig,
-}
 impl ReadFileData {
-    pub fn new(new: NewReadFileData) -> Result<Self, ReadFileDataError> {
+    pub fn new(new: new::ReadFileData) -> Result<Self, new::Error> {
         if new.offset > varint::MAX {
-            return Err(ReadFileDataError::OffsetTooBig);
+            return Err(new::Error::OffsetTooBig);
         }
         if new.size > varint::MAX {
-            return Err(ReadFileDataError::SizeTooBig);
+            return Err(new::Error::SizeTooBig);
         }
         Ok(Self {
             group: new.group,
@@ -468,18 +451,6 @@ fn test_read_file_properties() {
 }
 
 // Write
-pub struct NewWriteFileData {
-    pub group: bool,
-    pub resp: bool,
-    pub file_id: u8,
-    pub offset: u32,
-    pub data: Box<[u8]>,
-}
-impl NewWriteFileData {
-    pub fn build(self) -> Result<WriteFileData, WriteFileDataError> {
-        WriteFileData::new(self)
-    }
-}
 /// Write data to a file
 #[derive(Clone, Debug, PartialEq)]
 pub struct WriteFileData {
@@ -492,19 +463,14 @@ pub struct WriteFileData {
     pub data: Box<[u8]>,
     _private: (),
 }
-#[derive(Clone, Debug, PartialEq)]
-pub enum WriteFileDataError {
-    OffsetTooBig,
-    SizeTooBig,
-}
 impl WriteFileData {
-    pub fn new(new: NewWriteFileData) -> Result<Self, WriteFileDataError> {
+    pub fn new(new: new::WriteFileData) -> Result<Self, new::Error> {
         if new.offset > varint::MAX {
-            return Err(WriteFileDataError::OffsetTooBig);
+            return Err(new::Error::OffsetTooBig);
         }
         let size = new.data.len() as u32;
         if size > varint::MAX {
-            return Err(WriteFileDataError::SizeTooBig);
+            return Err(new::Error::SizeTooBig);
         }
         Ok(Self {
             group: new.group,
@@ -649,9 +615,11 @@ fn test_action_query() {
             group: true,
             resp: true,
             query: operand::Query::NonVoid(
-                operand::NewNonVoid {
+                operand::new::NonVoid {
                     size: 4,
-                    file: operand::NewFileOffset { id: 5, offset: 6 }.build().unwrap(),
+                    file: operand::new::FileOffset { id: 5, offset: 6 }
+                        .build()
+                        .unwrap(),
                 }
                 .build()
                 .unwrap(),
@@ -680,9 +648,11 @@ fn test_break_query() {
             group: true,
             resp: true,
             query: operand::Query::NonVoid(
-                operand::NewNonVoid {
+                operand::new::NonVoid {
                     size: 4,
-                    file: operand::NewFileOffset { id: 5, offset: 6 }.build().unwrap(),
+                    file: operand::new::FileOffset { id: 5, offset: 6 }
+                        .build()
+                        .unwrap(),
                 }
                 .build()
                 .unwrap(),
@@ -767,9 +737,11 @@ fn test_verify_checksum() {
             group: false,
             resp: false,
             query: operand::Query::NonVoid(
-                operand::NewNonVoid {
+                operand::new::NonVoid {
                     size: 4,
-                    file: operand::NewFileOffset { id: 5, offset: 6 }.build().unwrap(),
+                    file: operand::new::FileOffset { id: 5, offset: 6 }
+                        .build()
+                        .unwrap(),
                 }
                 .build()
                 .unwrap(),
@@ -971,18 +943,6 @@ fn test_execute_file() {
 }
 
 // Response
-pub struct NewReturnFileData {
-    pub group: bool,
-    pub resp: bool,
-    pub file_id: u8,
-    pub offset: u32,
-    pub data: Box<[u8]>,
-}
-impl NewReturnFileData {
-    pub fn build(self) -> Result<ReturnFileData, ReturnFileDataError> {
-        ReturnFileData::new(self)
-    }
-}
 /// Responds to a ReadFileData request.
 ///
 /// This can also be used to report unsollicited data.
@@ -997,19 +957,14 @@ pub struct ReturnFileData {
     pub data: Box<[u8]>,
     _private: (),
 }
-#[derive(Clone, Debug, PartialEq)]
-pub enum ReturnFileDataError {
-    OffsetTooBig,
-    SizeTooBig,
-}
 impl ReturnFileData {
-    pub fn new(new: NewReturnFileData) -> Result<Self, ReturnFileDataError> {
+    pub fn new(new: new::ReturnFileData) -> Result<Self, new::Error> {
         if new.offset > varint::MAX {
-            return Err(ReturnFileDataError::OffsetTooBig);
+            return Err(new::Error::OffsetTooBig);
         }
         let size = new.data.len() as u32;
         if size > varint::MAX {
-            return Err(ReturnFileDataError::SizeTooBig);
+            return Err(new::Error::SizeTooBig);
         }
         Ok(Self {
             group: new.group,
@@ -1665,5 +1620,46 @@ impl Codec for Action {
             OpCode::RequestTag => RequestTag::decode(&out)?.map_value(Action::RequestTag),
             OpCode::Extension => Extension::decode(&out)?.map_value(Action::Extension),
         })
+    }
+}
+
+pub mod new {
+    pub use crate::new::Error;
+
+    pub struct ReadFileData {
+        pub group: bool,
+        pub resp: bool,
+        pub file_id: u8,
+        pub offset: u32,
+        pub size: u32,
+    }
+    impl ReadFileData {
+        pub fn build(self) -> Result<super::ReadFileData, Error> {
+            super::ReadFileData::new(self)
+        }
+    }
+    pub struct WriteFileData {
+        pub group: bool,
+        pub resp: bool,
+        pub file_id: u8,
+        pub offset: u32,
+        pub data: Box<[u8]>,
+    }
+    impl WriteFileData {
+        pub fn build(self) -> Result<super::WriteFileData, Error> {
+            super::WriteFileData::new(self)
+        }
+    }
+    pub struct ReturnFileData {
+        pub group: bool,
+        pub resp: bool,
+        pub file_id: u8,
+        pub offset: u32,
+        pub data: Box<[u8]>,
+    }
+    impl ReturnFileData {
+        pub fn build(self) -> Result<super::ReturnFileData, Error> {
+            super::ReturnFileData::new(self)
+        }
     }
 }
