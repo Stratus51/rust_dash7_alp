@@ -385,6 +385,43 @@ fn test_interface_configuration() {
     )
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct Status {
+    pub missed: bool,
+    pub retry: bool,
+    /// Encoded on 2 bits (max 3)
+    pub id_type: u8,
+    _private: (),
+}
+impl Status {
+    pub fn new(new: new::Status) -> Result<Self, new::Error> {
+        if new.id_type > 3 {
+            return Err(new::Error::IdTypeTooBig);
+        }
+        Ok(Self {
+            missed: new.missed,
+            retry: new.retry,
+            id_type: new.id_type,
+            _private: (),
+        })
+    }
+    fn from_byte(n: u8) -> Self {
+        Self {
+            missed: n & 0x80 != 0,
+            retry: n & 0x40 != 0,
+            id_type: (n >> 4 & 0x03),
+            _private: (),
+        }
+    }
+    fn to_byte(&self) -> u8 {
+        let mut ret = 0;
+        ret |= (self.missed as u8) << 7;
+        ret |= (self.retry as u8) << 6;
+        ret |= self.id_type << 4;
+        ret
+    }
+}
+
 /// Dash7 metadata upon packet reception.
 // ALP SPEC: Add link to D7a section (names do not even match)
 #[derive(Clone, Debug, PartialEq)]
@@ -400,9 +437,7 @@ pub struct InterfaceStatus {
     /// Signal-to-noise Ratio (in dB)
     pub snr: u8,
     /// D7ASP Status
-    ///
-    /// TODO: Parse this.
-    pub status: u8,
+    pub status: Status,
     /// Value of the D7ATP Dialog ID
     pub token: u8,
     /// Value of the D7ATP Transaction ID
@@ -466,7 +501,7 @@ impl Codec for InterfaceStatus {
         i += 1;
         out[i] = self.snr;
         i += 1;
-        out[i] = self.status;
+        out[i] = self.status.to_byte();
         i += 1;
         out[i] = self.token;
         i += 1;
@@ -514,7 +549,7 @@ impl Codec for InterfaceStatus {
                 rxlev: out[3],
                 lb: out[4],
                 snr: out[5],
-                status: out[6],
+                status: Status::from_byte(out[6]),
                 token: out[7],
                 seq: out[8],
                 resp_to: out[9],
@@ -535,7 +570,13 @@ fn test_interface_status() {
             rxlev: 2,
             lb: 3,
             snr: 4,
-            status: 5,
+            status: new::Status {
+                missed: true,
+                retry: false,
+                id_type: 3,
+            }
+            .build()
+            .unwrap(),
             token: 6,
             seq: 7,
             resp_to: 8,
@@ -547,7 +588,7 @@ fn test_interface_status() {
             nls_state: Some(hex!("00 11 22 33 44")),
             _private: (),
         },
-        &hex!("01 0123 02 03 04 05 06 07 08   37 FF ABCD  0011223344"),
+        &hex!("01 0123 02 03 04 B0 06 07 08   37 FF ABCD  0011223344"),
     )
 }
 
@@ -561,13 +602,23 @@ pub mod d7a_fid {
 
 pub mod new {
     pub use crate::new::Error;
+    pub struct Status {
+        pub missed: bool,
+        pub retry: bool,
+        pub id_type: u8,
+    }
+    impl Status {
+        pub fn build(self) -> Result<super::Status, Error> {
+            super::Status::new(self)
+        }
+    }
     pub struct InterfaceStatus {
         pub ch_header: u8,
         pub ch_idx: u16,
         pub rxlev: u8,
         pub lb: u8,
         pub snr: u8,
-        pub status: u8,
+        pub status: super::Status,
         pub token: u8,
         pub seq: u8,
         pub resp_to: u8,

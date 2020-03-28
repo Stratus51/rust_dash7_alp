@@ -217,7 +217,13 @@ fn test_interface_status_d7asp() {
                 rxlev: 2,
                 lb: 3,
                 snr: 4,
-                status: 5,
+                status: dash7::new::Status {
+                    missed: true,
+                    retry: false,
+                    id_type: 3,
+                }
+                .build()
+                .unwrap(),
                 token: 6,
                 seq: 7,
                 resp_to: 8,
@@ -231,7 +237,7 @@ fn test_interface_status_d7asp() {
             .build()
             .unwrap(),
         ),
-        &hex!("D7 13    01 0123 02 03 04 05 06 07 08   37 FF ABCD  0011223344"),
+        &hex!("D7 13    01 0123 02 03 04 B0 06 07 08   37 FF ABCD  0011223344"),
     )
 }
 #[test]

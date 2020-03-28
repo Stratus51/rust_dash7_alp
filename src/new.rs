@@ -13,4 +13,6 @@ pub enum Error {
     BitmapBadSize,
     /// An NLS state is required by the specified Addressee. Please provide one.
     MissingNlsState,
+    /// The dash7 id type specified is too big
+    IdTypeTooBig,
 }
