@@ -1306,7 +1306,7 @@ fn test_logic() {
 /// Forward rest of the command over the interface
 #[derive(Clone, Debug, PartialEq)]
 pub struct Forward {
-    // TODO ALP_SPEC Ask for response ?
+    // ALP_SPEC Ask for response ?
     pub resp: bool,
     pub conf: operand::InterfaceConfiguration,
 }
@@ -1350,7 +1350,7 @@ fn test_forward() {
 /// Forward rest of the command over the interface
 #[derive(Clone, Debug, PartialEq)]
 pub struct IndirectForward {
-    // TODO ALP_SPEC Ask for response ?
+    // ALP_SPEC Ask for response ?
     pub resp: bool,
     pub interface: operand::IndirectInterface,
 }

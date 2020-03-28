@@ -40,12 +40,7 @@ pub mod varint;
 pub use action::Action;
 pub use codec::Codec;
 
-// TODO Document int Enum values meanings (Error & Spec enums)
-// TODO Split this file into more pertinent submodules and choose a better naming convention
-//      (if possible, making use of the module names).
-//      Also organise modules by internal section because it is a labyrinth.
 // TODO Verify each item's name against the SPEC
-// TODO Document each item with its specification
 
 // TODO Look into const function to replace some macros?
 // TODO Use uninitialized memory where possible

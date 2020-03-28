@@ -372,17 +372,16 @@ fn test_status_operand() {
     )
 }
 
-// ALP SPEC: where is this defined? Link?
-//  Not found in either specs !
+// ALP SPEC: where is this defined? Link? Not found in either specs !
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Permission {
-    Dash7([u8; 8]), // TODO ALP SPEC Check + what is its name?
+    Dash7([u8; 8]),
 }
 
 impl Permission {
     fn id(self) -> u8 {
         match self {
-            Permission::Dash7(_) => 0x42, // TODO Check
+            Permission::Dash7(_) => 0x42, // ALP_SPEC Undefined
         }
     }
 }
