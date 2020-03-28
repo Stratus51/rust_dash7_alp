@@ -16,6 +16,7 @@ pub enum InterfaceId {
     D7asp = 0xD7,
 }
 
+/// Meta data required to send a packet depending on the sending interface type
 #[derive(Clone, Debug, PartialEq)]
 pub enum InterfaceConfiguration {
     Host,
@@ -112,6 +113,7 @@ pub struct InterfaceStatusUnknown {
 }
 #[derive(Clone, Debug, PartialEq)]
 pub enum InterfaceStatusUnknownError {
+    /// Data length does not fit in a varint
     DataTooBig,
 }
 impl InterfaceStatusUnknown {
@@ -126,6 +128,7 @@ impl InterfaceStatusUnknown {
         })
     }
 }
+/// Meta data from a received packet depending on the receiving interface type
 #[derive(Clone, Debug, PartialEq)]
 pub enum InterfaceStatus {
     Host,
@@ -262,6 +265,7 @@ impl NewFileOffset {
         FileOffset::new(self)
     }
 }
+/// Describe the location of some data on the filesystem (file + data offset).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FileOffset {
     pub id: u8,
@@ -270,6 +274,7 @@ pub struct FileOffset {
 }
 #[derive(Clone, Debug, PartialEq)]
 pub enum FileOffsetError {
+    /// Offset does not fit in a varint
     OffsetTooBig,
 }
 
@@ -325,6 +330,8 @@ fn test_file_offset_operand() {
 }
 
 pub mod status_code {
+    //! Status code that can be received as a result of some ALP actions.
+    /// Action received and partially completed at response. To be completed after response
     pub const RECEIVED: u8 = 1;
     pub const OK: u8 = 0;
     pub const FILE_ID_MISSING: u8 = 0xFF;
@@ -342,9 +349,16 @@ pub mod status_code {
     pub const UNKNOWN_ERROR: u8 = 0x80;
 }
 
+/// Result of an action in a previously sent request
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Status {
+    /// Index of the ALP action associated with this status, in the original request as seen from
+    /// the receiver side.
+    // ALP_SPEC This is complicated to process because we have to known/possibly infer the position
+    // of the action on the receiver side, and that we have to do that while also interpreting who
+    // responded (the local modem won't have the same index as the distant device.).
     pub action_id: u8,
+    /// Result code
     pub status: u8,
 }
 impl Codec for Status {
@@ -546,6 +560,8 @@ impl NewNonVoid {
         NonVoid::new(self)
     }
 }
+// ALP_SPEC Does this fail if the content overflows the file?
+/// Checks if the file content exists.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct NonVoid {
     pub size: u32,
@@ -628,6 +644,7 @@ impl NewComparisonWithZero {
         ComparisonWithZero::new(self)
     }
 }
+/// Compare file content, optionally masked, with 0.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ComparisonWithZero {
     pub signed_data: bool,
@@ -754,6 +771,7 @@ impl NewComparisonWithValue {
         ComparisonWithValue::new(self)
     }
 }
+/// Compare some file content optionally masked, with a value
 #[derive(Clone, Debug, PartialEq)]
 pub struct ComparisonWithValue {
     pub signed_data: bool,
@@ -894,6 +912,7 @@ impl NewComparisonWithOtherFile {
         ComparisonWithOtherFile::new(self)
     }
 }
+/// Compare content of 2 files optionally masked
 #[derive(Clone, Debug, PartialEq)]
 pub struct ComparisonWithOtherFile {
     pub signed_data: bool,
@@ -1039,7 +1058,7 @@ impl NewBitmapRangeComparison {
         BitmapRangeComparison::new(self)
     }
 }
-// TODO Check size coherence upon creation (start, stop and bitmap)
+/// Check if the content of a file is (not) contained in the sent bitmap values
 #[derive(Clone, Debug, PartialEq)]
 pub struct BitmapRangeComparison {
     pub signed_data: bool,
@@ -1202,6 +1221,8 @@ impl NewStringTokenSearch {
         StringTokenSearch::new(self)
     }
 }
+/// Compare some file content, optional masked, with an array of bytes and up to a certain number
+/// of errors.
 #[derive(Clone, Debug, PartialEq)]
 pub struct StringTokenSearch {
     pub max_errors: u8,
@@ -1324,6 +1345,7 @@ fn test_string_token_search_operand() {
     )
 }
 
+/// The query operand provides a way to do optional actions. It represents a condition.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Query {
     NonVoid(NonVoid),
@@ -1374,8 +1396,11 @@ impl Codec for Query {
     }
 }
 
+/// Dash7 interface
 #[derive(Clone, Debug, PartialEq)]
 pub struct OverloadedIndirectInterface {
+    /// File containing the `QoS`, `to` and `te` to use for the transmission (see
+    /// dash7::InterfaceConfiguration
     pub interface_file_id: u8,
     pub addressee: dash7::Addressee,
 }
@@ -1421,6 +1446,7 @@ fn test_overloaded_indirect_interface() {
     )
 }
 
+/// Non Dash7 interface
 #[derive(Clone, Debug, PartialEq)]
 // ALP SPEC: This seems undoable if we do not know the interface (per protocol specific support)
 //  which is still a pretty legitimate policy on a low power protocol.
