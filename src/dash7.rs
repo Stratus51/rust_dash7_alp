@@ -592,12 +592,37 @@ fn test_interface_status() {
     )
 }
 
-pub mod d7a_fid {
-    //! File IDs 0x00-0x17 and 0x20-0x2F are reserved.
-    pub const ROOT_KEY: u8 = 0x18;
-    pub const USER_KEY: u8 = 0x19;
-    pub const SENSOR_DESCRIPTION: u8 = 0x1B;
-    pub const RTC: u8 = 0x1C;
+pub mod file {
+    pub mod id {
+        //! File IDs 0x00-0x17 and 0x20-0x2F are reserved by the DASH7 spec.
+        //! File IDs 0x18-0x1F Reserved for D7AALP.
+        //! File IDs 0x20+I with I in [0, 14] are reserved for Access Profiles.
+        pub const UID: u8 = 0x00;
+        pub const FACTORY_SETTINGS: u8 = 0x01;
+        pub const FIRMWARE_VERSIOR: u8 = 0x02;
+        pub const DEVICE_CAPACITY: u8 = 0x03;
+        pub const DEVICE_STATUS: u8 = 0x04;
+        pub const ENGINEERING_MODE: u8 = 0x05;
+        pub const VID: u8 = 0x06;
+        pub const PHY_CONFIGURATION: u8 = 0x08;
+        pub const PHY_STATUS: u8 = 0x09;
+        pub const DLL_CONFIGURATION: u8 = 0x0A;
+        pub const DLL_STATUS: u8 = 0x0B;
+        pub const NWL_ROUTING: u8 = 0x0C;
+        pub const NWL_SECURITY: u8 = 0x0D;
+        pub const NWL_SECURITY_KEY: u8 = 0x0E;
+        pub const NWL_SECURITY_STATE_REGISTER: u8 = 0x0F;
+        pub const NWL_STATUS: u8 = 0x10;
+        pub const TRL_STATUS: u8 = 0x11;
+        pub const SEL_CONFIGURATION: u8 = 0x12;
+        pub const FOF_STATUS: u8 = 0x13;
+        pub const LOCATION_DATA: u8 = 0x17;
+        pub const ROOT_KEY: u8 = 0x18;
+        pub const USER_KEY: u8 = 0x19;
+        pub const SENSOR_DESCRIPTION: u8 = 0x1B;
+        pub const RTC: u8 = 0x1C;
+    }
+    // TODO Write standard file structs
 }
 
 pub mod new {
