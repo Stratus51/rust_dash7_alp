@@ -1214,7 +1214,13 @@ impl ChunkStep {
         }
     }
 }
-/// Provide chunk information
+/// Provide chunk information and therefore allows to send an ALP command by chunks.
+///
+/// Specification:
+/// An ALP Command may be chunked into multiple Chunks. A special Chunk Action is inserted at the beginning of each
+/// ALP Command Chunk to define its chunk state – START, CONTINUE or END (see 6.2.2.1). If the Chunk Action is not
+/// present, the ALP Command is not chunked (implicit START/END). The Group (11.5.3) and Break Query conditions are
+/// extended over all chunks of the ALP Command.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Chunk {
     pub step: ChunkStep,

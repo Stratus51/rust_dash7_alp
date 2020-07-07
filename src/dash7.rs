@@ -47,8 +47,7 @@ impl NlsMethod {
 // ALP SPEC: Where is this defined?
 #[derive(Clone, Debug, PartialEq)]
 pub enum Address {
-    // D7A SPEC: It is not clear that the estimated reached has to be placed on the "ID" field.
-    /// Broadcast to an estimated number of receivers encoded in compressed format on a byte.
+    /// Broadcast to an estimated number of receivers, encoded in compressed format on a byte.
     NbId(u8),
     /// Broadcast to everyone
     NoId,

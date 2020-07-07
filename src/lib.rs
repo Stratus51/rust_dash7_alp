@@ -14,6 +14,25 @@
 //! ==============================================================================
 //! The goal of this library is to implement a specification with an emphasis on correctness, then
 //! on usability. Performance and memory usage are currently considered a secondary objective.
+//!
+//! Notes
+//! ==============================================================================
+//! Group
+//! ------------------------------------------------------------------------------
+//! Many ALP action have a group flag. This allows those to be grouped.
+//!
+//! This means that:
+//! - If any action of this group fails, the next actions are skipped.
+//! - A query before the group will apply to the whole group (to defined
+//! whether it will be executed).
+//! - If the group contains queries, a prior Logical action will determine how they
+//! are composed between them (OR, XOR, NOR, NAND). Without any Logical action, the
+//! queries are AND'ed.
+//!
+//! Codec trait
+//! ------------------------------------------------------------------------------
+//! This trait implements the encode/decode methods. You very probably want to import
+//! it into scope.
 
 #[cfg(test)]
 mod test_tools;
