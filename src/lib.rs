@@ -105,6 +105,8 @@ pub enum Enum {
 /// ALP request that can be sent to an ALP compatible device.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Command {
+    // TODO This Vec makes us ::collection dependent.
+    // Does that impact application that don't use the structure?
     pub actions: Vec<Action>,
 }
 #[derive(Clone, Debug, PartialEq)]

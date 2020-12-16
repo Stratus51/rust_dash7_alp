@@ -96,7 +96,7 @@ pub trait Codec {
     /// May return the item with the bytes consumed, a request for more bytes or a parsing error
     fn decode(out: &[u8]) -> ParseResult<Self>
     where
-        Self: std::marker::Sized;
+        Self: core::marker::Sized;
 
     /// Allocate a byte array of the right size and encode the item in it.
     fn encode_to_box(&self) -> Box<[u8]> {

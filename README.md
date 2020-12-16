@@ -9,7 +9,6 @@
 [doc-badge]: https://docs.rs/dash7_alp/badge.svg
 [doc-url]: https://docs.rs/dash7_alp
 
-
 Implementation of a [Dash7](https://dash7-alliance.org/) ALP protocol codec from its public specification.
 
 The goal of this library is to implement a specification with an emphasis on correctness, then
