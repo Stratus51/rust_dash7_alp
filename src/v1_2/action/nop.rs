@@ -11,6 +11,18 @@ pub struct Nop {
     pub response: bool,
 }
 
+impl Default for Nop {
+    /// Default Nop with group = false and response = true.
+    ///
+    /// Because that would be the most common use case: a ping command.
+    fn default() -> Self {
+        Self {
+            group: false,
+            response: true,
+        }
+    }
+}
+
 impl Nop {
     pub const fn encode_to_array(&self) -> [u8; 1] {
         [OpCode::Nop as u8
