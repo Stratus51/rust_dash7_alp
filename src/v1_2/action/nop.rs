@@ -2,6 +2,9 @@ use super::error::BasicDecodeError;
 use super::flag;
 use super::op_code::OpCode;
 
+/// Maximum byte size of an encoded Nop
+pub const MAX_SIZE: usize = 1;
+
 /// Does nothing.
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct Nop {

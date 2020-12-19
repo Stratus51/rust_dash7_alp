@@ -3,11 +3,17 @@
 // TODO ALP_SPEC: The encoding of the value is not specified!
 // Big endian at bit and byte level probably, but it has to be specified!
 
-/// Maximum value encodable in a Varint
+/// Maximum value writable in a Varint encodable on 1 byte
 pub const U8_MAX: u8 = 0x3F;
+/// Maximum value writable in a Varint encodable on 2 byte
 pub const U16_MAX: u16 = 0x3F_FF;
+/// Maximum value writable in a Varint encodable on 3 byte
 pub const U24_MAX: u32 = 0x3F_FF_FF;
+/// Maximum value writable in a Varint encodable on 4 byte
 pub const U32_MAX: u32 = 0x3F_FF_FF_FF;
+
+/// Maximum byte size of an encoded Varint
+pub const MAX_SIZE: usize = 4;
 
 /// Variable integer
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
@@ -261,7 +267,7 @@ mod test {
     #[test]
     fn test_encode() {
         fn test(n: u32, truth: &[u8]) {
-            let mut encoded = [0u8; 4];
+            let mut encoded = [0u8; MAX_SIZE];
             let size = Varint::new(n).unwrap().encode_in(&mut encoded[..]).unwrap();
             assert_eq!(truth.len(), size);
             assert_eq!(*truth, encoded[..truth.len()]);
