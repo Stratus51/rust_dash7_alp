@@ -43,17 +43,15 @@ pub mod op_code;
 
 /// An ALP Action
 #[derive(Clone, Debug, PartialEq)]
-pub enum Action {
+pub enum Action<'a> {
     // Nop
     Nop(nop::Nop),
     // Read
     ReadFileData(read_file_data::ReadFileData),
     // ReadFileProperties(ReadFileProperties),
 
-    // // Write
-    // WriteFileData(WriteFileData),
-    // // ALP SPEC: This is not specified even though it is implemented
-    // // WriteFileDataFlush(WriteFileDataFlush),
+    // Write
+    WriteFileData(write_file_data::WriteFileData<'a>),
     // WriteFileProperties(WriteFileProperties),
     // ActionQuery(ActionQuery),
     // BreakQuery(BreakQuery),
