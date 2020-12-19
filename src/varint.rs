@@ -152,7 +152,7 @@ impl Varint {
     ///
     /// # Safety
     /// You are to warrant that the value does not exceed [U8_MAX](constant.U8_MAX.html)
-    pub const unsafe fn encode_in_u8(value: u8) -> [u8; 1] {
+    pub const unsafe fn encode_as_u8(value: u8) -> [u8; 1] {
         [value & 0x3F]
     }
 
@@ -160,7 +160,7 @@ impl Varint {
     ///
     /// # Safety
     /// You are to warrant that the value does not exceed [U16_MAX](constant.U16_MAX.html)
-    pub const unsafe fn encode_in_u16(value: u16) -> [u8; 2] {
+    pub const unsafe fn encode_as_u16(value: u16) -> [u8; 2] {
         [((value >> 8) & 0x3F) as u8, (value & 0xFF) as u8]
     }
 
@@ -168,7 +168,7 @@ impl Varint {
     ///
     /// # Safety
     /// You are to warrant that the value does not exceed [U24_MAX](constant.U24_MAX.html)
-    pub const unsafe fn encode_in_u24(value: u32) -> [u8; 3] {
+    pub const unsafe fn encode_as_u24(value: u32) -> [u8; 3] {
         [
             ((value >> 16) & 0x3F) as u8,
             ((value >> 8) & 0xFF) as u8,
@@ -180,7 +180,7 @@ impl Varint {
     ///
     /// # Safety
     /// You are to warrant that the value does not exceed [U32_MAX](constant.U32_MAX.html)
-    pub const unsafe fn encode_in_u32(value: u32) -> [u8; 4] {
+    pub const unsafe fn encode_as_u32(value: u32) -> [u8; 4] {
         [
             ((value >> 24) & 0x3F) as u8,
             ((value >> 8) & 0xFF) as u8,
