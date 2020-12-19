@@ -26,20 +26,20 @@ impl Nop {
     /// to insure `out.len() >= size`. Failing that will result in the
     /// program writing out of bound. In the current implementation, it
     /// will trigger a panic.
-    pub unsafe fn encode_in_unchecked(&self, buf: &mut [u8]) {
+    pub unsafe fn encode_in_unchecked(&self, buf: &mut [u8]) -> usize {
         buf[0] = OpCode::Nop as u8
             + if self.group { flag::GROUP } else { 0 }
-            + if self.response { flag::RESPONSE } else { 0 }
+            + if self.response { flag::RESPONSE } else { 0 };
+        1
     }
 
     /// Encodes the value into pre allocated array.
     ///
     /// May fail if the pre allocated array is smaller than [self.size()](#method.size).
-    pub fn encode_in(&self, out: &mut [u8]) -> Result<(), ()> {
+    pub fn encode_in(&self, out: &mut [u8]) -> Result<usize, ()> {
         let size = self.size();
         if out.len() >= size {
-            unsafe { self.encode_in_unchecked(out) };
-            Ok(())
+            Ok(unsafe { self.encode_in_unchecked(out) })
         } else {
             Err(())
         }

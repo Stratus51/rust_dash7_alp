@@ -70,21 +70,37 @@ impl Varint {
     /// to insure `out.len() >= size`. Failing that will result in the
     /// program writing out of bound. In the current implementation, it
     /// will trigger a panic.
-    pub unsafe fn encode_in_unchecked(&self, out: &mut [u8], size: usize) {
-        for (i, byte) in out.iter_mut().enumerate().take(size as usize) {
-            *byte = ((self.value >> ((size as usize - 1 - i) * 8)) & 0xFF) as u8;
+    pub unsafe fn encode_in_unchecked(&self, out: &mut [u8], size: usize) -> usize {
+        match size {
+            1 => out[0] = (self.value & 0x3F) as u8,
+            2 => {
+                out[0] = ((self.value >> 8) & 0x3F) as u8;
+                out[1] = (self.value & 0xFF) as u8;
+            }
+            3 => {
+                out[0] = ((self.value >> 16) & 0x3F) as u8;
+                out[1] = ((self.value >> 8) & 0xFF) as u8;
+                out[2] = (self.value & 0xFF) as u8;
+            }
+            4 => {
+                out[0] = ((self.value >> 24) & 0x3F) as u8;
+                out[1] = ((self.value >> 16) & 0xFF) as u8;
+                out[2] = ((self.value >> 8) & 0xFF) as u8;
+                out[3] = (self.value & 0xFF) as u8;
+            }
+            _ => (),
         }
         out[0] |= (size as u8 - 1) << 6;
+        size
     }
 
     /// Encodes the value into pre allocated array.
     ///
     /// May fail if the pre allocated array is smaller than [self.size()](#method.size).
-    pub fn encode_in(&self, out: &mut [u8]) -> Result<(), ()> {
+    pub fn encode_in(&self, out: &mut [u8]) -> Result<usize, ()> {
         let size = self.size();
         if out.len() >= size {
-            unsafe { self.encode_in_unchecked(out, size) };
-            Ok(())
+            Ok(unsafe { self.encode_in_unchecked(out, size) })
         } else {
             Err(())
         }
@@ -230,9 +246,10 @@ mod test {
     #[test]
     fn test_encode() {
         fn test(n: u32, truth: &[u8]) {
-            let mut encoded = vec![0u8; truth.len()];
-            Varint::new(n).unwrap().encode_in(&mut encoded[..]).unwrap();
-            assert_eq!(*truth, encoded[..]);
+            let mut encoded = [0u8; 4];
+            let size = Varint::new(n).unwrap().encode_in(&mut encoded[..]).unwrap();
+            assert_eq!(truth.len(), size);
+            assert_eq!(*truth, encoded[..truth.len()]);
         }
         test(0x00, &[0]);
         test(0x3F, &hex!("3F"));
