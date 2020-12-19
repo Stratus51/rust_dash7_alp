@@ -48,7 +48,7 @@ impl Varint {
         self.value
     }
 
-    /// Returns the size in bytes that this entity would result in if encoded.
+    /// Size in bytes of the encoded equivalent of the item.
     pub const fn size(&self) -> usize {
         let n = self.value;
         if n <= 0x3F {
@@ -62,15 +62,7 @@ impl Varint {
         }
     }
 
-    /// Encodes the Item without checking the size of the receiving
-    /// byte array.
-    ///
-    /// # Safety
-    /// You are responsible for checking that `size` == [self.size()](#method.size) and
-    /// to insure `out.len() >= size`. Failing that will result in the
-    /// program writing out of bound. In the current implementation, it
-    /// will trigger a panic.
-    pub unsafe fn encode_in_unchecked(&self, out: &mut [u8], size: usize) -> usize {
+    unsafe fn __encode_in_unchecked(&self, out: &mut [u8], size: usize) {
         match size {
             1 => out[0] = (self.value & 0x3F) as u8,
             2 => {
@@ -91,6 +83,18 @@ impl Varint {
             _ => (),
         }
         out[0] |= (size as u8 - 1) << 6;
+    }
+
+    /// Encodes the Item without checking the size of the receiving
+    /// byte array.
+    ///
+    /// # Safety
+    /// You are responsible for checking that `out.len() >= size`. Failing that
+    /// will result in the program writing out of bound. In the current
+    /// implementation, it will trigger a panic.
+    pub unsafe fn encode_in_unchecked(&self, out: &mut [u8]) -> usize {
+        let size = self.size();
+        self.__encode_in_unchecked(out, size);
         size
     }
 
@@ -100,7 +104,8 @@ impl Varint {
     pub fn encode_in(&self, out: &mut [u8]) -> Result<usize, ()> {
         let size = self.size();
         if out.len() >= size {
-            Ok(unsafe { self.encode_in_unchecked(out, size) })
+            unsafe { self.__encode_in_unchecked(out, size) };
+            Ok(size)
         } else {
             Err(())
         }
@@ -136,12 +141,12 @@ impl Varint {
     /// You are to check that data is not empty and that data.len() >=
     /// [DecodableVarint.size()](struct.DecodableVarint.html#method.size)
     /// (the expected byte size of the returned DecodableItem).
-    pub const fn decode_unchecked(data: &[u8]) -> Self {
+    pub const fn decode_unchecked(data: &[u8]) -> (Self, usize) {
         unsafe { Self::start_decoding_unchecked(data).complete_decoding() }
     }
 
     /// Decodes the item from bytes.
-    pub const fn decode(data: &[u8]) -> Result<Self, ()> {
+    pub const fn decode(data: &[u8]) -> Result<(Self, usize), ()> {
         match Self::start_decoding(data) {
             Ok(v) => Ok(v.complete_decoding()),
             Err(_) => Err(()),
@@ -158,6 +163,9 @@ impl Varint {
 
     /// Encode the value into a two bytes array.
     ///
+    /// Event though overkill, you technically can encode a small integer (such as 0) in
+    /// this fixed sized array.
+    ///
     /// # Safety
     /// You are to warrant that the value does not exceed [U16_MAX](constant.U16_MAX.html)
     pub const unsafe fn encode_as_u16(value: u16) -> [u8; 2] {
@@ -165,6 +173,9 @@ impl Varint {
     }
 
     /// Encode the value into a three bytes array.
+    ///
+    /// Event though overkill, you technically can encode a small integer (such as 0) in
+    /// this fixed sized array.
     ///
     /// # Safety
     /// You are to warrant that the value does not exceed [U24_MAX](constant.U24_MAX.html)
@@ -177,6 +188,9 @@ impl Varint {
     }
 
     /// Encode the value into a four bytes array.
+    ///
+    /// Event though overkill, you technically can encode a small integer (such as 0) in
+    /// this fixed sized array.
     ///
     /// # Safety
     /// You are to warrant that the value does not exceed [U32_MAX](constant.U32_MAX.html)
@@ -201,10 +215,10 @@ impl<'a> DecodableVarint<'a> {
     }
 
     /// Fully decode the Item
-    pub const fn complete_decoding(&self) -> Varint {
+    pub const fn complete_decoding(&self) -> (Varint, usize) {
         let size = self.size();
         let data = &self.data;
-        unsafe {
+        let ret = unsafe {
             Varint::new_unchecked(match size {
                 0 => (data[0] & 0x3F) as u32,
                 1 => (((data[0] & 0x3F) as u32) << 8) + data[1] as u32,
@@ -219,7 +233,8 @@ impl<'a> DecodableVarint<'a> {
                 // case. Let's just hope the size method is not broken.
                 _ => 0,
             })
-        }
+        };
+        (ret, size)
     }
 }
 
@@ -260,18 +275,20 @@ mod test {
 
     #[test]
     fn test_decode() {
-        fn test_ok(data: &[u8], value: u32) {
-            assert_eq!(Varint::decode(data).unwrap(), Varint::new(value).unwrap());
+        fn test_ok(data: &[u8], value: u32, size: usize) {
+            let (ret, decode_size) = Varint::decode(data).unwrap();
+            assert_eq!(decode_size, size);
+            assert_eq!(ret, Varint::new(value).unwrap());
         }
-        test_ok(&[0], 0x00);
-        test_ok(&hex!("3F"), 0x3F);
-        test_ok(&hex!("7F FF"), 0x3F_FF);
-        test_ok(&hex!("BF FF FF"), 0x3F_FF_FF);
-        test_ok(&hex!("FF FF FF FF"), 0x3F_FF_FF_FF);
+        test_ok(&[0], 0x00, 1);
+        test_ok(&hex!("3F"), 0x3F, 1);
+        test_ok(&hex!("7F FF"), 0x3F_FF, 2);
+        test_ok(&hex!("BF FF FF"), 0x3F_FF_FF, 3);
+        test_ok(&hex!("FF FF FF FF"), 0x3F_FF_FF_FF, 4);
 
-        test_ok(&hex!("00"), 0);
-        test_ok(&hex!("40 00"), 0);
-        test_ok(&hex!("80 00 00"), 0);
-        test_ok(&hex!("C0 00 00 00"), 0);
+        test_ok(&hex!("00"), 0, 1);
+        test_ok(&hex!("40 00"), 0, 2);
+        test_ok(&hex!("80 00 00"), 0, 3);
+        test_ok(&hex!("C0 00 00 00"), 0, 4);
     }
 }

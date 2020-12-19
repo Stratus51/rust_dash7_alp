@@ -24,6 +24,7 @@ impl Default for Nop {
 }
 
 impl Nop {
+    /// Encodes the Item into a fixed size array
     pub const fn encode_to_array(&self) -> [u8; 1] {
         [OpCode::Nop as u8
             + if self.group { flag::GROUP } else { 0 }
@@ -57,6 +58,7 @@ impl Nop {
         }
     }
 
+    /// Size in bytes of the encoded equivalent of the item.
     pub const fn size(&self) -> usize {
         1
     }
@@ -98,12 +100,12 @@ impl Nop {
     /// You are to check that data is not empty and that data.len() >=
     /// [DecodableVarint.size()](struct.DecodableVarint.html#method.size)
     /// (the expected byte size of the returned DecodableItem).
-    pub const fn decode_unchecked(data: &[u8]) -> Self {
+    pub const fn decode_unchecked(data: &[u8]) -> (Self, usize) {
         unsafe { Self::start_decoding_unchecked(data).complete_decoding() }
     }
 
     /// Decodes the item from bytes.
-    pub const fn decode(data: &[u8]) -> Result<Self, BasicDecodeError> {
+    pub const fn decode(data: &[u8]) -> Result<(Self, usize), BasicDecodeError> {
         match Self::start_decoding(data) {
             Ok(v) => Ok(v.complete_decoding()),
             Err(e) => Err(e),
@@ -130,11 +132,14 @@ impl<'a> DecodableNop<'a> {
     }
 
     /// Fully decode the Item
-    pub const fn complete_decoding(&self) -> Nop {
-        Nop {
-            group: self.group(),
-            response: self.response(),
-        }
+    pub const fn complete_decoding(&self) -> (Nop, usize) {
+        (
+            Nop {
+                group: self.group(),
+                response: self.response(),
+            },
+            1,
+        )
     }
 }
 
@@ -146,7 +151,9 @@ mod test {
     fn known() {
         fn test(op: Nop, data: &[u8]) {
             assert_eq!(op.encode_to_array(), [0x40]);
-            assert_eq!(Nop::decode(&data).unwrap(), op);
+            let (ret, size) = Nop::decode(&data).unwrap();
+            assert_eq!(size, data.len());
+            assert_eq!(ret, op);
         }
         test(
             Nop {
@@ -185,7 +192,12 @@ mod test {
             response: false,
         };
         let data = op.encode_to_array();
-        assert_eq!(Nop::decode(&op.encode_to_array()).unwrap(), op);
-        assert_eq!(Nop::decode(&data).unwrap().encode_to_array(), data);
+        let (ret, size) = Nop::decode(&op.encode_to_array()).unwrap();
+        assert_eq!(size, data.len());
+        assert_eq!(ret, op);
+
+        let (ret, size) = Nop::decode(&data).unwrap();
+        assert_eq!(size, data.len());
+        assert_eq!(ret.encode_to_array(), data);
     }
 }
