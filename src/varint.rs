@@ -13,7 +13,7 @@ pub const U32_MAX: u32 = 0x3F_FF_FF_FF;
 /// Maximum byte size of an encoded Varint
 pub const MAX_SIZE: usize = 4;
 
-/// Variable integer
+/// Represents a variable integer as described by the Dash7 ALP specification.
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct Varint {
     value: u32,
