@@ -161,11 +161,16 @@ mod test {
     #[test]
     fn known() {
         fn test(op: Nop, data: &[u8]) {
+            // Test op.encode_in() == data
             let mut encoded = [0u8; 1];
             let size = op.encode_in(&mut encoded).unwrap();
             assert_eq!(size, data.len());
             assert_eq!(&encoded, data);
+
+            // Test op.encode_to_array() == data
             assert_eq!(&op.encode_to_array(), data);
+
+            // Test decode(data) == op
             let (ret, size) = Nop::decode(&data).unwrap();
             assert_eq!(size, data.len());
             assert_eq!(ret, op);
@@ -206,11 +211,14 @@ mod test {
             group: true,
             response: false,
         };
+
+        // Test decode(op.encode_to_array()) == op
         let data = op.encode_to_array();
         let (ret, size) = Nop::decode(&op.encode_to_array()).unwrap();
         assert_eq!(size, data.len());
         assert_eq!(ret, op);
 
+        // Test decode(data).encode_to_array() == data
         let (ret, size) = Nop::decode(&data).unwrap();
         assert_eq!(size, data.len());
         assert_eq!(ret.encode_to_array(), data);

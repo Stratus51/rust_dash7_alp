@@ -205,10 +205,13 @@ mod test {
     #[test]
     fn known() {
         fn test(op: ReadFileData, data: &[u8]) {
+            // Test op.encode_in() == data
             let mut encoded = [0u8; 2 + 8];
             let size = op.encode_in(&mut encoded).unwrap();
             assert_eq!(size, data.len());
-            assert_eq!(&encoded, data);
+            assert_eq!(&encoded[..size], data);
+
+            // Test decode(data) == op
             let (ret, size) = ReadFileData::decode(&data).unwrap();
             assert_eq!(size, data.len());
             assert_eq!(ret, op);
@@ -264,15 +267,18 @@ mod test {
             offset: Varint::new(89).unwrap(),
             length: Varint::new(0xFF_FF_FF).unwrap(),
         };
+
+        // Test decode(op.encode_in()) == op
         let mut encoded = [0u8; MAX_SIZE];
         let size_encoded = op.encode_in(&mut encoded).unwrap();
         let (ret, size_decoded) = ReadFileData::decode(&encoded).unwrap();
         assert_eq!(size_encoded, size_decoded);
         assert_eq!(ret, op);
 
+        // Test decode(data).encode_in() == data
         let mut encoded2 = [0u8; MAX_SIZE];
-        let size_decoded2 = op.encode_in(&mut encoded2).unwrap();
-        assert_eq!(size_encoded, size_decoded2);
-        assert_eq!(encoded2, encoded);
+        let size_encoded2 = op.encode_in(&mut encoded2).unwrap();
+        assert_eq!(size_encoded, size_encoded2);
+        assert_eq!(encoded2[..size_encoded2], encoded[..size_encoded]);
     }
 }
