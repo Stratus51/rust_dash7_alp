@@ -36,6 +36,7 @@
 
 #![no_std]
 
+pub mod varint;
 
 // TODO Verify each item's name against the SPEC
 
