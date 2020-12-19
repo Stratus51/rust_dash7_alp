@@ -48,7 +48,7 @@ pub enum Action<'a> {
     Nop(nop::Nop),
     // Read
     ReadFileData(read_file_data::ReadFileData),
-    // ReadFileProperties(ReadFileProperties),
+    ReadFileProperties(read_file_properties::ReadFileProperties),
 
     // Write
     WriteFileData(write_file_data::WriteFileData<'a>),
