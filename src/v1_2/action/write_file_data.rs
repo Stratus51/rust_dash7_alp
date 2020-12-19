@@ -4,9 +4,7 @@ use super::op_code::OpCode;
 use crate::defines::{EncodableData, FileId};
 use crate::varint::Varint;
 
-/// WriteFileData builder
-
-/// Write data to a file
+/// Writes data to a file.
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct WriteFileData<'a> {
     /// Group with next action

@@ -53,6 +53,7 @@ pub enum Action<'a> {
     // Write
     WriteFileData(write_file_data::WriteFileData<'a>),
     // WriteFileProperties(WriteFileProperties),
+    // TODO
     // ActionQuery(ActionQuery),
     // BreakQuery(BreakQuery),
     // PermissionRequest(PermissionRequest),
@@ -70,12 +71,14 @@ pub enum Action<'a> {
     // // Response
     // ReturnFileData(ReturnFileData),
     // ReturnFileProperties(ReturnFileProperties),
+    // TODO
     // Status(Status),
     // ResponseTag(ResponseTag),
 
     // // Special
     // Chunk(Chunk),
     // Logic(Logic),
+    // TODO
     // Forward(Forward),
     // IndirectForward(IndirectForward),
     // RequestTag(RequestTag),

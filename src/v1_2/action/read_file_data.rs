@@ -12,7 +12,7 @@ use crate::varint::{self, Varint};
 /// Maximum byte size of an encoded ReadFileData
 pub const MAX_SIZE: usize = 2 + 2 * varint::MAX_SIZE;
 
-/// Read data from a file
+/// Read data from a file.
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct ReadFileData {
     /// Group with next action
