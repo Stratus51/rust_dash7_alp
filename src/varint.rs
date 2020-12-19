@@ -263,7 +263,7 @@ impl<'a> DecodableVarint<'a> {
                 _ => 0,
             })
         };
-        (ret, size)
+        (ret, size + 1)
     }
 }
 
