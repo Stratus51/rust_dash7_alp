@@ -27,6 +27,10 @@ impl Default for Nop {
 }
 
 impl Nop {
+    pub fn new(group: bool, response: bool) -> Self {
+        Self { group, response }
+    }
+
     /// Encodes the Item into a fixed size array
     pub const fn encode_to_array(&self) -> [u8; 1] {
         [OpCode::Nop as u8
