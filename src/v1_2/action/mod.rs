@@ -24,6 +24,7 @@ pub mod verify_checksum;
 pub mod write_file_data;
 pub mod write_file_properties;
 
+pub mod defines;
 pub mod error;
 pub mod flag;
 pub mod op_code;
@@ -46,8 +47,8 @@ pub mod op_code;
 pub enum Action {
     // Nop
     Nop(nop::Nop),
-    // // Read
-    // ReadFileData(read_file_data::ReadFileData),
+    // Read
+    ReadFileData(read_file_data::ReadFileData),
     // ReadFileProperties(ReadFileProperties),
 
     // // Write
