@@ -292,7 +292,7 @@ mod test {
         };
 
         // Test decode(op.encode_in()) == op
-        const TOT_SIZE: usize = 2 + 1 + 3;
+        const TOT_SIZE: usize = 2 + 2 + 3;
         let mut encoded = [0u8; TOT_SIZE];
         let size_encoded = op.encode_in(&mut encoded).unwrap();
         let (ret, size_decoded) = WriteFileData::decode(&encoded).unwrap();
