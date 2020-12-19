@@ -24,7 +24,6 @@ pub mod verify_checksum;
 pub mod write_file_data;
 pub mod write_file_properties;
 
-pub mod defines;
 pub mod error;
 pub mod flag;
 pub mod op_code;

@@ -36,6 +36,7 @@
 
 #![no_std]
 
+pub mod defines;
 pub mod v1_2;
 pub mod varint;
 
