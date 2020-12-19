@@ -34,7 +34,7 @@
 //! This trait implements the encode/decode methods. You very probably want to import
 //! it into scope.
 
-#![no_std]
+#![cfg_attr(not(test), no_std)]
 
 pub mod defines;
 pub mod v1_2;
