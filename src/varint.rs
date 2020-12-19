@@ -48,7 +48,7 @@ impl Varint {
     ///
     /// The internal value is inaccessible to prevent unchecked modifications
     /// that would result in an invalid value.
-    pub const fn value(&self) -> u32 {
+    pub const fn get(&self) -> u32 {
         self.value
     }
 
