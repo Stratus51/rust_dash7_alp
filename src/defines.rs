@@ -8,11 +8,11 @@ use crate::varint;
 pub struct FileId(pub u8);
 
 impl FileId {
-    pub fn new(n: u8) -> Self {
+    pub const fn new(n: u8) -> Self {
         Self(n)
     }
 
-    pub fn u8(self) -> u8 {
+    pub const fn u8(self) -> u8 {
         let FileId(fid) = self;
         fid
     }
@@ -29,12 +29,12 @@ pub struct EncodableData<'a>(&'a [u8]);
 impl<'a> EncodableData<'a> {
     /// # Safety
     /// You are to warrant that data.len() <= [varint::MAX_SIZE](varint::MAX_SIZE)
-    pub unsafe fn new_unchecked(data: &'a [u8]) -> Self {
+    pub const unsafe fn new_unchecked(data: &'a [u8]) -> Self {
         Self(data)
     }
 
     /// Fails if the length of the data is bigger than [varint::MAX_SIZE](varint::MAX_SIZE).
-    pub fn new(data: &'a [u8]) -> Result<Self, ()> {
+    pub const fn new(data: &'a [u8]) -> Result<Self, ()> {
         if data.len() > varint::MAX_SIZE {
             Err(())
         } else {
@@ -42,7 +42,7 @@ impl<'a> EncodableData<'a> {
         }
     }
 
-    pub fn get(&self) -> &[u8] {
+    pub const fn get(&self) -> &[u8] {
         let Self(data) = self;
         data
     }
