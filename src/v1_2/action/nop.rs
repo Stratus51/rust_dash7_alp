@@ -34,13 +34,6 @@ impl Nop {
             + if self.response { flag::RESPONSE } else { 0 }]
     }
 
-    pub(crate) unsafe fn encode_in_ptr(&self, buf: *mut u8) -> usize {
-        *buf.offset(0) = OpCode::Nop as u8
-            + if self.group { flag::GROUP } else { 0 }
-            + if self.response { flag::RESPONSE } else { 0 };
-        1
-    }
-
     /// Encodes the Item without checking the size of the receiving
     /// byte array.
     ///
@@ -50,7 +43,10 @@ impl Nop {
     /// program writing out of bound. In the current implementation, it
     /// will trigger a panic.
     pub unsafe fn encode_in_unchecked(&self, buf: &mut [u8]) -> usize {
-        self.encode_in_ptr(buf.as_mut_ptr())
+        *buf.get_unchecked_mut(0) = OpCode::Nop as u8
+            + if self.group { flag::GROUP } else { 0 }
+            + if self.response { flag::RESPONSE } else { 0 };
+        1
     }
 
     /// Encodes the value into pre allocated array.
@@ -59,7 +55,7 @@ impl Nop {
     pub fn encode_in(&self, out: &mut [u8]) -> Result<usize, ()> {
         let size = self.size();
         if out.len() >= size {
-            Ok(unsafe { self.encode_in_ptr(out.as_mut_ptr()) })
+            Ok(unsafe { self.encode_in_unchecked(out) })
         } else {
             Err(())
         }
@@ -68,19 +64,6 @@ impl Nop {
     /// Size in bytes of the encoded equivalent of the item.
     pub const fn size(&self) -> usize {
         1
-    }
-
-    /// Creates a decodable item from a data pointer.
-    ///
-    /// # Safety
-    /// You are to check that data is not empty and that data.len() >=
-    /// [DecodableNop.size()](struct.DecodableNop.html#method.size)
-    /// (the expected byte size of the returned DecodableItem).
-    ///
-    /// You are also expected to warrant that the opcode contained in the
-    /// first byte corresponds to this action.
-    pub const unsafe fn start_decoding_ptr<'a>(data: *const u8) -> DecodableNop<'a> {
-        DecodableNop::from_ptr(data)
     }
 
     /// Creates a decodable item without checking the data size.
@@ -110,16 +93,6 @@ impl Nop {
         Ok(ret)
     }
 
-    /// Decodes the Item from a data pointer.
-    ///
-    /// # Safety
-    /// You are to check that data is not empty and that data.len() >=
-    /// [DecodableNop.size()](struct.DecodableNop.html#method.size)
-    /// (the expected byte size of the returned DecodableItem).
-    pub unsafe fn decode_ptr(data: *const u8) -> (Self, usize) {
-        Self::start_decoding_ptr(data).complete_decoding()
-    }
-
     /// Decodes the Item from bytes.
     ///
     /// # Safety
@@ -140,23 +113,12 @@ impl Nop {
 }
 
 pub struct DecodableNop<'a> {
-    data: *const u8,
-    phantom: core::marker::PhantomData<&'a ()>,
+    data: &'a [u8],
 }
 
 impl<'a> DecodableNop<'a> {
     const fn new(data: &'a [u8]) -> Self {
-        Self {
-            data: data.as_ptr(),
-            phantom: core::marker::PhantomData,
-        }
-    }
-
-    const fn from_ptr(data: *const u8) -> Self {
-        Self {
-            data,
-            phantom: core::marker::PhantomData,
-        }
+        Self { data }
     }
 
     /// Decodes the size of the Item in bytes
@@ -165,11 +127,11 @@ impl<'a> DecodableNop<'a> {
     }
 
     pub fn group(&self) -> bool {
-        unsafe { *self.data.offset(0) & flag::GROUP != 0 }
+        unsafe { *self.data.get_unchecked(0) & flag::GROUP != 0 }
     }
 
     pub fn response(&self) -> bool {
-        unsafe { *self.data.offset(0) & flag::RESPONSE != 0 }
+        unsafe { *self.data.get_unchecked(0) & flag::RESPONSE != 0 }
     }
 
     /// Fully decode the Item

@@ -68,27 +68,27 @@ impl Varint {
         }
     }
 
-    pub(crate) unsafe fn encode_in_ptr(&self, out: *mut u8, size: usize) {
+    pub(crate) unsafe fn __encode_in_unchecked(&self, out: &mut [u8], size: usize) {
         match size {
-            1 => *out.offset(0) = (self.value & 0x3F) as u8,
+            1 => *out.get_unchecked_mut(0) = (self.value & 0x3F) as u8,
             2 => {
-                *out.offset(0) = ((self.value >> 8) & 0x3F) as u8;
-                *out.offset(1) = (self.value & 0xFF) as u8;
+                *out.get_unchecked_mut(0) = ((self.value >> 8) & 0x3F) as u8;
+                *out.get_unchecked_mut(1) = (self.value & 0xFF) as u8;
             }
             3 => {
-                *out.offset(0) = ((self.value >> 16) & 0x3F) as u8;
-                *out.offset(1) = ((self.value >> 8) & 0xFF) as u8;
-                *out.offset(2) = (self.value & 0xFF) as u8;
+                *out.get_unchecked_mut(0) = ((self.value >> 16) & 0x3F) as u8;
+                *out.get_unchecked_mut(1) = ((self.value >> 8) & 0xFF) as u8;
+                *out.get_unchecked_mut(2) = (self.value & 0xFF) as u8;
             }
             4 => {
-                *out.offset(0) = ((self.value >> 24) & 0x3F) as u8;
-                *out.offset(1) = ((self.value >> 16) & 0xFF) as u8;
-                *out.offset(2) = ((self.value >> 8) & 0xFF) as u8;
-                *out.offset(3) = (self.value & 0xFF) as u8;
+                *out.get_unchecked_mut(0) = ((self.value >> 24) & 0x3F) as u8;
+                *out.get_unchecked_mut(1) = ((self.value >> 16) & 0xFF) as u8;
+                *out.get_unchecked_mut(2) = ((self.value >> 8) & 0xFF) as u8;
+                *out.get_unchecked_mut(3) = (self.value & 0xFF) as u8;
             }
             _ => (),
         }
-        *out.offset(0) |= (size as u8 - 1) << 6;
+        *out.get_unchecked_mut(0) |= (size as u8 - 1) << 6;
     }
 
     /// Encodes the Item without checking the size of the receiving
@@ -100,7 +100,7 @@ impl Varint {
     /// implementation, it will trigger a panic.
     pub unsafe fn encode_in_unchecked(&self, out: &mut [u8]) -> usize {
         let size = self.size();
-        self.encode_in_ptr(out.as_mut_ptr(), size);
+        self.__encode_in_unchecked(out, size);
         size
     }
 
@@ -110,24 +110,11 @@ impl Varint {
     pub fn encode_in(&self, out: &mut [u8]) -> Result<usize, ()> {
         let size = self.size();
         if out.len() >= size {
-            unsafe { self.encode_in_ptr(out.as_mut_ptr(), size) };
+            unsafe { self.__encode_in_unchecked(out, size) };
             Ok(size)
         } else {
             Err(())
         }
-    }
-
-    /// Creates a decodable item from a data pointer.
-    ///
-    /// The life indicates the lifetime of the data. You should fill it with some
-    /// object that lives as long as your data (or less).
-    ///
-    /// # Safety
-    /// You are to check that data is not empty and that data.len() >=
-    /// [DecodableVarint.size()](struct.DecodableVarint.html#method.size)
-    /// (the expected byte size of the returned DecodableItem).
-    pub const unsafe fn start_decoding_ptr<'a>(data: *const u8) -> DecodableVarint<'a> {
-        DecodableVarint::from_ptr(data)
     }
 
     /// Creates a decodable item without checking the data size.
@@ -152,19 +139,6 @@ impl Varint {
             return Err(());
         }
         Ok(ret)
-    }
-
-    /// Decodes the Item from a data pointer.
-    ///
-    /// The life indicates the lifetime of the data. You should fill it with some
-    /// object that lives as long as your data (or less).
-    ///
-    /// # Safety
-    /// You are to check that data is not empty and that data.len() >=
-    /// [DecodableVarint.size()](struct.DecodableVarint.html#method.size)
-    /// (the expected byte size of the returned DecodableItem).
-    pub unsafe fn decode_ptr(data: *const u8) -> (Self, usize) {
-        Self::start_decoding_ptr(data).complete_decoding()
     }
 
     /// Decodes the Item from bytes.
@@ -237,28 +211,17 @@ impl Varint {
 }
 
 pub struct DecodableVarint<'a> {
-    data: *const u8,
-    phantom: core::marker::PhantomData<&'a ()>,
+    data: &'a [u8],
 }
 
 impl<'a> DecodableVarint<'a> {
     const fn new(data: &'a [u8]) -> Self {
-        Self {
-            data: data.as_ptr(),
-            phantom: core::marker::PhantomData,
-        }
-    }
-
-    const fn from_ptr(data: *const u8) -> Self {
-        Self {
-            data,
-            phantom: core::marker::PhantomData,
-        }
+        Self { data }
     }
 
     /// Decodes the size of the Item in bytes
     pub fn size(&self) -> usize {
-        unsafe { ((*self.data.offset(0) & 0xC0) >> 6) as usize }
+        unsafe { ((*self.data.get_unchecked(0) & 0xC0) >> 6) as usize }
     }
 
     /// Fully decode the Item
@@ -267,18 +230,20 @@ impl<'a> DecodableVarint<'a> {
         let data = &self.data;
         let ret = unsafe {
             Varint::new_unchecked(match size {
-                0 => (*data.offset(0) & 0x3F) as u32,
-                1 => (((*data.offset(0) & 0x3F) as u32) << 8) + *data.offset(1) as u32,
+                0 => (*data.get_unchecked(0) & 0x3F) as u32,
+                1 => {
+                    (((*data.get_unchecked(0) & 0x3F) as u32) << 8) + *data.get_unchecked(1) as u32
+                }
                 2 => {
-                    (((*data.offset(0) & 0x3F) as u32) << 16)
-                        + ((*data.offset(1) as u32) << 8)
-                        + *data.offset(2) as u32
+                    (((*data.get_unchecked(0) & 0x3F) as u32) << 16)
+                        + ((*data.get_unchecked(1) as u32) << 8)
+                        + *data.get_unchecked(2) as u32
                 }
                 3 => {
-                    (((*data.offset(0) & 0x3F) as u32) << 24)
-                        + ((*data.offset(1) as u32) << 16)
-                        + ((*data.offset(2) as u32) << 8)
-                        + *data.offset(3) as u32
+                    (((*data.get_unchecked(0) & 0x3F) as u32) << 24)
+                        + ((*data.get_unchecked(1) as u32) << 16)
+                        + ((*data.get_unchecked(2) as u32) << 8)
+                        + *data.get_unchecked(3) as u32
                 }
                 // This is bad and incorrect. But size should mathematically never evaluate to this
                 // case. Let's just hope the size method is not broken.
