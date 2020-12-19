@@ -224,7 +224,7 @@ mod test {
                 offset: Varint::new(0).unwrap(),
                 length: Varint::new(0x3F_FF_FF_FF).unwrap(),
             },
-            &[0x40, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF],
+            &[0x41, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF],
         );
         test(
             ReadFileData {
@@ -234,7 +234,7 @@ mod test {
                 offset: Varint::new(0x3F_FF).unwrap(),
                 length: Varint::new(0x3F_FF_FF).unwrap(),
             },
-            &[0x80, 0x01, 0x7F, 0xFF, 0xBF, 0xFF, 0xFF],
+            &[0x81, 0x01, 0x7F, 0xFF, 0xBF, 0xFF, 0xFF],
         );
         test(
             ReadFileData {
@@ -244,7 +244,7 @@ mod test {
                 offset: Varint::new(0).unwrap(),
                 length: Varint::new(0).unwrap(),
             },
-            &[0xC0, 0x80, 0x00, 0x00],
+            &[0xC1, 0x80, 0x00, 0x00],
         );
         test(
             ReadFileData {
@@ -254,7 +254,7 @@ mod test {
                 offset: Varint::new(0x3F_FF_FF_FF).unwrap(),
                 length: Varint::new(0x3F_FF_FF_FF).unwrap(),
             },
-            &[0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF],
+            &[0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF],
         );
     }
 
