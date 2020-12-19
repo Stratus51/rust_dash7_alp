@@ -68,7 +68,7 @@ impl Varint {
         }
     }
 
-    unsafe fn __encode_in_unchecked(&self, out: *mut u8, size: usize) {
+    pub(crate) unsafe fn encode_in_ptr(&self, out: *mut u8, size: usize) {
         match size {
             1 => *out.offset(0) = (self.value & 0x3F) as u8,
             2 => {
@@ -100,7 +100,7 @@ impl Varint {
     /// implementation, it will trigger a panic.
     pub unsafe fn encode_in_unchecked(&self, out: &mut [u8]) -> usize {
         let size = self.size();
-        self.__encode_in_unchecked(out.as_mut_ptr(), size);
+        self.encode_in_ptr(out.as_mut_ptr(), size);
         size
     }
 
@@ -110,11 +110,24 @@ impl Varint {
     pub fn encode_in(&self, out: &mut [u8]) -> Result<usize, ()> {
         let size = self.size();
         if out.len() >= size {
-            unsafe { self.__encode_in_unchecked(out.as_mut_ptr(), size) };
+            unsafe { self.encode_in_ptr(out.as_mut_ptr(), size) };
             Ok(size)
         } else {
             Err(())
         }
+    }
+
+    /// Creates a decodable item from a data pointer.
+    ///
+    /// The life indicates the lifetime of the data. You should fill it with some
+    /// object that lives as long as your data (or less).
+    ///
+    /// # Safety
+    /// You are to check that data is not empty and that data.len() >=
+    /// [DecodableVarint.size()](struct.DecodableVarint.html#method.size)
+    /// (the expected byte size of the returned DecodableItem).
+    pub const unsafe fn start_decoding_ptr<'a>(data: *const u8) -> DecodableVarint<'a> {
+        DecodableVarint::from_ptr(data)
     }
 
     /// Creates a decodable item without checking the data size.
@@ -130,7 +143,7 @@ impl Varint {
     /// Creates a decodable item.
     ///
     /// This decodable item allows each parts of the item independently.
-    pub const fn start_decoding(data: &[u8]) -> Result<DecodableVarint, ()> {
+    pub fn start_decoding(data: &[u8]) -> Result<DecodableVarint, ()> {
         if data.is_empty() {
             return Err(());
         }
@@ -141,18 +154,31 @@ impl Varint {
         Ok(ret)
     }
 
+    /// Decodes the Item from a data pointer.
+    ///
+    /// The life indicates the lifetime of the data. You should fill it with some
+    /// object that lives as long as your data (or less).
+    ///
+    /// # Safety
+    /// You are to check that data is not empty and that data.len() >=
+    /// [DecodableVarint.size()](struct.DecodableVarint.html#method.size)
+    /// (the expected byte size of the returned DecodableItem).
+    pub unsafe fn decode_ptr(data: *const u8) -> (Self, usize) {
+        Self::start_decoding_ptr(data).complete_decoding()
+    }
+
     /// Decodes the Item from bytes.
     ///
     /// # Safety
     /// You are to check that data is not empty and that data.len() >=
     /// [DecodableVarint.size()](struct.DecodableVarint.html#method.size)
     /// (the expected byte size of the returned DecodableItem).
-    pub const fn decode_unchecked(data: &[u8]) -> (Self, usize) {
-        unsafe { Self::start_decoding_unchecked(data).complete_decoding() }
+    pub unsafe fn decode_unchecked(data: &[u8]) -> (Self, usize) {
+        Self::start_decoding_unchecked(data).complete_decoding()
     }
 
     /// Decodes the item from bytes.
-    pub const fn decode(data: &[u8]) -> Result<(Self, usize), ()> {
+    pub fn decode(data: &[u8]) -> Result<(Self, usize), ()> {
         match Self::start_decoding(data) {
             Ok(v) => Ok(v.complete_decoding()),
             Err(_) => Err(()),
@@ -211,25 +237,32 @@ impl Varint {
 }
 
 pub struct DecodableVarint<'a> {
-    pub data_slice: &'a [u8],
-    pub data: *const u8,
+    data: *const u8,
+    phantom: core::marker::PhantomData<&'a ()>,
 }
 
 impl<'a> DecodableVarint<'a> {
-    fn new(data: &'a [u8]) -> Self {
+    const fn new(data: &'a [u8]) -> Self {
         Self {
-            data_slice: data,
             data: data.as_ptr(),
+            phantom: core::marker::PhantomData,
+        }
+    }
+
+    const fn from_ptr(data: *const u8) -> Self {
+        Self {
+            data,
+            phantom: core::marker::PhantomData,
         }
     }
 
     /// Decodes the size of the Item in bytes
-    pub const fn size(&self) -> usize {
-        ((*self.data.offset(0) & 0xC0) >> 6) as usize
+    pub fn size(&self) -> usize {
+        unsafe { ((*self.data.offset(0) & 0xC0) >> 6) as usize }
     }
 
     /// Fully decode the Item
-    pub const fn complete_decoding(&self) -> (Varint, usize) {
+    pub fn complete_decoding(&self) -> (Varint, usize) {
         let size = self.size();
         let data = &self.data;
         let ret = unsafe {

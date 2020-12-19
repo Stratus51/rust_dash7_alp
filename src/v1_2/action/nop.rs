@@ -34,7 +34,7 @@ impl Nop {
             + if self.response { flag::RESPONSE } else { 0 }]
     }
 
-    unsafe fn __encode_in_unchecked(&self, buf: *mut u8) -> usize {
+    pub(crate) unsafe fn encode_in_ptr(&self, buf: *mut u8) -> usize {
         *buf.offset(0) = OpCode::Nop as u8
             + if self.group { flag::GROUP } else { 0 }
             + if self.response { flag::RESPONSE } else { 0 };
@@ -50,7 +50,7 @@ impl Nop {
     /// program writing out of bound. In the current implementation, it
     /// will trigger a panic.
     pub unsafe fn encode_in_unchecked(&self, buf: &mut [u8]) -> usize {
-        self.__encode_in_unchecked(buf.as_mut_ptr())
+        self.encode_in_ptr(buf.as_mut_ptr())
     }
 
     /// Encodes the value into pre allocated array.
@@ -59,7 +59,7 @@ impl Nop {
     pub fn encode_in(&self, out: &mut [u8]) -> Result<usize, ()> {
         let size = self.size();
         if out.len() >= size {
-            Ok(unsafe { self.__encode_in_unchecked(out.as_mut_ptr()) })
+            Ok(unsafe { self.encode_in_ptr(out.as_mut_ptr()) })
         } else {
             Err(())
         }
@@ -70,11 +70,24 @@ impl Nop {
         1
     }
 
+    /// Creates a decodable item from a data pointer.
+    ///
+    /// # Safety
+    /// You are to check that data is not empty and that data.len() >=
+    /// [DecodableNop.size()](struct.DecodableNop.html#method.size)
+    /// (the expected byte size of the returned DecodableItem).
+    ///
+    /// You are also expected to warrant that the opcode contained in the
+    /// first byte corresponds to this action.
+    pub const unsafe fn start_decoding_ptr<'a>(data: *const u8) -> DecodableNop<'a> {
+        DecodableNop::from_ptr(data)
+    }
+
     /// Creates a decodable item without checking the data size.
     ///
     /// # Safety
     /// You are to check that data is not empty and that data.len() >=
-    /// [DecodableVarint.size()](struct.DecodableNop.html#method.size)
+    /// [DecodableNop.size()](struct.DecodableNop.html#method.size)
     /// (the expected byte size of the returned DecodableItem).
     ///
     /// You are also expected to warrant that the opcode contained in the
@@ -97,18 +110,28 @@ impl Nop {
         Ok(ret)
     }
 
+    /// Decodes the Item from a data pointer.
+    ///
+    /// # Safety
+    /// You are to check that data is not empty and that data.len() >=
+    /// [DecodableNop.size()](struct.DecodableNop.html#method.size)
+    /// (the expected byte size of the returned DecodableItem).
+    pub unsafe fn decode_ptr(data: *const u8) -> (Self, usize) {
+        Self::start_decoding_ptr(data).complete_decoding()
+    }
+
     /// Decodes the Item from bytes.
     ///
     /// # Safety
     /// You are to check that data is not empty and that data.len() >=
-    /// [DecodableVarint.size()](struct.DecodableVarint.html#method.size)
+    /// [DecodableNop.size()](struct.DecodableNop.html#method.size)
     /// (the expected byte size of the returned DecodableItem).
-    pub const fn decode_unchecked(data: &[u8]) -> (Self, usize) {
-        unsafe { Self::start_decoding_unchecked(data).complete_decoding() }
+    pub unsafe fn decode_unchecked(data: &[u8]) -> (Self, usize) {
+        Self::start_decoding_unchecked(data).complete_decoding()
     }
 
     /// Decodes the item from bytes.
-    pub const fn decode(data: &[u8]) -> Result<(Self, usize), BasicDecodeError> {
+    pub fn decode(data: &[u8]) -> Result<(Self, usize), BasicDecodeError> {
         match Self::start_decoding(data) {
             Ok(v) => Ok(v.complete_decoding()),
             Err(e) => Err(e),
@@ -117,15 +140,22 @@ impl Nop {
 }
 
 pub struct DecodableNop<'a> {
-    pub data_slice: &'a [u8],
-    pub data: *const u8,
+    data: *const u8,
+    phantom: core::marker::PhantomData<&'a ()>,
 }
 
 impl<'a> DecodableNop<'a> {
-    fn new(data: &'a [u8]) -> Self {
+    const fn new(data: &'a [u8]) -> Self {
         Self {
-            data_slice: data,
             data: data.as_ptr(),
+            phantom: core::marker::PhantomData,
+        }
+    }
+
+    const fn from_ptr(data: *const u8) -> Self {
+        Self {
+            data,
+            phantom: core::marker::PhantomData,
         }
     }
 
@@ -134,16 +164,16 @@ impl<'a> DecodableNop<'a> {
         1
     }
 
-    pub const fn group(&self) -> bool {
-        *self.data.offset(0) & flag::GROUP != 0
+    pub fn group(&self) -> bool {
+        unsafe { *self.data.offset(0) & flag::GROUP != 0 }
     }
 
-    pub const fn response(&self) -> bool {
-        *self.data.offset(0) & flag::RESPONSE != 0
+    pub fn response(&self) -> bool {
+        unsafe { *self.data.offset(0) & flag::RESPONSE != 0 }
     }
 
     /// Fully decode the Item
-    pub const fn complete_decoding(&self) -> (Nop, usize) {
+    pub fn complete_decoding(&self) -> (Nop, usize) {
         (
             Nop {
                 group: self.group(),
