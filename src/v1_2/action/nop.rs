@@ -161,7 +161,11 @@ mod test {
     #[test]
     fn known() {
         fn test(op: Nop, data: &[u8]) {
-            assert_eq!(op.encode_to_array(), [0x40]);
+            let mut encoded = [0u8; 1];
+            let size = op.encode_in(&mut encoded).unwrap();
+            assert_eq!(size, data.len());
+            assert_eq!(&encoded, data);
+            assert_eq!(&op.encode_to_array(), data);
             let (ret, size) = Nop::decode(&data).unwrap();
             assert_eq!(size, data.len());
             assert_eq!(ret, op);
