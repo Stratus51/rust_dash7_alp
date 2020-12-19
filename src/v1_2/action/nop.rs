@@ -34,6 +34,13 @@ impl Nop {
             + if self.response { flag::RESPONSE } else { 0 }]
     }
 
+    unsafe fn __encode_in_unchecked(&self, buf: *mut u8) -> usize {
+        *buf.offset(0) = OpCode::Nop as u8
+            + if self.group { flag::GROUP } else { 0 }
+            + if self.response { flag::RESPONSE } else { 0 };
+        1
+    }
+
     /// Encodes the Item without checking the size of the receiving
     /// byte array.
     ///
@@ -43,10 +50,7 @@ impl Nop {
     /// program writing out of bound. In the current implementation, it
     /// will trigger a panic.
     pub unsafe fn encode_in_unchecked(&self, buf: &mut [u8]) -> usize {
-        buf[0] = OpCode::Nop as u8
-            + if self.group { flag::GROUP } else { 0 }
-            + if self.response { flag::RESPONSE } else { 0 };
-        1
+        self.__encode_in_unchecked(buf.as_mut_ptr())
     }
 
     /// Encodes the value into pre allocated array.
@@ -55,7 +59,7 @@ impl Nop {
     pub fn encode_in(&self, out: &mut [u8]) -> Result<usize, ()> {
         let size = self.size();
         if out.len() >= size {
-            Ok(unsafe { self.encode_in_unchecked(out) })
+            Ok(unsafe { self.__encode_in_unchecked(out.as_mut_ptr()) })
         } else {
             Err(())
         }
@@ -76,7 +80,7 @@ impl Nop {
     /// You are also expected to warrant that the opcode contained in the
     /// first byte corresponds to this action.
     pub const unsafe fn start_decoding_unchecked(data: &[u8]) -> DecodableNop {
-        DecodableNop { data }
+        DecodableNop::new(data)
     }
 
     /// Creates a decodable item.
@@ -90,10 +94,6 @@ impl Nop {
             return Err(BasicDecodeError::BadOpCode);
         }
         let ret = unsafe { Self::start_decoding_unchecked(data) };
-        // TODO XXX
-        if data.len() < ret.size() {
-            return Err(BasicDecodeError::MissingBytes);
-        }
         Ok(ret)
     }
 
@@ -117,21 +117,29 @@ impl Nop {
 }
 
 pub struct DecodableNop<'a> {
-    data: &'a [u8],
+    pub data_slice: &'a [u8],
+    pub data: *const u8,
 }
 
 impl<'a> DecodableNop<'a> {
+    fn new(data: &'a [u8]) -> Self {
+        Self {
+            data_slice: data,
+            data: data.as_ptr(),
+        }
+    }
+
     /// Decodes the size of the Item in bytes
     pub const fn size(&self) -> usize {
         1
     }
 
     pub const fn group(&self) -> bool {
-        self.data[0] & flag::GROUP != 0
+        *self.data.offset(0) & flag::GROUP != 0
     }
 
     pub const fn response(&self) -> bool {
-        self.data[0] & flag::RESPONSE != 0
+        *self.data.offset(0) & flag::RESPONSE != 0
     }
 
     /// Fully decode the Item

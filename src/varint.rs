@@ -68,27 +68,27 @@ impl Varint {
         }
     }
 
-    unsafe fn __encode_in_unchecked(&self, out: &mut [u8], size: usize) {
+    unsafe fn __encode_in_unchecked(&self, out: *mut u8, size: usize) {
         match size {
-            1 => out[0] = (self.value & 0x3F) as u8,
+            1 => *out.offset(0) = (self.value & 0x3F) as u8,
             2 => {
-                out[0] = ((self.value >> 8) & 0x3F) as u8;
-                out[1] = (self.value & 0xFF) as u8;
+                *out.offset(0) = ((self.value >> 8) & 0x3F) as u8;
+                *out.offset(1) = (self.value & 0xFF) as u8;
             }
             3 => {
-                out[0] = ((self.value >> 16) & 0x3F) as u8;
-                out[1] = ((self.value >> 8) & 0xFF) as u8;
-                out[2] = (self.value & 0xFF) as u8;
+                *out.offset(0) = ((self.value >> 16) & 0x3F) as u8;
+                *out.offset(1) = ((self.value >> 8) & 0xFF) as u8;
+                *out.offset(2) = (self.value & 0xFF) as u8;
             }
             4 => {
-                out[0] = ((self.value >> 24) & 0x3F) as u8;
-                out[1] = ((self.value >> 16) & 0xFF) as u8;
-                out[2] = ((self.value >> 8) & 0xFF) as u8;
-                out[3] = (self.value & 0xFF) as u8;
+                *out.offset(0) = ((self.value >> 24) & 0x3F) as u8;
+                *out.offset(1) = ((self.value >> 16) & 0xFF) as u8;
+                *out.offset(2) = ((self.value >> 8) & 0xFF) as u8;
+                *out.offset(3) = (self.value & 0xFF) as u8;
             }
             _ => (),
         }
-        out[0] |= (size as u8 - 1) << 6;
+        *out.offset(0) |= (size as u8 - 1) << 6;
     }
 
     /// Encodes the Item without checking the size of the receiving
@@ -100,7 +100,7 @@ impl Varint {
     /// implementation, it will trigger a panic.
     pub unsafe fn encode_in_unchecked(&self, out: &mut [u8]) -> usize {
         let size = self.size();
-        self.__encode_in_unchecked(out, size);
+        self.__encode_in_unchecked(out.as_mut_ptr(), size);
         size
     }
 
@@ -110,7 +110,7 @@ impl Varint {
     pub fn encode_in(&self, out: &mut [u8]) -> Result<usize, ()> {
         let size = self.size();
         if out.len() >= size {
-            unsafe { self.__encode_in_unchecked(out, size) };
+            unsafe { self.__encode_in_unchecked(out.as_mut_ptr(), size) };
             Ok(size)
         } else {
             Err(())
@@ -124,7 +124,7 @@ impl Varint {
     /// [DecodableVarint.size()](struct.DecodableVarint.html#method.size)
     /// (the expected byte size of the returned DecodableItem).
     pub const unsafe fn start_decoding_unchecked(data: &[u8]) -> DecodableVarint {
-        DecodableVarint { data }
+        DecodableVarint::new(data)
     }
 
     /// Creates a decodable item.
@@ -211,13 +211,21 @@ impl Varint {
 }
 
 pub struct DecodableVarint<'a> {
-    pub data: &'a [u8],
+    pub data_slice: &'a [u8],
+    pub data: *const u8,
 }
 
 impl<'a> DecodableVarint<'a> {
+    fn new(data: &'a [u8]) -> Self {
+        Self {
+            data_slice: data,
+            data: data.as_ptr(),
+        }
+    }
+
     /// Decodes the size of the Item in bytes
     pub const fn size(&self) -> usize {
-        ((self.data[0] & 0xC0) >> 6) as usize
+        ((*self.data.offset(0) & 0xC0) >> 6) as usize
     }
 
     /// Fully decode the Item
@@ -226,14 +234,18 @@ impl<'a> DecodableVarint<'a> {
         let data = &self.data;
         let ret = unsafe {
             Varint::new_unchecked(match size {
-                0 => (data[0] & 0x3F) as u32,
-                1 => (((data[0] & 0x3F) as u32) << 8) + data[1] as u32,
-                2 => (((data[0] & 0x3F) as u32) << 16) + ((data[1] as u32) << 8) + data[2] as u32,
+                0 => (*data.offset(0) & 0x3F) as u32,
+                1 => (((*data.offset(0) & 0x3F) as u32) << 8) + *data.offset(1) as u32,
+                2 => {
+                    (((*data.offset(0) & 0x3F) as u32) << 16)
+                        + ((*data.offset(1) as u32) << 8)
+                        + *data.offset(2) as u32
+                }
                 3 => {
-                    (((data[0] & 0x3F) as u32) << 24)
-                        + ((data[1] as u32) << 16)
-                        + ((data[2] as u32) << 8)
-                        + data[3] as u32
+                    (((*data.offset(0) & 0x3F) as u32) << 24)
+                        + ((*data.offset(1) as u32) << 16)
+                        + ((*data.offset(2) as u32) << 8)
+                        + *data.offset(3) as u32
                 }
                 // This is bad and incorrect. But size should mathematically never evaluate to this
                 // case. Let's just hope the size method is not broken.
