@@ -102,7 +102,7 @@ impl ReadFileData {
     /// Creates a decodable item.
     ///
     /// This decodable item allows each parts of the item independently.
-    pub const fn start_decoding(data: &[u8]) -> Result<DecodableReadFileData, BasicDecodeError> {
+    pub fn start_decoding(data: &[u8]) -> Result<DecodableReadFileData, BasicDecodeError> {
         if data.is_empty() {
             return Err(BasicDecodeError::MissingBytes(1));
         }
@@ -151,8 +151,11 @@ impl<'a> DecodableReadFileData<'a> {
     }
 
     /// Decodes the size of the Item in bytes
-    pub const fn size(&self) -> usize {
-        1
+    pub fn size(&self) -> usize {
+        let (_, offset_size) = self.offset();
+        let (_, length_size) =
+            unsafe { Varint::decode_unchecked(self.data.get_unchecked(2 + offset_size..)) };
+        2 + offset_size + length_size
     }
 
     pub fn group(&self) -> bool {
