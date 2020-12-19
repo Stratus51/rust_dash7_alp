@@ -126,32 +126,54 @@ impl<'a> DecodableNop<'a> {
     }
 }
 
-#[test]
-fn known() {
-    assert_eq!(
-        Nop {
-            group: false,
-            response: true
-        }
-        .encode_to_array(),
-        [0x40]
-    );
-    assert_eq!(
-        Nop::decode(&[0x40]).unwrap(),
-        Nop {
-            group: false,
-            response: true
-        }
-    );
-}
+#[cfg(test)]
+mod test {
+    use super::*;
 
-#[test]
-fn consistence() {
-    let op = Nop {
-        group: true,
-        response: false,
-    };
-    let data = op.encode_to_array();
-    assert_eq!(Nop::decode(&op.encode_to_array()).unwrap(), op);
-    assert_eq!(Nop::decode(&data).unwrap().encode_to_array(), data);
+    #[test]
+    fn known() {
+        fn test(op: Nop, data: &[u8]) {
+            assert_eq!(op.encode_to_array(), [0x40]);
+            assert_eq!(Nop::decode(&data).unwrap(), op);
+        }
+        test(
+            Nop {
+                group: false,
+                response: true,
+            },
+            &[0x40],
+        );
+        test(
+            Nop {
+                group: true,
+                response: false,
+            },
+            &[0x80],
+        );
+        test(
+            Nop {
+                group: true,
+                response: true,
+            },
+            &[0xC0],
+        );
+        test(
+            Nop {
+                group: false,
+                response: false,
+            },
+            &[0x00],
+        );
+    }
+
+    #[test]
+    fn consistence() {
+        let op = Nop {
+            group: true,
+            response: false,
+        };
+        let data = op.encode_to_array();
+        assert_eq!(Nop::decode(&op.encode_to_array()).unwrap(), op);
+        assert_eq!(Nop::decode(&data).unwrap().encode_to_array(), data);
+    }
 }
