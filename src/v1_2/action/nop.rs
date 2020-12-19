@@ -51,13 +51,14 @@ impl Nop {
 
     /// Encodes the value into pre allocated array.
     ///
-    /// May fail if the pre allocated array is smaller than [self.size()](#method.size).
-    pub fn encode_in(&self, out: &mut [u8]) -> Result<usize, ()> {
+    /// Fails if the pre allocated array is smaller than [self.size()](#method.size)
+    /// returning the number of input bytes required.
+    pub fn encode_in(&self, out: &mut [u8]) -> Result<usize, usize> {
         let size = self.size();
         if out.len() >= size {
             Ok(unsafe { self.encode_in_unchecked(out) })
         } else {
-            Err(())
+            Err(size)
         }
     }
 
@@ -84,7 +85,7 @@ impl Nop {
     /// This decodable item allows each parts of the item independently.
     pub const fn start_decoding(data: &[u8]) -> Result<DecodableNop, BasicDecodeError> {
         if data.is_empty() {
-            return Err(BasicDecodeError::MissingBytes);
+            return Err(BasicDecodeError::MissingBytes(1));
         }
         if data[0] & 0x3F != OpCode::Nop as u8 {
             return Err(BasicDecodeError::BadOpCode);
@@ -95,6 +96,8 @@ impl Nop {
 
     /// Decodes the Item from bytes.
     ///
+    /// Returns the decoded data and the number of bytes consumed to produce it.
+    ///
     /// # Safety
     /// You are to check that data is not empty and that data.len() >=
     /// [DecodableNop.size()](struct.DecodableNop.html#method.size)
@@ -104,6 +107,9 @@ impl Nop {
     }
 
     /// Decodes the item from bytes.
+    ///
+    /// On success, returns the decoded data and the number of bytes consumed
+    /// to produce it.
     pub fn decode(data: &[u8]) -> Result<(Self, usize), BasicDecodeError> {
         match Self::start_decoding(data) {
             Ok(v) => Ok(v.complete_decoding()),
@@ -135,6 +141,8 @@ impl<'a> DecodableNop<'a> {
     }
 
     /// Fully decode the Item
+    ///
+    /// Returns the decoded data and the number of bytes consumed to produce it.
     pub fn complete_decoding(&self) -> (Nop, usize) {
         (
             Nop {

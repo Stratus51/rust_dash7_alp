@@ -1,5 +1,3 @@
-/// TODO This should be in outside v1.2. But it is here during the refactoring.
-///
 // TODO ALP_SPEC: The encoding of the value is not specified!
 // Big endian at bit and byte level probably, but it has to be specified!
 
@@ -37,7 +35,7 @@ impl Varint {
 
     /// Create a struct representing a Varint
     ///
-    /// May fail if the value is bigger than [MAX](constant.MAX.html)
+    /// Fails if the value is bigger than [MAX](constant.MAX.html)
     pub const fn new(value: u32) -> Result<Self, ()> {
         if value > U32_MAX {
             Err(())
@@ -106,14 +104,15 @@ impl Varint {
 
     /// Encodes the value into pre allocated array.
     ///
-    /// May fail if the pre allocated array is smaller than [self.size()](#method.size).
-    pub fn encode_in(&self, out: &mut [u8]) -> Result<usize, ()> {
+    /// Fails if the pre allocated array is smaller than [self.size()](#method.size)
+    /// returning the number of input bytes required.
+    pub fn encode_in(&self, out: &mut [u8]) -> Result<usize, usize> {
         let size = self.size();
         if out.len() >= size {
             unsafe { self.__encode_in_unchecked(out, size) };
             Ok(size)
         } else {
-            Err(())
+            Err(size)
         }
     }
 
@@ -130,18 +129,24 @@ impl Varint {
     /// Creates a decodable item.
     ///
     /// This decodable item allows each parts of the item independently.
-    pub fn start_decoding(data: &[u8]) -> Result<DecodableVarint, ()> {
+    ///
+    /// Fails if the input data is too small to decode and requires the minimum
+    /// number of bytes required to continue decoding.
+    pub fn start_decoding(data: &[u8]) -> Result<DecodableVarint, usize> {
         if data.is_empty() {
-            return Err(());
+            return Err(1);
         }
         let ret = unsafe { Self::start_decoding_unchecked(data) };
-        if data.len() < ret.size() {
-            return Err(());
+        let ret_size = ret.size();
+        if data.len() < ret_size {
+            return Err(ret_size);
         }
         Ok(ret)
     }
 
     /// Decodes the Item from bytes.
+    ///
+    /// Returns the decoded data and the number of bytes consumed to produce it.
     ///
     /// # Safety
     /// You are to check that data is not empty and that data.len() >=
@@ -152,10 +157,16 @@ impl Varint {
     }
 
     /// Decodes the item from bytes.
-    pub fn decode(data: &[u8]) -> Result<(Self, usize), ()> {
+    ///
+    /// On success, returns the decoded data and the number of bytes consumed
+    /// to produce it.
+    ///
+    /// Fails if the input data is too small to decode and requires the minimum
+    /// number of bytes required to continue decoding.
+    pub fn decode(data: &[u8]) -> Result<(Self, usize), usize> {
         match Self::start_decoding(data) {
             Ok(v) => Ok(v.complete_decoding()),
-            Err(_) => Err(()),
+            Err(e) => Err(e),
         }
     }
 
@@ -225,6 +236,8 @@ impl<'a> DecodableVarint<'a> {
     }
 
     /// Fully decode the Item
+    ///
+    /// Returns the decoded data and the number of bytes consumed to produce it.
     pub fn complete_decoding(&self) -> (Varint, usize) {
         let size = self.size();
         let data = &self.data;
