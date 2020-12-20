@@ -1,7 +1,12 @@
 pub mod action_query;
 pub mod break_query;
+pub mod comparison_with_range;
 pub mod comparison_with_value;
 pub mod define;
+
+pub use action_query::{ActionQuery, DecodableActionQuery};
+pub use comparison_with_range::{ComparisonWithRange, DecodableComparisonWithRange};
+pub use comparison_with_value::{ComparisonWithValue, DecodableComparisonWithValue};
 
 use super::super::error::QueryDecodeError;
 use define::QueryCode;
@@ -10,9 +15,9 @@ use define::QueryCode;
 pub enum Query<'item> {
     // NonVoid(non_void::NonVoid),
     // ComparisonWithZero(ComparisonWithZero),
-    ComparisonWithValue(comparison_with_value::ComparisonWithValue<'item>),
+    ComparisonWithValue(ComparisonWithValue<'item>),
     // ComparisonWithOtherFile(ComparisonWithOtherFile),
-    // BitmapRangeComparison(BitmapRangeComparison),
+    ComparisonWithRange(ComparisonWithRange<'item>),
     // StringTokenSearch(StringTokenSearch),
 }
 
@@ -33,6 +38,7 @@ impl<'item> Query<'item> {
     pub unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
         match self {
             Self::ComparisonWithValue(query) => query.encode_in_ptr(out),
+            Self::ComparisonWithRange(query) => query.encode_in_ptr(out),
         }
     }
 
@@ -65,6 +71,7 @@ impl<'item> Query<'item> {
     pub fn size(&self) -> usize {
         match self {
             Self::ComparisonWithValue(query) => query.size(),
+            Self::ComparisonWithRange(query) => query.size(),
         }
     }
 
@@ -169,9 +176,9 @@ impl<'item> Query<'item> {
 pub enum DecodableQuery<'data> {
     // NonVoid(non_void::NonVoid),
     // ComparisonWithZero(ComparisonWithZero),
-    ComparisonWithValue(comparison_with_value::DecodableComparisonWithValue<'data>),
+    ComparisonWithValue(DecodableComparisonWithValue<'data>),
     // ComparisonWithOtherFile(ComparisonWithOtherFile),
-    // BitmapRangeComparison(BitmapRangeComparison),
+    ComparisonWithRange(DecodableComparisonWithRange<'data>),
     // StringTokenSearch(StringTokenSearch),
 }
 
@@ -184,7 +191,10 @@ impl<'data> DecodableQuery<'data> {
         Ok(unsafe {
             match query_code {
                 QueryCode::ComparisonWithValue => DecodableQuery::ComparisonWithValue(
-                    comparison_with_value::ComparisonWithValue::start_decoding_unchecked(data),
+                    ComparisonWithValue::start_decoding_unchecked(data),
+                ),
+                QueryCode::ComparisonWithRange => DecodableQuery::ComparisonWithRange(
+                    ComparisonWithRange::start_decoding_unchecked(data),
                 ),
             }
         })
@@ -196,9 +206,12 @@ impl<'data> DecodableQuery<'data> {
             Err(x) => return Err(x),
         };
         Ok(match query_code {
-            QueryCode::ComparisonWithValue => DecodableQuery::ComparisonWithValue(
-                comparison_with_value::ComparisonWithValue::start_decoding_ptr(data),
-            ),
+            QueryCode::ComparisonWithValue => {
+                DecodableQuery::ComparisonWithValue(ComparisonWithValue::start_decoding_ptr(data))
+            }
+            QueryCode::ComparisonWithRange => {
+                DecodableQuery::ComparisonWithRange(ComparisonWithRange::start_decoding_ptr(data))
+            }
         })
     }
 
@@ -206,6 +219,7 @@ impl<'data> DecodableQuery<'data> {
     pub fn size(&self) -> usize {
         match self {
             Self::ComparisonWithValue(d) => d.size(),
+            Self::ComparisonWithRange(d) => d.size(),
         }
     }
 
@@ -218,6 +232,101 @@ impl<'data> DecodableQuery<'data> {
                 let (op, size) = d.complete_decoding();
                 (Query::ComparisonWithValue(op), size)
             }
+            Self::ComparisonWithRange(d) => {
+                let (op, size) = d.complete_decoding();
+                (Query::ComparisonWithRange(op), size)
+            }
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::define::QueryComparisonType;
+    use super::*;
+    use crate::define::{EncodableData, FileId, MaskedValue};
+    use crate::varint::Varint;
+
+    #[test]
+    fn known() {
+        fn test(op: Query, data: &[u8]) {
+            // Test op.encode_in() == data
+            let mut encoded = [0u8; 64];
+            let size = op.encode_in(&mut encoded).unwrap();
+            assert_eq!(size, data.len());
+            assert_eq!(&encoded[..size], data);
+
+            // Test decode(data) == op
+            let (ret, size) = Query::decode(&data).unwrap();
+            assert_eq!(size, data.len());
+            assert_eq!(ret, op);
+        }
+        test(
+            Query::ComparisonWithValue(ComparisonWithValue {
+                signed_data: false,
+                comparison_type: QueryComparisonType::GreaterThan,
+                compare_value: MaskedValue::new(
+                    EncodableData::new(&[0x0A, 0x0B, 0x0C, 0x0D]).unwrap(),
+                    Some(&[0x00, 0xFF, 0x0F, 0xFF]),
+                )
+                .unwrap(),
+                file_id: FileId::new(0x88),
+                offset: Varint::new(0xFF).unwrap(),
+            }),
+            &[
+                0x40 | 0x10 | 0x04,
+                0x04,
+                0x00,
+                0xFF,
+                0x0F,
+                0xFF,
+                0x0A,
+                0x0B,
+                0x0C,
+                0x0D,
+                0x88,
+                0x40,
+                0xFF,
+            ],
+        );
+        test(
+            Query::ComparisonWithRange(ComparisonWithRange {
+                signed_data: false,
+                comparison_type: define::QueryRangeComparisonType::NotInRange,
+                range: crate::define::MaskedRange::new(50, 66, Some(&[0x33, 0x22])).unwrap(),
+                file_id: FileId::new(0x88),
+                offset: Varint::new(0xFF).unwrap(),
+            }),
+            &[0x80 | 0x10, 0x01, 50, 66, 0x33, 0x22, 0x88, 0x40, 0xFF],
+        );
+    }
+
+    #[test]
+    fn consistence() {
+        let op = Query::ComparisonWithValue(ComparisonWithValue {
+            signed_data: true,
+            comparison_type: QueryComparisonType::GreaterThanOrEqual,
+            compare_value: MaskedValue::new(
+                EncodableData::new(&[0x00, 0x43, 0x02]).unwrap(),
+                Some(&[0x44, 0x88, 0x11]),
+            )
+            .unwrap(),
+            file_id: FileId::new(0xFF),
+            offset: Varint::new(0x3F_FF_00).unwrap(),
+        });
+
+        // Test decode(op.encode_in()) == op
+        const TOT_SIZE: usize = 1 + 1 + 3 + 3 + 1 + 3;
+        let mut encoded = [0u8; TOT_SIZE];
+        let size_encoded = op.encode_in(&mut encoded).unwrap();
+        let (ret, size_decoded) = Query::decode(&encoded).unwrap();
+        assert_eq!(size_encoded, size_decoded);
+        assert_eq!(ret, op);
+
+        // Test decode(data).encode_in() == data
+        let mut encoded2 = [0u8; TOT_SIZE];
+        let size_encoded2 = op.encode_in(&mut encoded2).unwrap();
+        assert_eq!(size_encoded, size_encoded2);
+        assert_eq!(encoded2[..size_encoded2], encoded[..size_encoded]);
     }
 }

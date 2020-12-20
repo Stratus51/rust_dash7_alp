@@ -52,6 +52,10 @@ impl Varint {
         self.value
     }
 
+    pub const fn usize(&self) -> usize {
+        self.value as usize
+    }
+
     /// Size in bytes of the encoded equivalent of the item.
     pub const fn size(&self) -> usize {
         let n = self.value;
