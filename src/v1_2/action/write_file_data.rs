@@ -322,6 +322,7 @@ mod test {
 
             // Test partial_decode == op
             let decoder = WriteFileData::start_decoding(&data).unwrap();
+            assert_eq!(size, decoder.size());
             assert_eq!(
                 op.data.len(),
                 decoder.length().complete_decoding().0.u32() as usize

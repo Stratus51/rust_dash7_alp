@@ -258,6 +258,7 @@ mod test {
 
             // Test partial_decode == op
             let decoder = Nop::start_decoding(&data).unwrap();
+            assert_eq!(size, decoder.size());
             assert_eq!(
                 op,
                 Nop {
