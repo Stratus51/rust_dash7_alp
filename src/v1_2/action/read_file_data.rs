@@ -1,7 +1,7 @@
-use super::error::BasicDecodeError;
-use super::flag;
-use super::op_code::OpCode;
-use crate::defines::FileId;
+use super::super::define::flag;
+use super::super::define::op_code::OpCode;
+use super::super::error::BasicDecodeError;
+use crate::define::FileId;
 use crate::varint::{self, Varint};
 
 // TODO SPEC: Verify if the new ReadFileData successfull length overflow

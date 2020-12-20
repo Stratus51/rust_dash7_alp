@@ -1,3 +1,5 @@
+// TODO Move to defines
+
 // Standard action flags
 pub const GROUP: u8 = 0x80;
 pub const RESPONSE: u8 = 0x40;

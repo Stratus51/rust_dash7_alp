@@ -36,7 +36,7 @@
 
 #![cfg_attr(not(test), no_std)]
 
-pub mod defines;
+pub mod define;
 pub mod v1_2;
 pub mod varint;
 

@@ -24,10 +24,6 @@ pub mod verify_checksum;
 pub mod write_file_data;
 pub mod write_file_properties;
 
-pub mod error;
-pub mod flag;
-pub mod op_code;
-
 // TODO SPEC: Why are some actions named "return". Removing that from the name would still
 // be technically correct: The operand "File data" contains file data. Seems good enough.
 // We can still keep the description mentionning it is supposed to be a response.

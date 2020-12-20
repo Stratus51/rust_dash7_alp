@@ -1,3 +1,5 @@
+// TODO Move to v1_2
+
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum BasicDecodeError {
     /// The input data is missing bytes to be decoded into the wanted item
