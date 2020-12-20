@@ -2,7 +2,7 @@ use super::super::define::flag;
 use super::super::define::op_code::OpCode;
 use super::super::error::BasicDecodeError;
 use crate::define::FileId;
-use crate::varint::{self, Varint};
+use crate::varint::{self, DecodableVarint, Varint};
 
 // TODO SPEC: Verify if the new ReadFileData successfull length overflow
 // is described in the specification, because it is not intuitive.
@@ -231,8 +231,9 @@ impl<'data> DecodableReadFileData<'data> {
 
     /// Decodes the size of the Item in bytes
     pub fn size(&self) -> usize {
-        let (_, offset_size) = self.offset();
-        let (_, length_size) = unsafe { Varint::decode_ptr(self.data.add(2 + offset_size)) };
+        let offset_size = self.offset().size();
+        let length_size =
+            unsafe { Varint::start_decoding_ptr(self.data.add(2 + offset_size)).size() };
         2 + offset_size + length_size
     }
 
@@ -248,14 +249,14 @@ impl<'data> DecodableReadFileData<'data> {
         unsafe { FileId(*self.data.add(1)) }
     }
 
-    pub fn offset(&self) -> (Varint, usize) {
-        unsafe { Varint::decode_ptr(self.data.add(2)) }
+    pub fn offset(&self) -> DecodableVarint {
+        unsafe { Varint::start_decoding_ptr(self.data.add(2)) }
     }
 
-    pub fn length(&self) -> (Varint, usize) {
+    pub fn length(&self) -> DecodableVarint {
         unsafe {
             let offset_size = (((*self.data.add(2) & 0xC0) >> 6) + 1) as usize;
-            Varint::decode_ptr(self.data.add(2 + offset_size))
+            Varint::start_decoding_ptr(self.data.add(2 + offset_size))
         }
     }
 
@@ -263,7 +264,7 @@ impl<'data> DecodableReadFileData<'data> {
     ///
     /// Returns the decoded data and the number of bytes consumed to produce it.
     pub fn complete_decoding(&self) -> (ReadFileData, usize) {
-        let (offset, offset_size) = self.offset();
+        let (offset, offset_size) = self.offset().complete_decoding();
         let (length, length_size) = unsafe { Varint::decode_ptr(self.data.add(2 + offset_size)) };
         (
             ReadFileData {

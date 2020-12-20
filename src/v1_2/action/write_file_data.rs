@@ -2,7 +2,7 @@ use super::super::define::flag;
 use super::super::define::op_code::OpCode;
 use super::super::error::BasicDecodeError;
 use crate::define::{EncodableData, FileId};
-use crate::varint::Varint;
+use crate::varint::{DecodableVarint, Varint};
 
 /// Writes data to a file.
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
@@ -228,7 +228,7 @@ impl<'data> DecodableWriteFileData<'data> {
 
     /// Decodes the size of the Item in bytes
     pub fn size(&self) -> usize {
-        let (_, offset_size) = self.offset();
+        let offset_size = self.offset().size();
         let (length_size, length) = unsafe {
             let (length, length_size) = Varint::decode_ptr(self.data.add(2 + offset_size));
             (length_size, length.get())
@@ -248,15 +248,14 @@ impl<'data> DecodableWriteFileData<'data> {
         unsafe { FileId(*self.data.add(1)) }
     }
 
-    // TODO These should be decodable instead of fully decoded
-    pub fn offset(&self) -> (Varint, usize) {
-        unsafe { Varint::decode_ptr(self.data.add(2)) }
+    pub fn offset(&self) -> DecodableVarint {
+        unsafe { Varint::start_decoding_ptr(self.data.add(2)) }
     }
 
-    pub fn length(&self) -> (Varint, usize) {
+    pub fn length(&self) -> DecodableVarint {
         unsafe {
             let offset_size = (((*self.data.add(2) & 0xC0) >> 6) + 1) as usize;
-            Varint::decode_ptr(self.data.add(2 + offset_size))
+            Varint::start_decoding_ptr(self.data.add(2 + offset_size))
         }
     }
 
@@ -275,7 +274,7 @@ impl<'data> DecodableWriteFileData<'data> {
     ///
     /// Returns the decoded data and the number of bytes consumed to produce it.
     pub fn complete_decoding(&self) -> (WriteFileData<'data>, usize) {
-        let (offset, offset_size) = self.offset();
+        let (offset, offset_size) = self.offset().complete_decoding();
         let (data, length_size, length) = unsafe {
             let (length, length_size) = Varint::decode_ptr(self.data.add(2 + offset_size));
             let data_offset = 2 + offset_size + length_size;
