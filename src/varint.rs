@@ -312,7 +312,7 @@ impl<'data> DecodableVarint<'data> {
 
     /// Decodes the size of the Item in bytes
     pub fn size(&self) -> usize {
-        unsafe { ((*self.data.add(0) & 0xC0) >> 6) as usize }
+        unsafe { ((*self.data.add(0) & 0xC0) >> 6) as usize + 1 }
     }
 
     /// Fully decode the Item
@@ -323,14 +323,14 @@ impl<'data> DecodableVarint<'data> {
         let data = &self.data;
         let ret = unsafe {
             Varint::new_unchecked(match size {
-                0 => (*data.add(0) & 0x3F) as u32,
-                1 => (((*data.add(0) & 0x3F) as u32) << 8) + *data.add(1) as u32,
-                2 => {
+                1 => (*data.add(0) & 0x3F) as u32,
+                2 => (((*data.add(0) & 0x3F) as u32) << 8) + *data.add(1) as u32,
+                3 => {
                     (((*data.add(0) & 0x3F) as u32) << 16)
                         + ((*data.add(1) as u32) << 8)
                         + *data.add(2) as u32
                 }
-                3 => {
+                4 => {
                     (((*data.add(0) & 0x3F) as u32) << 24)
                         + ((*data.add(1) as u32) << 16)
                         + ((*data.add(2) as u32) << 8)
@@ -341,7 +341,7 @@ impl<'data> DecodableVarint<'data> {
                 _ => 0,
             })
         };
-        (ret, size + 1)
+        (ret, size)
     }
 }
 
@@ -383,9 +383,15 @@ mod test {
     #[test]
     fn test_decode() {
         fn test_ok(data: &[u8], value: u32, size: usize) {
+            // Check full decode
             let (ret, decode_size) = Varint::decode(data).unwrap();
             assert_eq!(decode_size, size);
             assert_eq!(ret, Varint::new(value).unwrap());
+
+            // Check partial decoding
+            let decoder = Varint::start_decoding(data).unwrap();
+            let part_size = decoder.size();
+            assert_eq!(part_size, size);
         }
         test_ok(&[0], 0x00, 1);
         test_ok(&hex!("3F"), 0x3F, 1);
