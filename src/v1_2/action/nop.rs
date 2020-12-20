@@ -88,6 +88,25 @@ impl Nop {
         1
     }
 
+    /// Creates a decodable item from a data pointer without checking the data size.
+    ///
+    /// This method is meant to allow unchecked cross language wrapper libraries
+    /// to implement an unchecked call without having to build a fake slice with
+    /// a fake size.
+    ///
+    /// It is not meant to be used inside a Rust library/binary.
+    ///
+    /// # Safety
+    /// You are to check that data is not empty and that data.len() >=
+    /// [DecodableVarint.size()](struct.DecodableVarint.html#method.size)
+    /// (the expected byte size of the returned DecodableItem).
+    ///
+    /// You are also expected to warrant that the opcode contained in the
+    /// first byte corresponds to this action.
+    pub const unsafe fn start_decoding_ptr<'data>(data: *const u8) -> DecodableNop<'data> {
+        DecodableNop::from_ptr(data)
+    }
+
     /// Creates a decodable item without checking the data size.
     ///
     /// # Safety
@@ -115,6 +134,30 @@ impl Nop {
         Ok(ret)
     }
 
+    /// Decodes the Item from a data pointer.
+    ///
+    /// Returns the decoded data and the number of bytes consumed to produce it.
+    ///
+    /// This method is meant to allow unchecked cross language wrapper libraries
+    /// to implement an unchecked call without having to build a fake slice with
+    /// a fake size.
+    ///
+    /// It is not meant to be used inside a Rust library/binary.
+    ///
+    /// # Safety
+    /// You are to check that data is not empty and that data.len() >=
+    /// [DecodableVarint.size()](struct.DecodableVarint.html#method.size)
+    /// (the expected byte size of the returned DecodableItem).
+    ///
+    /// Failing that will result in reading and interpreting data outside the given
+    /// array.
+    ///
+    /// You are also expected to warrant that the opcode contained in the
+    /// first byte corresponds to this action.
+    pub unsafe fn decode_ptr(data: *const u8) -> (Self, usize) {
+        Self::start_decoding_ptr(data).complete_decoding()
+    }
+
     /// Decodes the Item from bytes.
     ///
     /// Returns the decoded data and the number of bytes consumed to produce it.
@@ -123,6 +166,9 @@ impl Nop {
     /// You are to check that data is not empty and that data.len() >=
     /// [DecodableNop.size()](struct.DecodableNop.html#method.size)
     /// (the expected byte size of the returned DecodableItem).
+    ///
+    /// You are also expected to warrant that the opcode contained in the
+    /// first byte corresponds to this action.
     pub unsafe fn decode_unchecked(data: &[u8]) -> (Self, usize) {
         Self::start_decoding_unchecked(data).complete_decoding()
     }
@@ -139,13 +185,24 @@ impl Nop {
     }
 }
 
-pub struct DecodableNop<'a> {
-    data: &'a [u8],
+pub struct DecodableNop<'data> {
+    data: *const u8,
+    data_life: core::marker::PhantomData<&'data ()>,
 }
 
-impl<'a> DecodableNop<'a> {
-    const fn new(data: &'a [u8]) -> Self {
-        Self { data }
+impl<'data> DecodableNop<'data> {
+    const fn new(data: &'data [u8]) -> Self {
+        Self {
+            data: data.as_ptr(),
+            data_life: core::marker::PhantomData,
+        }
+    }
+
+    const fn from_ptr(data: *const u8) -> Self {
+        Self {
+            data,
+            data_life: core::marker::PhantomData,
+        }
     }
 
     /// Decodes the size of the Item in bytes
@@ -154,11 +211,11 @@ impl<'a> DecodableNop<'a> {
     }
 
     pub fn group(&self) -> bool {
-        unsafe { *self.data.get_unchecked(0) & flag::GROUP != 0 }
+        unsafe { *self.data.add(0) & flag::GROUP != 0 }
     }
 
     pub fn response(&self) -> bool {
-        unsafe { *self.data.get_unchecked(0) & flag::RESPONSE != 0 }
+        unsafe { *self.data.add(0) & flag::RESPONSE != 0 }
     }
 
     /// Fully decode the Item

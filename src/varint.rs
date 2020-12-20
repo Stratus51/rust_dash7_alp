@@ -139,12 +139,34 @@ impl Varint {
         }
     }
 
+    /// Creates a decodable item from a data pointer without checking the data size.
+    ///
+    /// This method is meant to allow unchecked cross language wrapper libraries
+    /// to implement an unchecked call without having to build a fake slice with
+    /// a fake size.
+    ///
+    /// It is not meant to be used inside a Rust library/binary.
+    ///
+    /// # Safety
+    /// You are to check that data is not empty and that data.len() >=
+    /// [DecodableVarint.size()](struct.DecodableVarint.html#method.size)
+    /// (the expected byte size of the returned DecodableItem).
+    ///
+    /// Failing that might result in reading and interpreting data outside the given
+    /// array.
+    pub const unsafe fn start_decoding_ptr<'item>(data: *const u8) -> DecodableVarint<'item> {
+        DecodableVarint::from_ptr(data)
+    }
+
     /// Creates a decodable item without checking the data size.
     ///
     /// # Safety
     /// You are to check that data is not empty and that data.len() >=
     /// [DecodableVarint.size()](struct.DecodableVarint.html#method.size)
     /// (the expected byte size of the returned DecodableItem).
+    ///
+    /// Failing that might result in reading and interpreting data outside the given
+    /// array.
     pub const unsafe fn start_decoding_unchecked(data: &[u8]) -> DecodableVarint {
         DecodableVarint::new(data)
     }
@@ -167,6 +189,27 @@ impl Varint {
         Ok(ret)
     }
 
+    /// Decodes the Item from a data pointer.
+    ///
+    /// Returns the decoded data and the number of bytes consumed to produce it.
+    ///
+    /// This method is meant to allow unchecked cross language wrapper libraries
+    /// to implement an unchecked call without having to build a fake slice with
+    /// a fake size.
+    ///
+    /// It is not meant to be used inside a Rust library/binary.
+    ///
+    /// # Safety
+    /// You are to check that data is not empty and that data.len() >=
+    /// [DecodableVarint.size()](struct.DecodableVarint.html#method.size)
+    /// (the expected byte size of the returned DecodableItem).
+    ///
+    /// Failing that will result in reading and interpreting data outside the given
+    /// array.
+    pub unsafe fn decode_ptr(data: *const u8) -> (Self, usize) {
+        Self::start_decoding_ptr(data).complete_decoding()
+    }
+
     /// Decodes the Item from bytes.
     ///
     /// Returns the decoded data and the number of bytes consumed to produce it.
@@ -175,6 +218,9 @@ impl Varint {
     /// You are to check that data is not empty and that data.len() >=
     /// [DecodableVarint.size()](struct.DecodableVarint.html#method.size)
     /// (the expected byte size of the returned DecodableItem).
+    ///
+    /// Failing that will result in reading and interpreting data outside the given
+    /// array.
     pub unsafe fn decode_unchecked(data: &[u8]) -> (Self, usize) {
         Self::start_decoding_unchecked(data).complete_decoding()
     }
@@ -244,18 +290,29 @@ impl Varint {
     }
 }
 
-pub struct DecodableVarint<'a> {
-    data: &'a [u8],
+pub struct DecodableVarint<'data> {
+    data: *const u8,
+    data_life: core::marker::PhantomData<&'data ()>,
 }
 
-impl<'a> DecodableVarint<'a> {
-    const fn new(data: &'a [u8]) -> Self {
-        Self { data }
+impl<'data> DecodableVarint<'data> {
+    const fn new(data: &'data [u8]) -> Self {
+        Self {
+            data: data.as_ptr(),
+            data_life: core::marker::PhantomData,
+        }
+    }
+
+    const fn from_ptr(data: *const u8) -> Self {
+        Self {
+            data,
+            data_life: core::marker::PhantomData,
+        }
     }
 
     /// Decodes the size of the Item in bytes
     pub fn size(&self) -> usize {
-        unsafe { ((*self.data.get_unchecked(0) & 0xC0) >> 6) as usize }
+        unsafe { ((*self.data.add(0) & 0xC0) >> 6) as usize }
     }
 
     /// Fully decode the Item
@@ -266,20 +323,18 @@ impl<'a> DecodableVarint<'a> {
         let data = &self.data;
         let ret = unsafe {
             Varint::new_unchecked(match size {
-                0 => (*data.get_unchecked(0) & 0x3F) as u32,
-                1 => {
-                    (((*data.get_unchecked(0) & 0x3F) as u32) << 8) + *data.get_unchecked(1) as u32
-                }
+                0 => (*data.add(0) & 0x3F) as u32,
+                1 => (((*data.add(0) & 0x3F) as u32) << 8) + *data.add(1) as u32,
                 2 => {
-                    (((*data.get_unchecked(0) & 0x3F) as u32) << 16)
-                        + ((*data.get_unchecked(1) as u32) << 8)
-                        + *data.get_unchecked(2) as u32
+                    (((*data.add(0) & 0x3F) as u32) << 16)
+                        + ((*data.add(1) as u32) << 8)
+                        + *data.add(2) as u32
                 }
                 3 => {
-                    (((*data.get_unchecked(0) & 0x3F) as u32) << 24)
-                        + ((*data.get_unchecked(1) as u32) << 16)
-                        + ((*data.get_unchecked(2) as u32) << 8)
-                        + *data.get_unchecked(3) as u32
+                    (((*data.add(0) & 0x3F) as u32) << 24)
+                        + ((*data.add(1) as u32) << 16)
+                        + ((*data.add(2) as u32) << 8)
+                        + *data.add(3) as u32
                 }
                 // This is bad and incorrect. But size should mathematically never evaluate to this
                 // case. Let's just hope the size method is not broken.
