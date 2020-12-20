@@ -54,8 +54,8 @@ impl Nop {
     /// You are responsible for checking that `out.len() >= size`. Failing that
     /// will result in the program writing out of bound. In the current
     /// implementation, it will silently attempt to write out of bounds.
-    pub unsafe fn encode_in_ptr(&self, buf: *mut u8) -> usize {
-        *buf.add(0) = OpCode::Nop as u8
+    pub unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
+        *out.add(0) = OpCode::Nop as u8
             + if self.group { flag::GROUP } else { 0 }
             + if self.response { flag::RESPONSE } else { 0 };
         1
@@ -69,8 +69,8 @@ impl Nop {
     /// to insure `out.len() >= size`. Failing that will result in the
     /// program writing out of bound. In the current implementation, it
     /// implementation, it will silently attempt to write out of bounds.
-    pub unsafe fn encode_in_unchecked(&self, buf: &mut [u8]) -> usize {
-        self.encode_in_ptr(buf.as_mut_ptr())
+    pub unsafe fn encode_in_unchecked(&self, out: &mut [u8]) -> usize {
+        self.encode_in_ptr(out.as_mut_ptr())
     }
 
     /// Encodes the value into pre allocated array.

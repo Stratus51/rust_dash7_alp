@@ -57,15 +57,15 @@ impl ReadFileData {
     /// You are responsible for checking that `out.len() >= size`. Failing that
     /// will result in the program writing out of bound. In the current
     /// implementation, it will silently attempt to write out of bounds.
-    pub unsafe fn encode_in_ptr(&self, buf: *mut u8) -> usize {
+    pub unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
         let mut size = 0;
-        *buf.add(0) = OpCode::ReadFileData as u8
+        *out.add(0) = OpCode::ReadFileData as u8
             + if self.group { flag::GROUP } else { 0 }
             + if self.response { flag::RESPONSE } else { 0 };
-        *buf.add(1) = self.file_id.u8();
+        *out.add(1) = self.file_id.u8();
         size += 2;
-        size += self.offset.encode_in_ptr(buf.add(size));
-        size += self.length.encode_in_ptr(buf.add(size));
+        size += self.offset.encode_in_ptr(out.add(size));
+        size += self.length.encode_in_ptr(out.add(size));
         size
     }
 
@@ -77,8 +77,8 @@ impl ReadFileData {
     /// to insure `out.len() >= size`. Failing that will result in the
     /// program writing out of bound. In the current implementation, it
     /// implementation, it will silently attempt to write out of bounds.
-    pub unsafe fn encode_in_unchecked(&self, buf: &mut [u8]) -> usize {
-        self.encode_in_ptr(buf.as_mut_ptr())
+    pub unsafe fn encode_in_unchecked(&self, out: &mut [u8]) -> usize {
+        self.encode_in_ptr(out.as_mut_ptr())
     }
 
     /// Encodes the value into pre allocated array.
