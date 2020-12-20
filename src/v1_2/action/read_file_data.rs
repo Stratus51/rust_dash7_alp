@@ -193,8 +193,8 @@ impl ReadFileData {
     ///
     /// You are also expected to warrant that the opcode contained in the
     /// first byte corresponds to this action.
-    pub fn decode_unchecked(data: &[u8]) -> (Self, usize) {
-        unsafe { Self::start_decoding_unchecked(data).complete_decoding() }
+    pub unsafe fn decode_unchecked(data: &[u8]) -> (Self, usize) {
+        Self::start_decoding_unchecked(data).complete_decoding()
     }
 
     /// Decodes the item from bytes.
