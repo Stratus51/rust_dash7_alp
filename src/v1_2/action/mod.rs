@@ -1,5 +1,3 @@
-pub mod action_query;
-pub mod break_query;
 pub mod chunk;
 pub mod copy_file;
 pub mod create_new_file;
@@ -12,6 +10,7 @@ pub mod indirect_forward;
 pub mod logic;
 pub mod nop;
 pub mod permission_request;
+pub mod query;
 pub mod read_file_data;
 pub mod read_file_properties;
 pub mod request_tag;
@@ -49,8 +48,7 @@ pub enum Action<'a> {
     // Write
     WriteFileData(write_file_data::WriteFileData<'a>),
     // WriteFileProperties(WriteFileProperties),
-    // TODO
-    // ActionQuery(ActionQuery),
+    ActionQuery(query::action_query::ActionQuery<'a>),
     // BreakQuery(BreakQuery),
     // PermissionRequest(PermissionRequest),
     // VerifyChecksum(VerifyChecksum),

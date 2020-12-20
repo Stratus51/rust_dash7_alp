@@ -26,3 +26,8 @@ pub const OVERLOAD: u8 = 0x80;
 // Status flags
 pub const STATUS_ACTION: u8 = 0x00;
 pub const STATUS_INTERFACE: u8 = 0x40;
+
+// Queries
+pub const QUERY_MASK: u8 = 1 << 4;
+pub const QUERY_SIGNED_DATA: u8 = 1 << 3;
+pub const QUERY_COMPARISON_TYPE: u8 = 0x07;
