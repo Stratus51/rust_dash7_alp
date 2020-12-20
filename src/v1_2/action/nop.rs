@@ -5,6 +5,9 @@ use super::op_code::OpCode;
 /// Maximum byte size of an encoded Nop
 pub const MAX_SIZE: usize = 1;
 
+/// This action has a fixed size
+pub const SIZE: usize = 1;
+
 /// Does nothing.
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct Nop {

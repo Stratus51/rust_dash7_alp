@@ -6,6 +6,9 @@ use crate::defines::FileId;
 /// Maximum byte size of an encoded ReadFileProperties
 pub const MAX_SIZE: usize = 2;
 
+/// This action has a fixed size
+pub const SIZE: usize = 2;
+
 /// Reads the properties of a file
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct ReadFileProperties {
