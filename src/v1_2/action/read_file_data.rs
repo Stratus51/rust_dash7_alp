@@ -296,6 +296,19 @@ mod test {
             let (ret, size) = ReadFileData::decode(&data).unwrap();
             assert_eq!(size, data.len());
             assert_eq!(ret, op);
+
+            // Test partial_decode == op
+            let decoder = ReadFileData::start_decoding(&data).unwrap();
+            assert_eq!(
+                op,
+                ReadFileData {
+                    group: decoder.group(),
+                    response: decoder.response(),
+                    file_id: decoder.file_id(),
+                    offset: decoder.offset().complete_decoding().0,
+                    length: decoder.length().complete_decoding().0,
+                }
+            );
         }
         test(
             ReadFileData {

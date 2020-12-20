@@ -267,6 +267,17 @@ mod test {
             let (ret, size) = ReadFileProperties::decode(&data).unwrap();
             assert_eq!(size, data.len());
             assert_eq!(ret, op);
+
+            // Test partial_decode == op
+            let decoder = ReadFileProperties::start_decoding(&data).unwrap();
+            assert_eq!(
+                op,
+                ReadFileProperties {
+                    group: decoder.group(),
+                    response: decoder.response(),
+                    file_id: decoder.file_id(),
+                }
+            );
         }
         test(
             ReadFileProperties {

@@ -319,6 +319,23 @@ mod test {
             let (ret, size) = WriteFileData::decode(&data).unwrap();
             assert_eq!(size, data.len());
             assert_eq!(ret, op);
+
+            // Test partial_decode == op
+            let decoder = WriteFileData::start_decoding(&data).unwrap();
+            assert_eq!(
+                op.data.len(),
+                decoder.length().complete_decoding().0.u32() as usize
+            );
+            assert_eq!(
+                op,
+                WriteFileData {
+                    group: decoder.group(),
+                    response: decoder.response(),
+                    file_id: decoder.file_id(),
+                    offset: decoder.offset().complete_decoding().0,
+                    data: decoder.data().0,
+                }
+            );
         }
         test(
             WriteFileData {

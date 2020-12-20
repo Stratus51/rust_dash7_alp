@@ -255,6 +255,16 @@ mod test {
             let (ret, size) = Nop::decode(&data).unwrap();
             assert_eq!(size, data.len());
             assert_eq!(ret, op);
+
+            // Test partial_decode == op
+            let decoder = Nop::start_decoding(&data).unwrap();
+            assert_eq!(
+                op,
+                Nop {
+                    group: decoder.group(),
+                    response: decoder.response(),
+                }
+            );
         }
         test(
             Nop {
