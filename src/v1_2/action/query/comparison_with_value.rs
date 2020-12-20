@@ -394,7 +394,7 @@ mod test {
     fn known() {
         fn test(op: ComparisonWithValue, data: &[u8]) {
             // Test op.encode_in() == data
-            let mut encoded = [0u8; 2 + 8];
+            let mut encoded = [0u8; 64];
             let size = op.encode_in(&mut encoded).unwrap();
             assert_eq!(size, data.len());
             assert_eq!(&encoded[..size], data);
@@ -447,6 +447,34 @@ mod test {
                 0x80,
                 0x40,
                 0x00,
+            ],
+        );
+        test(
+            ComparisonWithValue {
+                signed_data: false,
+                comparison_type: QueryComparisonType::GreaterThan,
+                compare_value: MaskedValue::new(
+                    EncodableData::new(&[0x0A, 0x0B, 0x0C, 0x0D]).unwrap(),
+                    Some(&[0x00, 0xFF, 0x0F, 0xFF]),
+                )
+                .unwrap(),
+                file_id: FileId::new(0x88),
+                offset: Varint::new(0xFF).unwrap(),
+            },
+            &[
+                0x40 | 0x10 | 0x04,
+                0x04,
+                0x00,
+                0xFF,
+                0x0F,
+                0xFF,
+                0x0A,
+                0x0B,
+                0x0C,
+                0x0D,
+                0x88,
+                0x40,
+                0xFF,
             ],
         );
     }
