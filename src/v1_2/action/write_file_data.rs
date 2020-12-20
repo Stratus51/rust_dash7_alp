@@ -34,6 +34,35 @@ impl<'a> WriteFileData<'a> {
         }
     }
 
+    /// Encodes the Item into a data pointer without checking the size of the
+    /// receiving byte array.
+    ///
+    /// This method is meant to allow unchecked cross language wrapper libraries
+    /// to implement an unchecked call without having to build a fake slice with
+    /// a fake size.
+    ///
+    /// It is not meant to be used inside a Rust library/binary.
+    ///
+    /// # Safety
+    /// You are responsible for checking that `out.len() >= size`. Failing that
+    /// will result in the program writing out of bound. In the current
+    /// implementation, it will silently attempt to write out of bounds.
+    pub unsafe fn encode_in_ptr(&self, buf: *mut u8) -> usize {
+        let mut size = 0;
+        *buf.add(0) = OpCode::WriteFileData as u8
+            + if self.group { flag::GROUP } else { 0 }
+            + if self.response { flag::RESPONSE } else { 0 };
+        *buf.add(1) = self.file_id.u8();
+        size += 2;
+        size += self.offset.encode_in_ptr(buf.add(size));
+        let length = Varint::new_unchecked(self.data.len() as u32);
+        size += length.encode_in_ptr(buf.add(size));
+        buf.add(size)
+            .copy_from(self.data.get().as_ptr(), length.get() as usize);
+        size += length.get() as usize;
+        size
+    }
+
     /// Encodes the Item without checking the size of the receiving
     /// byte array.
     ///
@@ -41,23 +70,9 @@ impl<'a> WriteFileData<'a> {
     /// You are responsible for checking that `size` == [self.size()](#method.size) and
     /// to insure `out.len() >= size`. Failing that will result in the
     /// program writing out of bound. In the current implementation, it
-    /// will trigger a panic.
+    /// implementation, it will silently attempt to write out of bounds.
     pub unsafe fn encode_in_unchecked(&self, buf: &mut [u8]) -> usize {
-        let mut size = 0;
-        *buf.get_unchecked_mut(0) = OpCode::WriteFileData as u8
-            + if self.group { flag::GROUP } else { 0 }
-            + if self.response { flag::RESPONSE } else { 0 };
-        *buf.get_unchecked_mut(1) = self.file_id.u8();
-        size += 2;
-        size += self
-            .offset
-            .encode_in_unchecked(buf.get_unchecked_mut(size..));
-        let length = Varint::new_unchecked(self.data.len() as u32);
-        size += length.encode_in_unchecked(buf.get_unchecked_mut(size..));
-        buf.get_unchecked_mut(size..(size + length.get() as usize))
-            .copy_from_slice(self.data.get());
-        size += length.get() as usize;
-        size
+        self.encode_in_ptr(buf.as_mut_ptr())
     }
 
     /// Encodes the value into pre allocated array.
@@ -67,7 +82,7 @@ impl<'a> WriteFileData<'a> {
     pub fn encode_in(&self, out: &mut [u8]) -> Result<usize, usize> {
         let size = self.size();
         if out.len() >= size {
-            Ok(unsafe { self.encode_in_unchecked(out) })
+            Ok(unsafe { self.encode_in_ptr(out.as_mut_ptr()) })
         } else {
             Err(size)
         }

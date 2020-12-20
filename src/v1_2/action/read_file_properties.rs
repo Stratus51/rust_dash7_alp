@@ -40,6 +40,27 @@ impl ReadFileProperties {
         ]
     }
 
+    /// Encodes the Item into a data pointer without checking the size of the
+    /// receiving byte array.
+    ///
+    /// This method is meant to allow unchecked cross language wrapper libraries
+    /// to implement an unchecked call without having to build a fake slice with
+    /// a fake size.
+    ///
+    /// It is not meant to be used inside a Rust library/binary.
+    ///
+    /// # Safety
+    /// You are responsible for checking that `out.len() >= size`. Failing that
+    /// will result in the program writing out of bound. In the current
+    /// implementation, it will silently attempt to write out of bounds.
+    pub unsafe fn encode_in_ptr(&self, buf: *mut u8) -> usize {
+        *buf.add(0) = OpCode::ReadFileProperties as u8
+            + if self.group { flag::GROUP } else { 0 }
+            + if self.response { flag::RESPONSE } else { 0 };
+        *buf.add(1) = self.file_id.u8();
+        2
+    }
+
     /// Encodes the Item without checking the size of the receiving
     /// byte array.
     ///
@@ -47,13 +68,9 @@ impl ReadFileProperties {
     /// You are responsible for checking that `size` == [self.size()](#method.size) and
     /// to insure `out.len() >= size`. Failing that will result in the
     /// program writing out of bound. In the current implementation, it
-    /// will trigger a panic.
+    /// implementation, it will silently attempt to write out of bounds.
     pub unsafe fn encode_in_unchecked(&self, buf: &mut [u8]) -> usize {
-        *buf.get_unchecked_mut(0) = OpCode::ReadFileProperties as u8
-            + if self.group { flag::GROUP } else { 0 }
-            + if self.response { flag::RESPONSE } else { 0 };
-        *buf.get_unchecked_mut(1) = self.file_id.u8();
-        2
+        self.encode_in_ptr(buf.as_mut_ptr())
     }
 
     /// Encodes the value into pre allocated array.
@@ -63,7 +80,7 @@ impl ReadFileProperties {
     pub fn encode_in(&self, out: &mut [u8]) -> Result<usize, usize> {
         let size = self.size();
         if out.len() >= size {
-            Ok(unsafe { self.encode_in_unchecked(out) })
+            Ok(unsafe { self.encode_in_ptr(out.as_mut_ptr()) })
         } else {
             Err(size)
         }

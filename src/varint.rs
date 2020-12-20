@@ -66,27 +66,50 @@ impl Varint {
         }
     }
 
-    pub(crate) unsafe fn __encode_in_unchecked(&self, out: &mut [u8], size: usize) {
+    /// # Safety
+    /// You are responsible for checking that `out.len() >= size`. Failing that
+    /// will result in the program writing out of bound. In the current
+    /// implementation, it will trigger a panic.
+    pub unsafe fn __encode_in_ptr(&self, out: *mut u8, size: usize) {
         match size {
-            1 => *out.get_unchecked_mut(0) = (self.value & 0x3F) as u8,
+            1 => *out.add(0) = (self.value & 0x3F) as u8,
             2 => {
-                *out.get_unchecked_mut(0) = ((self.value >> 8) & 0x3F) as u8;
-                *out.get_unchecked_mut(1) = (self.value & 0xFF) as u8;
+                *out.add(0) = ((self.value >> 8) & 0x3F) as u8;
+                *out.add(1) = (self.value & 0xFF) as u8;
             }
             3 => {
-                *out.get_unchecked_mut(0) = ((self.value >> 16) & 0x3F) as u8;
-                *out.get_unchecked_mut(1) = ((self.value >> 8) & 0xFF) as u8;
-                *out.get_unchecked_mut(2) = (self.value & 0xFF) as u8;
+                *out.add(0) = ((self.value >> 16) & 0x3F) as u8;
+                *out.add(1) = ((self.value >> 8) & 0xFF) as u8;
+                *out.add(2) = (self.value & 0xFF) as u8;
             }
             4 => {
-                *out.get_unchecked_mut(0) = ((self.value >> 24) & 0x3F) as u8;
-                *out.get_unchecked_mut(1) = ((self.value >> 16) & 0xFF) as u8;
-                *out.get_unchecked_mut(2) = ((self.value >> 8) & 0xFF) as u8;
-                *out.get_unchecked_mut(3) = (self.value & 0xFF) as u8;
+                *out.add(0) = ((self.value >> 24) & 0x3F) as u8;
+                *out.add(1) = ((self.value >> 16) & 0xFF) as u8;
+                *out.add(2) = ((self.value >> 8) & 0xFF) as u8;
+                *out.add(3) = (self.value & 0xFF) as u8;
             }
             _ => (),
         }
-        *out.get_unchecked_mut(0) |= (size as u8 - 1) << 6;
+        *out.add(0) |= (size as u8 - 1) << 6;
+    }
+
+    /// Encodes the Item into a data pointer without checking the size of the
+    /// receiving byte array.
+    ///
+    /// This method is meant to allow unchecked cross language wrapper libraries
+    /// to implement an unchecked call without having to build a fake slice with
+    /// a fake size.
+    ///
+    /// It is not meant to be used inside a Rust library/binary.
+    ///
+    /// # Safety
+    /// You are responsible for checking that `out.len() >= size`. Failing that
+    /// will result in the program writing out of bound. In the current
+    /// implementation, it will silently attempt to write out of bounds.
+    pub unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
+        let size = self.size();
+        self.__encode_in_ptr(out, size);
+        size
     }
 
     /// Encodes the Item without checking the size of the receiving
@@ -95,10 +118,10 @@ impl Varint {
     /// # Safety
     /// You are responsible for checking that `out.len() >= size`. Failing that
     /// will result in the program writing out of bound. In the current
-    /// implementation, it will trigger a panic.
+    /// implementation, it will silently attempt to write out of bounds.
     pub unsafe fn encode_in_unchecked(&self, out: &mut [u8]) -> usize {
         let size = self.size();
-        self.__encode_in_unchecked(out, size);
+        self.__encode_in_ptr(out.as_mut_ptr(), size);
         size
     }
 
@@ -109,7 +132,7 @@ impl Varint {
     pub fn encode_in(&self, out: &mut [u8]) -> Result<usize, usize> {
         let size = self.size();
         if out.len() >= size {
-            unsafe { self.__encode_in_unchecked(out, size) };
+            unsafe { self.__encode_in_ptr(out.as_mut_ptr(), size) };
             Ok(size)
         } else {
             Err(size)
