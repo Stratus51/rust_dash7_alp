@@ -58,8 +58,8 @@ impl<'item> WriteFileData<'item> {
         let length = Varint::new_unchecked(self.data.len() as u32);
         size += length.encode_in_ptr(buf.add(size));
         buf.add(size)
-            .copy_from(self.data.get().as_ptr(), length.get() as usize);
-        size += length.get() as usize;
+            .copy_from(self.data.get().as_ptr(), length.u32() as usize);
+        size += length.u32() as usize;
         size
     }
 
@@ -231,7 +231,7 @@ impl<'data> DecodableWriteFileData<'data> {
         let offset_size = self.offset().size();
         let (length_size, length) = unsafe {
             let (length, length_size) = Varint::decode_ptr(self.data.add(2 + offset_size));
-            (length_size, length.get())
+            (length_size, length.u32())
         };
         2 + offset_size + length_size + length as usize
     }
@@ -259,14 +259,17 @@ impl<'data> DecodableWriteFileData<'data> {
         }
     }
 
-    pub fn data(&self) -> (&'data [u8], usize) {
+    pub fn data(&self) -> (EncodableData<'data>, usize) {
         unsafe {
             let offset_size = (((*self.data.add(2) & 0xC0) >> 6) + 1) as usize;
             let (length, length_size) = Varint::decode_ptr(self.data.add(2 + offset_size));
             let data_offset = 2 + offset_size + length_size;
             let data =
-                core::slice::from_raw_parts(self.data.add(data_offset), length.get() as usize);
-            (data, length_size + length.get() as usize)
+                core::slice::from_raw_parts(self.data.add(data_offset), length.u32() as usize);
+            (
+                EncodableData::new_unchecked(data),
+                length_size + length.u32() as usize,
+            )
         }
     }
 
@@ -279,11 +282,11 @@ impl<'data> DecodableWriteFileData<'data> {
             let (length, length_size) = Varint::decode_ptr(self.data.add(2 + offset_size));
             let data_offset = 2 + offset_size + length_size;
             let data =
-                core::slice::from_raw_parts(self.data.add(data_offset), length.get() as usize);
+                core::slice::from_raw_parts(self.data.add(data_offset), length.u32() as usize);
             (
                 EncodableData::new_unchecked(data),
                 length_size,
-                length.get(),
+                length.u32(),
             )
         };
         (
