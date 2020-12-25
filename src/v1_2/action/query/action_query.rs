@@ -1,6 +1,6 @@
 use super::super::super::define::flag;
 use super::super::super::define::op_code::OpCode;
-use super::super::super::error::QueryDecodeError;
+use super::super::super::error::QueryActionDecodeError;
 use super::{DecodableQuery, Query};
 
 /// Writes data to a file.
@@ -116,17 +116,19 @@ impl<'item> ActionQuery<'item> {
     /// - Fails if first byte of the data contains the wrong opcode.
     /// - Fails if data is empty.
     /// - Fails if data is smaller then the decoded expected size.
-    pub fn start_decoding(data: &[u8]) -> Result<DecodableActionQuery, QueryDecodeError> {
+    pub fn start_decoding(data: &[u8]) -> Result<DecodableActionQuery, QueryActionDecodeError> {
         if data.is_empty() {
-            return Err(QueryDecodeError::MissingBytes(1));
+            return Err(QueryActionDecodeError::MissingBytes(1));
         }
         if data[0] & 0x3F != OpCode::ActionQuery as u8 {
-            return Err(QueryDecodeError::BadOpCode);
+            return Err(QueryActionDecodeError::BadOpCode);
         }
         let ret = unsafe { Self::start_decoding_unchecked(data) };
-        let ret_size = ret.size().map_err(QueryDecodeError::BadQueryCode)?;
+        let ret_size = ret
+            .size()
+            .map_err(|code| QueryActionDecodeError::BadQueryCode { code, offset: 1 })?;
         if data.len() < ret_size {
-            return Err(QueryDecodeError::MissingBytes(ret_size));
+            return Err(QueryActionDecodeError::MissingBytes(ret_size));
         }
         Ok(ret)
     }
@@ -192,10 +194,12 @@ impl<'item> ActionQuery<'item> {
     /// - Fails if first byte of the data contains the wrong opcode.
     /// - Fails if `data.len()` < `HEADER_SIZE`.
     /// - Fails if data is smaller then the decoded expected size.
-    pub fn decode(data: &'item [u8]) -> Result<(Self, usize), QueryDecodeError> {
+    pub fn decode(data: &'item [u8]) -> Result<(Self, usize), QueryActionDecodeError> {
         Ok(Self::start_decoding(data)?
             .complete_decoding()
-            .map_err(QueryDecodeError::BadQueryCode)?)
+            // TODO This error should never happen as it should be triggered by `start_decoding`
+            // first, when fetching the size of the operand.
+            .map_err(|code| QueryActionDecodeError::BadQueryCode { code, offset: 1 })?)
     }
 }
 
