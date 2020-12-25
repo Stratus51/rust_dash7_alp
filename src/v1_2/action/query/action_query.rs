@@ -25,14 +25,15 @@ impl<'item> ActionQuery<'item> {
     /// It is not meant to be used inside a Rust library/binary.
     ///
     /// # Safety
-    /// You are responsible for checking that `out.len() >= size`. Failing that
-    /// will result in the program writing out of bound. In the current
-    /// implementation, it will silently attempt to write out of bounds.
+    /// You are responsible for checking that `out.len()` >= [`self.size()`](#method.size).
+    ///
+    /// Failing that will result in the program writing out of bound in
+    /// random parts of your memory.
     pub unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
         let mut size = 0;
         *out.add(0) = OpCode::ActionQuery as u8
-            + if self.group { flag::GROUP } else { 0 }
-            + if self.response { flag::RESPONSE } else { 0 };
+            | if self.group { flag::GROUP } else { 0 }
+            | if self.response { flag::RESPONSE } else { 0 };
         size += 1;
         size += self.query.encode_in_ptr(out.add(size));
         size
@@ -42,16 +43,17 @@ impl<'item> ActionQuery<'item> {
     /// byte array.
     ///
     /// # Safety
-    /// You are responsible for checking that `size` == [self.size()](#method.size) and
-    /// to insure `out.len() >= size`. Failing that will result in the
-    /// program writing out of bound. In the current implementation, it
-    /// implementation, it will silently attempt to write out of bounds.
+    /// You are responsible for checking that `out.len()` >= [`self.size()`](#method.size).
+    ///
+    /// Failing that will result in the program writing out of bound in
+    /// random parts of your memory.
     pub unsafe fn encode_in_unchecked(&self, out: &mut [u8]) -> usize {
         self.encode_in_ptr(out.as_mut_ptr())
     }
 
     /// Encodes the value into pre allocated array.
     ///
+    /// # Errors
     /// Fails if the pre allocated array is smaller than [self.size()](#method.size)
     /// returning the number of input bytes required.
     pub fn encode_in(&self, out: &mut [u8]) -> Result<usize, usize> {
@@ -77,15 +79,15 @@ impl<'item> ActionQuery<'item> {
     /// It is not meant to be used inside a Rust library/binary.
     ///
     /// # Safety
-    /// You are to check that data is not empty and that data.len() >=
-    /// [DecodableVarint.size()](struct.DecodableVarint.html#method.size)
-    /// (the expected byte size of the returned DecodableItem).
+    /// You are to check that:
+    /// - The first byte contains this action's opcode.
+    /// - The data is bigger than `HEADER_SIZE`.
+    /// - The decoded data is bigger than the expected size of the `decodable` object.
+    /// Meaning that given the resulting decodable object `decodable`:
+    /// `data.len()` >= [`decodable.size()`](struct.DecodableActionQuery.html#method.size).
     ///
     /// Failing that might result in reading and interpreting data outside the given
-    /// array.
-    ///
-    /// You are also expected to warrant that the opcode contained in the
-    /// first byte corresponds to this action.
+    /// array (depending on what is done with the resulting object).
     pub const unsafe fn start_decoding_ptr<'data>(data: *const u8) -> DecodableActionQuery<'data> {
         DecodableActionQuery::from_ptr(data)
     }
@@ -93,15 +95,15 @@ impl<'item> ActionQuery<'item> {
     /// Creates a decodable item without checking the data size.
     ///
     /// # Safety
-    /// You are to check that data is not empty and that data.len() >=
-    /// [DecodableVarint.size()](struct.DecodableActionQuery.html#method.size)
-    /// (the expected byte size of the returned DecodableItem).
+    /// You are to check that:
+    /// - The first byte contains this action's opcode.
+    /// - The data is bigger than `HEADER_SIZE`.
+    /// - The decoded data is bigger than the expected size of the `decodable` object.
+    /// Meaning that given the resulting decodable object `decodable`:
+    /// `data.len()` >= [`decodable.size()`](struct.DecodableActionQuery.html#method.size).
     ///
     /// Failing that might result in reading and interpreting data outside the given
-    /// array.
-    ///
-    /// You are also expected to warrant that the opcode contained in the
-    /// first byte corresponds to this action.
+    /// array (depending on what is done with the resulting object).
     pub const unsafe fn start_decoding_unchecked(data: &[u8]) -> DecodableActionQuery {
         DecodableActionQuery::new(data)
     }
@@ -109,6 +111,11 @@ impl<'item> ActionQuery<'item> {
     /// Creates a decodable item.
     ///
     /// This decodable item allows each parts of the item independently.
+    ///
+    /// # Errors
+    /// - Fails if first byte of the data contains the wrong opcode.
+    /// - Fails if data is empty.
+    /// - Fails if data is smaller then the decoded expected size.
     pub fn start_decoding(data: &[u8]) -> Result<DecodableActionQuery, QueryDecodeError> {
         if data.is_empty() {
             return Err(QueryDecodeError::MissingBytes(1));
@@ -134,16 +141,21 @@ impl<'item> ActionQuery<'item> {
     ///
     /// It is not meant to be used inside a Rust library/binary.
     ///
+    /// # Errors
+    /// Fails if the parsed data corresponds to an invalid querycode.
+    /// Returns the invalid querycode.
+    ///
     /// # Safety
-    /// You are to check that data is not empty and that data.len() >=
-    /// [DecodableVarint.size()](struct.DecodableVarint.html#method.size)
-    /// (the expected byte size of the returned DecodableItem).
+    /// May attempt to read bytes after the end of the array.
+    ///
+    /// You are to check that:
+    /// - The first byte contains this action's opcode.
+    /// - The data is not empty.
+    /// - The resulting size of the data consumed is smaller than the size of the
+    /// decoded data.
     ///
     /// Failing that will result in reading and interpreting data outside the given
     /// array.
-    ///
-    /// You are also expected to warrant that the opcode contained in the
-    /// first byte corresponds to this action.
     pub unsafe fn decode_ptr(data: *const u8) -> Result<(Self, usize), u8> {
         Self::start_decoding_ptr(data).complete_decoding()
     }
@@ -152,16 +164,21 @@ impl<'item> ActionQuery<'item> {
     ///
     /// Returns the decoded data and the number of bytes consumed to produce it.
     ///
+    /// # Errors
+    /// Fails if the parsed data corresponds to an invalid querycode.
+    /// Returns the invalid querycode.
+    ///
     /// # Safety
-    /// You are to check that data is not empty and that data.len() >=
-    /// [DecodableActionQuery.size()](struct.DecodableActionQuery.html#method.size)
-    /// (the expected byte size of the returned DecodableItem).
+    /// May attempt to read bytes after the end of the array.
+    ///
+    /// You are to check that:
+    /// - The first byte contains this action's opcode.
+    /// - The data is not empty.
+    /// - The resulting size of the data consumed is smaller than the size of the
+    /// decoded data.
     ///
     /// Failing that will result in reading and interpreting data outside the given
     /// array.
-    ///
-    /// You are also expected to warrant that the opcode contained in the
-    /// first byte corresponds to this action.
     pub unsafe fn decode_unchecked(data: &'item [u8]) -> Result<(Self, usize), u8> {
         Self::start_decoding_unchecked(data).complete_decoding()
     }
@@ -170,6 +187,11 @@ impl<'item> ActionQuery<'item> {
     ///
     /// On success, returns the decoded data and the number of bytes consumed
     /// to produce it.
+    ///
+    /// # Errors
+    /// - Fails if first byte of the data contains the wrong opcode.
+    /// - Fails if `data.len()` < `HEADER_SIZE`.
+    /// - Fails if data is smaller then the decoded expected size.
     pub fn decode(data: &'item [u8]) -> Result<(Self, usize), QueryDecodeError> {
         Ok(Self::start_decoding(data)?
             .complete_decoding()
@@ -198,6 +220,10 @@ impl<'data> DecodableActionQuery<'data> {
     }
 
     /// Decodes the size of the Item in bytes
+    ///
+    /// # Errors
+    /// Fails if the parsed data corresponds to an invalid querycode.
+    /// Returns the invalid querycode.
     pub fn size(&self) -> Result<usize, u8> {
         Ok(1 + self.query()?.size())
     }
@@ -210,6 +236,9 @@ impl<'data> DecodableActionQuery<'data> {
         unsafe { *self.data.add(0) & flag::RESPONSE != 0 }
     }
 
+    /// # Errors
+    /// Fails if the parsed data corresponds to an invalid querycode.
+    /// Returns the invalid querycode.
     pub fn query(&self) -> Result<DecodableQuery<'data>, u8> {
         unsafe { Query::start_decoding_ptr(self.data.add(1)) }
     }
@@ -217,6 +246,10 @@ impl<'data> DecodableActionQuery<'data> {
     /// Fully decode the Item
     ///
     /// Returns the decoded data and the number of bytes consumed to produce it.
+    ///
+    /// # Errors
+    /// Fails if the parsed data corresponds to an invalid querycode.
+    /// Returns the invalid querycode.
     pub fn complete_decoding(&self) -> Result<(ActionQuery<'data>, usize), u8> {
         let (query, query_size) = self.query()?.complete_decoding();
         Ok((
@@ -243,18 +276,18 @@ mod test {
     fn known() {
         fn test(op: ActionQuery, data: &[u8]) {
             // Test op.encode_in() == data
-            let mut encoded = [0u8; 2 + 8];
+            let mut encoded = [0_u8; 2 + 8];
             let size = op.encode_in(&mut encoded).unwrap();
             assert_eq!(size, data.len());
             assert_eq!(&encoded[..size], data);
 
             // Test decode(data) == op
-            let (ret, size) = ActionQuery::decode(&data).unwrap();
+            let (ret, size) = ActionQuery::decode(data).unwrap();
             assert_eq!(size, data.len());
             assert_eq!(ret, op);
 
             // Test partial_decode == op
-            let decoder = ActionQuery::start_decoding(&data).unwrap();
+            let decoder = ActionQuery::start_decoding(data).unwrap();
             assert_eq!(
                 op,
                 ActionQuery {
@@ -299,6 +332,7 @@ mod test {
 
     #[test]
     fn consistence() {
+        const TOT_SIZE: usize = 10;
         let op = ActionQuery {
             group: true,
             response: false,
@@ -318,15 +352,14 @@ mod test {
         };
 
         // Test decode(op.encode_in()) == op
-        const TOT_SIZE: usize = 10;
-        let mut encoded = [0u8; TOT_SIZE];
+        let mut encoded = [0_u8; TOT_SIZE];
         let size_encoded = op.encode_in(&mut encoded).unwrap();
         let (ret, size_decoded) = ActionQuery::decode(&encoded).unwrap();
         assert_eq!(size_encoded, size_decoded);
         assert_eq!(ret, op);
 
         // Test decode(data).encode_in() == data
-        let mut encoded2 = [0u8; TOT_SIZE];
+        let mut encoded2 = [0_u8; TOT_SIZE];
         let size_encoded2 = op.encode_in(&mut encoded2).unwrap();
         assert_eq!(size_encoded, size_encoded2);
         assert_eq!(encoded2[..size_encoded2], encoded[..size_encoded]);

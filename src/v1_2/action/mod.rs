@@ -37,7 +37,7 @@ pub mod write_file_properties;
 // TODO Extension
 
 /// An ALP Action
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum Action<'a> {
     // Nop
     Nop(nop::Nop),

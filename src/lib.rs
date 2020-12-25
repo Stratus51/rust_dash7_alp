@@ -35,6 +35,21 @@
 //! it into scope.
 
 #![cfg_attr(not(test), no_std)]
+// Library no panic
+#![warn(clippy::unwrap_in_result, clippy::panic, clippy::expect_used)]
+// Library cleanliness
+#![warn(
+    clippy::print_stdout,
+    clippy::needless_borrow,
+    clippy::missing_errors_doc
+)]
+// Embedded constraints
+#![warn(clippy::float_arithmetic)]
+// Style
+#![warn(clippy::unseparated_literal_suffix)]
+// Manual review of dangerous stuff
+// Should be deactivated in commited code
+// #![warn(clippy::integer_arithmetic, clippy::indexing_slicing)]
 
 pub mod define;
 pub mod v1_2;

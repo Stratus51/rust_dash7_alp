@@ -8,6 +8,10 @@ pub const MAX_SIZE: usize = 1;
 /// This action has a fixed size
 pub const SIZE: usize = 1;
 
+/// Required size of a data buffer to determine the size of a resulting
+/// decoded object
+pub const HEADER_SIZE: usize = 1;
+
 /// Does nothing.
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct Nop {
@@ -30,15 +34,15 @@ impl Default for Nop {
 }
 
 impl Nop {
-    pub fn new(group: bool, response: bool) -> Self {
+    pub const fn new(group: bool, response: bool) -> Self {
         Self { group, response }
     }
 
     /// Encodes the Item into a fixed size array
     pub const fn encode_to_array(&self) -> [u8; 1] {
         [OpCode::Nop as u8
-            + if self.group { flag::GROUP } else { 0 }
-            + if self.response { flag::RESPONSE } else { 0 }]
+            | if self.group { flag::GROUP } else { 0 }
+            | if self.response { flag::RESPONSE } else { 0 }]
     }
 
     /// Encodes the Item into a data pointer without checking the size of the
@@ -51,13 +55,14 @@ impl Nop {
     /// It is not meant to be used inside a Rust library/binary.
     ///
     /// # Safety
-    /// You are responsible for checking that `out.len() >= size`. Failing that
-    /// will result in the program writing out of bound. In the current
-    /// implementation, it will silently attempt to write out of bounds.
+    /// You are responsible for checking that `out.len()` >= [`self.size()`](#method.size).
+    ///
+    /// Failing that will result in the program writing out of bound in
+    /// random parts of your memory.
     pub unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
         *out.add(0) = OpCode::Nop as u8
-            + if self.group { flag::GROUP } else { 0 }
-            + if self.response { flag::RESPONSE } else { 0 };
+            | if self.group { flag::GROUP } else { 0 }
+            | if self.response { flag::RESPONSE } else { 0 };
         1
     }
 
@@ -65,17 +70,18 @@ impl Nop {
     /// byte array.
     ///
     /// # Safety
-    /// You are responsible for checking that `size` == [self.size()](#method.size) and
-    /// to insure `out.len() >= size`. Failing that will result in the
-    /// program writing out of bound. In the current implementation, it
-    /// implementation, it will silently attempt to write out of bounds.
+    /// You are responsible for checking that `out.len()` >= [`self.size()`](#method.size).
+    ///
+    /// Failing that will result in the program writing out of bound in
+    /// random parts of your memory.
     pub unsafe fn encode_in_unchecked(&self, out: &mut [u8]) -> usize {
         self.encode_in_ptr(out.as_mut_ptr())
     }
 
     /// Encodes the value into pre allocated array.
     ///
-    /// Fails if the pre allocated array is smaller than [self.size()](#method.size)
+    /// # Errors
+    /// Fails if the pre allocated array is smaller than [`self.size()`](#method.size)
     /// returning the number of input bytes required.
     pub fn encode_in(&self, out: &mut [u8]) -> Result<usize, usize> {
         let size = self.size();
@@ -100,12 +106,15 @@ impl Nop {
     /// It is not meant to be used inside a Rust library/binary.
     ///
     /// # Safety
-    /// You are to check that data is not empty and that data.len() >=
-    /// [DecodableVarint.size()](struct.DecodableVarint.html#method.size)
-    /// (the expected byte size of the returned DecodableItem).
+    /// You are to check that:
+    /// - The first byte contains this action's opcode.
+    /// - The data is bigger than `SIZE`.
+    /// - The decoded data is bigger than the expected size of the `decodable` object.
+    /// Meaning that given the resulting decodable object `decodable`:
+    /// `data.len()` >= [`decodable.size()`](struct.DecodableNop.html#method.size).
     ///
-    /// You are also expected to warrant that the opcode contained in the
-    /// first byte corresponds to this action.
+    /// Failing that might result in reading and interpreting data outside the given
+    /// array (depending on what is done with the resulting object).
     pub const unsafe fn start_decoding_ptr<'data>(data: *const u8) -> DecodableNop<'data> {
         DecodableNop::from_ptr(data)
     }
@@ -113,12 +122,15 @@ impl Nop {
     /// Creates a decodable item without checking the data size.
     ///
     /// # Safety
-    /// You are to check that data is not empty and that data.len() >=
-    /// [DecodableNop.size()](struct.DecodableNop.html#method.size)
-    /// (the expected byte size of the returned DecodableItem).
+    /// You are to check that:
+    /// - The first byte contains this action's opcode.
+    /// - The data is bigger than `SIZE`.
+    /// - The decoded data is bigger than the expected size of the `decodable` object.
+    /// Meaning that given the resulting decodable object `decodable`:
+    /// `data.len()` >= [`decodable.size()`](struct.DecodableNop.html#method.size).
     ///
-    /// You are also expected to warrant that the opcode contained in the
-    /// first byte corresponds to this action.
+    /// Failing that might result in reading and interpreting data outside the given
+    /// array (depending on what is done with the resulting object).
     pub const unsafe fn start_decoding_unchecked(data: &[u8]) -> DecodableNop {
         DecodableNop::new(data)
     }
@@ -126,12 +138,19 @@ impl Nop {
     /// Creates a decodable item.
     ///
     /// This decodable item allows each parts of the item independently.
-    pub const fn start_decoding(data: &[u8]) -> Result<DecodableNop, BasicDecodeError> {
-        if data.is_empty() {
-            return Err(BasicDecodeError::MissingBytes(1));
-        }
-        if data[0] & 0x3F != OpCode::Nop as u8 {
-            return Err(BasicDecodeError::BadOpCode);
+    ///
+    /// # Errors
+    /// - Fails if first byte of the data contains the wrong opcode.
+    /// - Fails if `data.len()` < `SIZE`.
+    pub fn start_decoding(data: &[u8]) -> Result<DecodableNop, BasicDecodeError> {
+        // Because HEADER_SIZE == 1
+        match data.get(0) {
+            None => return Err(BasicDecodeError::MissingBytes(HEADER_SIZE)),
+            Some(byte) => {
+                if *byte & 0x3F != OpCode::Nop as u8 {
+                    return Err(BasicDecodeError::BadOpCode);
+                }
+            }
         }
         let ret = unsafe { Self::start_decoding_unchecked(data) };
         Ok(ret)
@@ -148,15 +167,14 @@ impl Nop {
     /// It is not meant to be used inside a Rust library/binary.
     ///
     /// # Safety
-    /// You are to check that data is not empty and that data.len() >=
-    /// [DecodableVarint.size()](struct.DecodableVarint.html#method.size)
-    /// (the expected byte size of the returned DecodableItem).
+    /// May attempt to read bytes after the end of the array.
+    ///
+    /// You are to check that:
+    /// - The first byte contains this action's opcode.
+    /// - The data is bigger than `SIZE`.
     ///
     /// Failing that will result in reading and interpreting data outside the given
     /// array.
-    ///
-    /// You are also expected to warrant that the opcode contained in the
-    /// first byte corresponds to this action.
     pub unsafe fn decode_ptr(data: *const u8) -> (Self, usize) {
         Self::start_decoding_ptr(data).complete_decoding()
     }
@@ -166,12 +184,14 @@ impl Nop {
     /// Returns the decoded data and the number of bytes consumed to produce it.
     ///
     /// # Safety
-    /// You are to check that data is not empty and that data.len() >=
-    /// [DecodableNop.size()](struct.DecodableNop.html#method.size)
-    /// (the expected byte size of the returned DecodableItem).
+    /// May attempt to read bytes after the end of the array.
     ///
-    /// You are also expected to warrant that the opcode contained in the
-    /// first byte corresponds to this action.
+    /// You are to check that:
+    /// - The first byte contains this action's opcode.
+    /// - The data is bigger than `SIZE`.
+    ///
+    /// Failing that will result in reading and interpreting data outside the given
+    /// array.
     pub unsafe fn decode_unchecked(data: &[u8]) -> (Self, usize) {
         Self::start_decoding_unchecked(data).complete_decoding()
     }
@@ -180,6 +200,10 @@ impl Nop {
     ///
     /// On success, returns the decoded data and the number of bytes consumed
     /// to produce it.
+    ///
+    /// # Errors
+    /// - Fails if first byte of the data contains the wrong opcode.
+    /// - Fails if `data.len()` < `SIZE`.
     pub fn decode(data: &[u8]) -> Result<(Self, usize), BasicDecodeError> {
         match Self::start_decoding(data) {
             Ok(v) => Ok(v.complete_decoding()),
@@ -243,7 +267,7 @@ mod test {
     fn known() {
         fn test(op: Nop, data: &[u8]) {
             // Test op.encode_in() == data
-            let mut encoded = [0u8; 1];
+            let mut encoded = [0_u8; 1];
             let size = op.encode_in(&mut encoded).unwrap();
             assert_eq!(size, data.len());
             assert_eq!(&encoded, data);
@@ -252,12 +276,12 @@ mod test {
             assert_eq!(&op.encode_to_array(), data);
 
             // Test decode(data) == op
-            let (ret, size) = Nop::decode(&data).unwrap();
+            let (ret, size) = Nop::decode(data).unwrap();
             assert_eq!(size, data.len());
             assert_eq!(ret, op);
 
             // Test partial_decode == op
-            let decoder = Nop::start_decoding(&data).unwrap();
+            let decoder = Nop::start_decoding(data).unwrap();
             assert_eq!(size, decoder.size());
             assert_eq!(
                 op,

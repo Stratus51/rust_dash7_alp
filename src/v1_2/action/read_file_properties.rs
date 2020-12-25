@@ -3,7 +3,7 @@ use super::super::define::op_code::OpCode;
 use super::super::error::BasicDecodeError;
 use crate::define::FileId;
 
-/// Maximum byte size of an encoded ReadFileProperties
+/// Maximum byte size of an encoded `ReadFileProperties`
 pub const MAX_SIZE: usize = 2;
 
 /// This action has a fixed size
@@ -21,11 +21,11 @@ pub struct ReadFileProperties {
 }
 
 impl ReadFileProperties {
-    /// Most common builder ReadFileProperties builder.
+    /// Most common builder `ReadFileProperties` builder.
     ///
     /// group = false
     /// response = true
-    pub fn new(file_id: FileId) -> Self {
+    pub const fn new(file_id: FileId) -> Self {
         Self {
             group: false,
             response: true,
@@ -37,8 +37,8 @@ impl ReadFileProperties {
     pub const fn encode_to_array(&self) -> [u8; 2] {
         [
             OpCode::ReadFileProperties as u8
-                + if self.group { flag::GROUP } else { 0 }
-                + if self.response { flag::RESPONSE } else { 0 },
+                | if self.group { flag::GROUP } else { 0 }
+                | if self.response { flag::RESPONSE } else { 0 },
             self.file_id.u8(),
         ]
     }
@@ -53,13 +53,14 @@ impl ReadFileProperties {
     /// It is not meant to be used inside a Rust library/binary.
     ///
     /// # Safety
-    /// You are responsible for checking that `out.len() >= size`. Failing that
-    /// will result in the program writing out of bound. In the current
-    /// implementation, it will silently attempt to write out of bounds.
+    /// You are responsible for checking that `out.len()` >= [`self.size()`](#method.size).
+    ///
+    /// Failing that will result in the program writing out of bound in
+    /// random parts of your memory.
     pub unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
         *out.add(0) = OpCode::ReadFileProperties as u8
-            + if self.group { flag::GROUP } else { 0 }
-            + if self.response { flag::RESPONSE } else { 0 };
+            | if self.group { flag::GROUP } else { 0 }
+            | if self.response { flag::RESPONSE } else { 0 };
         *out.add(1) = self.file_id.u8();
         2
     }
@@ -68,17 +69,18 @@ impl ReadFileProperties {
     /// byte array.
     ///
     /// # Safety
-    /// You are responsible for checking that `size` == [self.size()](#method.size) and
-    /// to insure `out.len() >= size`. Failing that will result in the
-    /// program writing out of bound. In the current implementation, it
-    /// implementation, it will silently attempt to write out of bounds.
+    /// You are responsible for checking that `out.len()` >= [`self.size()`](#method.size).
+    ///
+    /// Failing that will result in the program writing out of bound in
+    /// random parts of your memory.
     pub unsafe fn encode_in_unchecked(&self, out: &mut [u8]) -> usize {
         self.encode_in_ptr(out.as_mut_ptr())
     }
 
     /// Encodes the value into pre allocated array.
     ///
-    /// Fails if the pre allocated array is smaller than [self.size()](#method.size)
+    /// # Errors
+    /// Fails if the pre allocated array is smaller than [`self.size()`](#method.size)
     /// returning the number of input bytes required.
     pub fn encode_in(&self, out: &mut [u8]) -> Result<usize, usize> {
         let size = self.size();
@@ -103,12 +105,15 @@ impl ReadFileProperties {
     /// It is not meant to be used inside a Rust library/binary.
     ///
     /// # Safety
-    /// You are to check that data is not empty and that data.len() >=
-    /// [DecodableVarint.size()](struct.DecodableVarint.html#method.size)
-    /// (the expected byte size of the returned DecodableItem).
+    /// You are to check that:
+    /// - The first byte contains this action's opcode.
+    /// - The data is bigger than `SIZE`.
+    /// - The decoded data is bigger than the expected size of the `decodable` object.
+    /// Meaning that given the resulting decodable object `decodable`:
+    /// `data.len()` >= [`decodable.size()`](struct.DecodableReadFileProperties.html#method.size).
     ///
-    /// You are also expected to warrant that the opcode contained in the
-    /// first byte corresponds to this action.
+    /// Failing that might result in reading and interpreting data outside the given
+    /// array (depending on what is done with the resulting object).
     pub const unsafe fn start_decoding_ptr<'data>(
         data: *const u8,
     ) -> DecodableReadFileProperties<'data> {
@@ -118,12 +123,15 @@ impl ReadFileProperties {
     /// Creates a decodable item without checking the data size.
     ///
     /// # Safety
-    /// You are to check that data is not empty and that data.len() >=
-    /// [DecodableReadFileProperties.size()](struct.DecodableReadFileProperties.html#method.size)
-    /// (the expected byte size of the returned DecodableItem).
+    /// You are to check that:
+    /// - The first byte contains this action's opcode.
+    /// - The data is bigger than `SIZE`.
+    /// - The decoded data is bigger than the expected size of the `decodable` object.
+    /// Meaning that given the resulting decodable object `decodable`:
+    /// `data.len()` >= [`decodable.size()`](struct.DecodableReadFileProperties.html#method.size).
     ///
-    /// You are also expected to warrant that the opcode contained in the
-    /// first byte corresponds to this action.
+    /// Failing that might result in reading and interpreting data outside the given
+    /// array (depending on what is done with the resulting object).
     pub const unsafe fn start_decoding_unchecked(data: &[u8]) -> DecodableReadFileProperties {
         DecodableReadFileProperties::new(data)
     }
@@ -131,13 +139,16 @@ impl ReadFileProperties {
     /// Creates a decodable item.
     ///
     /// This decodable item allows each parts of the item independently.
-    pub const fn start_decoding(
-        data: &[u8],
-    ) -> Result<DecodableReadFileProperties, BasicDecodeError> {
+    ///
+    /// # Errors
+    /// Fails if first byte of the data contains the wrong opcode.
+    /// Fails if the data is less than 2 bytes.
+    pub fn start_decoding(data: &[u8]) -> Result<DecodableReadFileProperties, BasicDecodeError> {
         if data.len() < 2 {
             return Err(BasicDecodeError::MissingBytes(2));
         }
-        if data[0] & 0x3F != OpCode::ReadFileProperties as u8 {
+        let byte = unsafe { *data.get_unchecked(0) };
+        if byte & 0x3F != OpCode::ReadFileProperties as u8 {
             return Err(BasicDecodeError::BadOpCode);
         }
         let ret = unsafe { Self::start_decoding_unchecked(data) };
@@ -155,15 +166,14 @@ impl ReadFileProperties {
     /// It is not meant to be used inside a Rust library/binary.
     ///
     /// # Safety
-    /// You are to check that data is not empty and that data.len() >=
-    /// [DecodableVarint.size()](struct.DecodableVarint.html#method.size)
-    /// (the expected byte size of the returned DecodableItem).
+    /// May attempt to read bytes after the end of the array.
+    ///
+    /// You are to check that:
+    /// - The first byte contains this action's opcode.
+    /// - The data is bigger than `SIZE`.
     ///
     /// Failing that will result in reading and interpreting data outside the given
     /// array.
-    ///
-    /// You are also expected to warrant that the opcode contained in the
-    /// first byte corresponds to this action.
     pub unsafe fn decode_ptr(data: *const u8) -> (Self, usize) {
         Self::start_decoding_ptr(data).complete_decoding()
     }
@@ -173,12 +183,14 @@ impl ReadFileProperties {
     /// Returns the decoded data and the number of bytes consumed to produce it.
     ///
     /// # Safety
-    /// You are to check that data is not empty and that data.len() >=
-    /// [DecodableReadFileProperties.size()](struct.DecodableReadFileProperties.html#method.size)
-    /// (the expected byte size of the returned DecodableItem).
+    /// May attempt to read bytes after the end of the array.
     ///
-    /// You are also expected to warrant that the opcode contained in the
-    /// first byte corresponds to this action.
+    /// You are to check that:
+    /// - The first byte contains this action's opcode.
+    /// - The data is bigger than `SIZE`.
+    ///
+    /// Failing that will result in reading and interpreting data outside the given
+    /// array.
     pub unsafe fn decode_unchecked(data: &[u8]) -> (Self, usize) {
         Self::start_decoding_unchecked(data).complete_decoding()
     }
@@ -187,6 +199,10 @@ impl ReadFileProperties {
     ///
     /// On success, returns the decoded data and the number of bytes consumed
     /// to produce it.
+    ///
+    /// # Errors
+    /// - Fails if first byte of the data contains the wrong opcode.
+    /// - Fails if `data.len()` < `SIZE`.
     pub fn decode(data: &[u8]) -> Result<(Self, usize), BasicDecodeError> {
         match Self::start_decoding(data) {
             Ok(v) => Ok(v.complete_decoding()),
@@ -255,7 +271,7 @@ mod test {
     fn known() {
         fn test(op: ReadFileProperties, data: &[u8]) {
             // Test op.encode_in() == data
-            let mut encoded = [0u8; 2];
+            let mut encoded = [0_u8; 2];
             let size = op.encode_in(&mut encoded).unwrap();
             assert_eq!(size, data.len());
             assert_eq!(&encoded, data);
@@ -264,12 +280,12 @@ mod test {
             assert_eq!(&op.encode_to_array(), data);
 
             // Test decode(data) == op
-            let (ret, size) = ReadFileProperties::decode(&data).unwrap();
+            let (ret, size) = ReadFileProperties::decode(data).unwrap();
             assert_eq!(size, data.len());
             assert_eq!(ret, op);
 
             // Test partial_decode == op
-            let decoder = ReadFileProperties::start_decoding(&data).unwrap();
+            let decoder = ReadFileProperties::start_decoding(data).unwrap();
             assert_eq!(size, decoder.size());
             assert_eq!(
                 op,

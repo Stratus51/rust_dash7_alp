@@ -15,6 +15,8 @@ pub enum QueryDecodeError {
     MissingBytes(usize),
     /// The input contains an opcode that does not match the item you tried to
     /// decode.
+    // TODO Add the bad op code to the item so that the error handling
+    // code does not have to parse it again.
     BadOpCode,
 }
 

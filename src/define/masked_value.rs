@@ -16,6 +16,7 @@ impl<'a> MaskedValue<'a> {
         Self { value, mask }
     }
 
+    /// # Errors
     /// Fails if the mask is defined and the mask and the value do not have the same size.
     pub fn new(value: EncodableData<'a>, mask: Option<&'a [u8]>) -> Result<Self, ()> {
         if let Some(mask) = &mask {

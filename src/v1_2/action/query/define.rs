@@ -28,7 +28,9 @@ impl QueryComparisonType {
         }
     }
 
-    pub const fn from(n: u8) -> Result<Self, u8> {
+    /// # Errors
+    /// Returns an error if n > 7
+    pub const fn from(n: u8) -> Result<Self, ()> {
         Ok(match n {
             0 => Self::Inequal,
             1 => Self::Equal,
@@ -38,7 +40,7 @@ impl QueryComparisonType {
             5 => Self::GreaterThanOrEqual,
             6 => Self::Rfu6,
             7 => Self::Rfu7,
-            x => return Err(x),
+            _ => return Err(()),
         })
     }
 }
@@ -73,7 +75,9 @@ impl QueryRangeComparisonType {
         }
     }
 
-    pub const fn from(n: u8) -> Result<Self, u8> {
+    /// # Errors
+    /// Returns an error if n > 7
+    pub const fn from(n: u8) -> Result<Self, ()> {
         Ok(match n {
             0 => Self::NotInRange,
             1 => Self::InRange,
@@ -83,7 +87,7 @@ impl QueryRangeComparisonType {
             5 => Self::Rfu5,
             6 => Self::Rfu6,
             7 => Self::Rfu7,
-            x => return Err(x),
+            _ => return Err(()),
         })
     }
 }
@@ -98,7 +102,9 @@ pub enum QueryCode {
     // StringTokenSearch = 7,
 }
 impl QueryCode {
-    pub const fn from(n: u8) -> Result<Self, u8> {
+    /// # Errors
+    /// Returns an error if the query code is unknown
+    pub const fn from(n: u8) -> Result<Self, ()> {
         Ok(match n {
             // 0 => QueryCode::NonVoid,
             // 1 => QueryCode::ComparisonWithZero,
@@ -106,7 +112,7 @@ impl QueryCode {
             // 3 => QueryCode::ComparisonWithOtherFile,
             4 => QueryCode::ComparisonWithRange,
             // 7 => QueryCode::StringTokenSearch,
-            x => return Err(x),
+            _ => return Err(()),
         })
     }
 }

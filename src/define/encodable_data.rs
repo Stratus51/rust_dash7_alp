@@ -15,6 +15,7 @@ impl<'a> EncodableData<'a> {
         Self(data)
     }
 
+    /// # Errors
     /// Fails if the length of the data is bigger than [varint::MAX_SIZE](varint::MAX_SIZE).
     pub const fn new(data: &'a [u8]) -> Result<Self, ()> {
         if data.len() > varint::MAX_SIZE {

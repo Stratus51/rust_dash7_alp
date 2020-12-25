@@ -36,6 +36,7 @@ impl<'a> MaskedRange<'a> {
         (end - start + 6) / 8
     }
 
+    /// # Errors
     /// Fails if the bitmap is defined and bitmap.len() != `floor((end - start + 6)/8)`.
     pub fn new(start: usize, end: usize, bitmap: Option<&'a [u8]>) -> Result<Self, usize> {
         if let Some(bitmap) = &bitmap {

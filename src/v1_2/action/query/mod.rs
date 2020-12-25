@@ -32,9 +32,10 @@ impl<'item> Query<'item> {
     /// It is not meant to be used inside a Rust library/binary.
     ///
     /// # Safety
-    /// You are responsible for checking that `out.len() >= size`. Failing that
-    /// will result in the program writing out of bound. In the current
-    /// implementation, it will silently attempt to write out of bounds.
+    /// You are responsible for checking that `out.len()` >= [`self.size()`](#method.size).
+    ///
+    /// Failing that will result in the program writing out of bound in
+    /// random parts of your memory.
     pub unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
         match self {
             Self::ComparisonWithValue(query) => query.encode_in_ptr(out),
@@ -46,16 +47,17 @@ impl<'item> Query<'item> {
     /// byte array.
     ///
     /// # Safety
-    /// You are responsible for checking that `size` == [self.size()](#method.size) and
-    /// to insure `out.len() >= size`. Failing that will result in the
-    /// program writing out of bound. In the current implementation, it
-    /// implementation, it will silently attempt to write out of bounds.
+    /// You are responsible for checking that `out.len()` >= [`self.size()`](#method.size).
+    ///
+    /// Failing that will result in the program writing out of bound in
+    /// random parts of your memory.
     pub unsafe fn encode_in_unchecked(&self, out: &mut [u8]) -> usize {
         self.encode_in_ptr(out.as_mut_ptr())
     }
 
     /// Encodes the value into pre allocated array.
     ///
+    /// # Errors
     /// Fails if the pre allocated array is smaller than [self.size()](#method.size)
     /// returning the number of input bytes required.
     pub fn encode_in(&self, out: &mut [u8]) -> Result<usize, usize> {
@@ -83,33 +85,46 @@ impl<'item> Query<'item> {
     ///
     /// It is not meant to be used inside a Rust library/binary.
     ///
+    /// # Errors
+    /// Fails if the decoded data contains an invalid querycode. Returning the querycode.
+    ///
     /// # Safety
-    /// You are to check that data is not empty and that data.len() >=
-    /// [DecodableVarint.size()](struct.DecodableVarint.html#method.size)
-    /// (the expected byte size of the returned DecodableItem).
+    /// You are to check that:
+    /// - The decoded data is bigger than the expected size of the `decodable` object.
+    /// Meaning that given the resulting decodable object `decodable`:
+    /// `data.len()` >= [`decodable.size()`](struct.DecodableQuery.html#method.size).
     ///
     /// Failing that might result in reading and interpreting data outside the given
-    /// array.
+    /// array (depending on what is done with the resulting object).
     pub unsafe fn start_decoding_ptr<'data>(data: *const u8) -> Result<DecodableQuery<'data>, u8> {
         DecodableQuery::from_ptr(data)
     }
 
     /// Creates a decodable item without checking the data size.
     ///
+    /// # Errors
+    /// Fails if the decoded data contains an invalid querycode. Returning the querycode.
+    ///
     /// # Safety
-    /// You are to check that data is not empty and that data.len() >=
-    /// [DecodableVarint.size()](struct.DecodableQuery.html#method.size)
-    /// (the expected byte size of the returned DecodableItem).
+    /// You are to check that:
+    /// - The decoded data is bigger than the expected size of the `decodable` object.
+    /// Meaning that given the resulting decodable object `decodable`:
+    /// `data.len()` >= [`decodable.size()`](struct.DecodableQuery.html#method.size).
     ///
     /// Failing that might result in reading and interpreting data outside the given
-    /// array.
-    pub const unsafe fn start_decoding_unchecked(data: &[u8]) -> Result<DecodableQuery, u8> {
+    /// array (depending on what is done with the resulting object).
+    pub unsafe fn start_decoding_unchecked(data: &[u8]) -> Result<DecodableQuery, u8> {
         DecodableQuery::new(data)
     }
 
     /// Creates a decodable item.
     ///
     /// This decodable item allows each parts of the item independently.
+    ///
+    /// # Errors
+    /// - Fails if first byte of the data contains an invalid querycode.
+    /// - Fails if data is empty.
+    /// - Fails if data is smaller then the decoded expected size.
     pub fn start_decoding(data: &[u8]) -> Result<DecodableQuery, QueryDecodeError> {
         if data.is_empty() {
             return Err(QueryDecodeError::MissingBytes(1));
@@ -134,13 +149,18 @@ impl<'item> Query<'item> {
     ///
     /// It is not meant to be used inside a Rust library/binary.
     ///
-    /// # Safety
-    /// You are to check that data is not empty and that data.len() >=
-    /// [DecodableVarint.size()](struct.DecodableVarint.html#method.size)
-    /// (the expected byte size of the returned DecodableItem).
+    /// # Errors
+    /// Fails if first byte of the data contains an invalid querycode.
     ///
-    /// Failing that will result in reading and interpreting data outside the given
-    /// array.
+    /// # Safety
+    /// You are to check that:
+    /// - The first byte contains this action's querycode.
+    /// - The data is not empty.
+    /// - The resulting size of the data consumed is smaller than the size of the
+    /// decoded data.
+    ///
+    /// Failing that might result in reading and interpreting data outside the given
+    /// array (depending on what is done with the resulting object).
     pub unsafe fn decode_ptr(data: *const u8) -> Result<(Self, usize), QueryDecodeError> {
         Ok(Self::start_decoding_ptr(data)
             .map_err(QueryDecodeError::BadQueryCode)?
@@ -151,13 +171,18 @@ impl<'item> Query<'item> {
     ///
     /// Returns the decoded data and the number of bytes consumed to produce it.
     ///
-    /// # Safety
-    /// You are to check that data is not empty and that data.len() >=
-    /// [DecodableQuery.size()](struct.DecodableQuery.html#method.size)
-    /// (the expected byte size of the returned DecodableItem).
+    /// # Errors
+    /// Fails if first byte of the data contains an invalid querycode.
     ///
-    /// Failing that will result in reading and interpreting data outside the given
-    /// array.
+    /// # Safety
+    /// You are to check that:
+    /// - The first byte contains this action's querycode.
+    /// - The data is not empty.
+    /// - The resulting size of the data consumed is smaller than the size of the
+    /// decoded data.
+    ///
+    /// Failing that might result in reading and interpreting data outside the given
+    /// array (depending on what is done with the resulting object).
     pub unsafe fn decode_unchecked(data: &'item [u8]) -> Result<(Self, usize), QueryDecodeError> {
         Ok(Self::start_decoding_unchecked(data)
             .map_err(QueryDecodeError::BadQueryCode)?
@@ -166,8 +191,9 @@ impl<'item> Query<'item> {
 
     /// Decodes the item from bytes.
     ///
-    /// On success, returns the decoded data and the number of bytes consumed
-    /// to produce it.
+    /// # Errors
+    /// - Fails if first byte of the data contains an invalid querycode.
+    /// - Fails if data is smaller then the decoded expected size.
     pub fn decode(data: &'item [u8]) -> Result<(Self, usize), QueryDecodeError> {
         Ok(Self::start_decoding(data)?.complete_decoding())
     }
@@ -183,10 +209,14 @@ pub enum DecodableQuery<'data> {
 }
 
 impl<'data> DecodableQuery<'data> {
-    pub const fn new(data: &'data [u8]) -> Result<Self, u8> {
-        let query_code = match QueryCode::from((data[0] >> 5) & 0x07) {
+    /// # Errors
+    /// Fails if the querycode is invalid. Returning the querycode.
+    pub fn new(data: &'data [u8]) -> Result<Self, u8> {
+        let byte = unsafe { *data.get_unchecked(0) };
+        let code = (byte >> 5) & 0x07;
+        let query_code = match QueryCode::from(code) {
             Ok(code) => code,
-            Err(x) => return Err(x),
+            Err(_) => return Err(code),
         };
         Ok(unsafe {
             match query_code {
@@ -200,10 +230,13 @@ impl<'data> DecodableQuery<'data> {
         })
     }
 
+    /// # Errors
+    /// Fails if the querycode is invalid. Returning the querycode.
     unsafe fn from_ptr(data: *const u8) -> Result<Self, u8> {
-        let query_code = match QueryCode::from((*data.offset(0) >> 5) & 0x07) {
+        let code = (*data.offset(0) >> 5) & 0x07;
+        let query_code = match QueryCode::from(code) {
             Ok(code) => code,
-            Err(x) => return Err(x),
+            Err(_) => return Err(code),
         };
         Ok(match query_code {
             QueryCode::ComparisonWithValue => {
@@ -251,7 +284,7 @@ mod test {
     fn known() {
         fn test(op: Query, data: &[u8]) {
             // Test op.encode_in() == data
-            let mut encoded = [0u8; 64];
+            let mut encoded = [0_u8; 64];
             let size = op.encode_in(&mut encoded).unwrap();
             assert_eq!(size, data.len());
             assert_eq!(&encoded[..size], data);
@@ -303,6 +336,7 @@ mod test {
 
     #[test]
     fn consistence() {
+        const TOT_SIZE: usize = 1 + 1 + 3 + 3 + 1 + 3;
         let op = Query::ComparisonWithValue(ComparisonWithValue {
             signed_data: true,
             comparison_type: QueryComparisonType::GreaterThanOrEqual,
@@ -316,15 +350,14 @@ mod test {
         });
 
         // Test decode(op.encode_in()) == op
-        const TOT_SIZE: usize = 1 + 1 + 3 + 3 + 1 + 3;
-        let mut encoded = [0u8; TOT_SIZE];
+        let mut encoded = [0_u8; TOT_SIZE];
         let size_encoded = op.encode_in(&mut encoded).unwrap();
         let (ret, size_decoded) = Query::decode(&encoded).unwrap();
         assert_eq!(size_encoded, size_decoded);
         assert_eq!(ret, op);
 
         // Test decode(data).encode_in() == data
-        let mut encoded2 = [0u8; TOT_SIZE];
+        let mut encoded2 = [0_u8; TOT_SIZE];
         let size_encoded2 = op.encode_in(&mut encoded2).unwrap();
         assert_eq!(size_encoded, size_encoded2);
         assert_eq!(encoded2[..size_encoded2], encoded[..size_encoded]);

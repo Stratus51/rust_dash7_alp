@@ -13,6 +13,10 @@ pub const U32_MAX: u32 = 0x3F_FF_FF_FF;
 /// Maximum byte size of an encoded Varint
 pub const MAX_SIZE: usize = 4;
 
+/// Required size of a data buffer to determine the size of a resulting
+/// decoded object
+pub const HEADER_SIZE: usize = 1;
+
 /// Represents a variable integer as described by the Dash7 ALP specification.
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct Varint {
@@ -23,7 +27,7 @@ impl Varint {
     /// Create a struct representing a Varint
     ///
     /// # Safety
-    /// Only call this on u32 that are less than [MAX](constant.MAX.html)
+    /// Only call this on u32 that are less than [`MAX`](constant.MAX.html).
     ///
     /// Calling this on a large integer will result in a structure
     /// containing an impossible value. Plus, trying to encode the
@@ -35,7 +39,8 @@ impl Varint {
 
     /// Create a struct representing a Varint
     ///
-    /// Fails if the value is bigger than [MAX](constant.MAX.html)
+    /// # Errors
+    /// Fails if the value is bigger than [`MAX`](constant.MAX.html)
     pub const fn new(value: u32) -> Result<Self, ()> {
         if value > U32_MAX {
             Err(())
@@ -71,9 +76,12 @@ impl Varint {
     }
 
     /// # Safety
-    /// You are responsible for checking that `out.len() >= size`. Failing that
-    /// will result in the program writing out of bound. In the current
-    /// implementation, it will trigger a panic.
+    /// You are responsible for checking that:
+    /// - `size` == [`self.size()`](#method.size) (this determines the integer encoding)
+    /// - `out.len()` >= `size`.
+    ///
+    /// Failing that will result in the program writing out of bound in
+    /// random parts of your memory.
     pub unsafe fn __encode_in_ptr(&self, out: *mut u8, size: usize) {
         match size {
             1 => *out.add(0) = (self.value & 0x3F) as u8,
@@ -107,9 +115,10 @@ impl Varint {
     /// It is not meant to be used inside a Rust library/binary.
     ///
     /// # Safety
-    /// You are responsible for checking that `out.len() >= size`. Failing that
-    /// will result in the program writing out of bound. In the current
-    /// implementation, it will silently attempt to write out of bounds.
+    /// You are responsible for checking that `out.len()` >= [`self.size()`](#method.size).
+    ///
+    /// Failing that will result in the program writing out of bound in
+    /// random parts of your memory.
     pub unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
         let size = self.size();
         self.__encode_in_ptr(out, size);
@@ -120,9 +129,10 @@ impl Varint {
     /// byte array.
     ///
     /// # Safety
-    /// You are responsible for checking that `out.len() >= size`. Failing that
-    /// will result in the program writing out of bound. In the current
-    /// implementation, it will silently attempt to write out of bounds.
+    /// You are responsible for checking that `out.len()` >= [`self.size()`](#method.size).
+    ///
+    /// Failing that will result in the program writing out of bound in
+    /// random parts of your memory.
     pub unsafe fn encode_in_unchecked(&self, out: &mut [u8]) -> usize {
         let size = self.size();
         self.__encode_in_ptr(out.as_mut_ptr(), size);
@@ -131,7 +141,8 @@ impl Varint {
 
     /// Encodes the value into pre allocated array.
     ///
-    /// Fails if the pre allocated array is smaller than [self.size()](#method.size)
+    /// # Errors
+    /// Fails if the pre allocated array is smaller than [`self.size()`](#method.size)
     /// returning the number of input bytes required.
     pub fn encode_in(&self, out: &mut [u8]) -> Result<usize, usize> {
         let size = self.size();
@@ -152,12 +163,15 @@ impl Varint {
     /// It is not meant to be used inside a Rust library/binary.
     ///
     /// # Safety
-    /// You are to check that data is not empty and that data.len() >=
-    /// [DecodableVarint.size()](struct.DecodableVarint.html#method.size)
-    /// (the expected byte size of the returned DecodableItem).
+    /// You are to check that:
+    /// - The data is bigger than `HEADER_SIZE` (to be sure the Item size will be
+    /// decoded correctly).
+    /// - The decoded data is bigger than the expected size of the `decodable` object.
+    /// Meaning that given the resulting decodable object `decodable`:
+    /// `data.len()` >= [`decodable.size()`](struct.DecodableVarint.html#method.size).
     ///
     /// Failing that might result in reading and interpreting data outside the given
-    /// array.
+    /// array (depending on what is done with the resulting object).
     pub const unsafe fn start_decoding_ptr<'item>(data: *const u8) -> DecodableVarint<'item> {
         DecodableVarint::from_ptr(data)
     }
@@ -165,12 +179,15 @@ impl Varint {
     /// Creates a decodable item without checking the data size.
     ///
     /// # Safety
-    /// You are to check that data is not empty and that data.len() >=
-    /// [DecodableVarint.size()](struct.DecodableVarint.html#method.size)
-    /// (the expected byte size of the returned DecodableItem).
+    /// You are to check that:
+    /// - The data is bigger than `HEADER_SIZE` (to be sure the Item size will be
+    /// decoded correctly).
+    /// - The decoded data is bigger than the expected size of the `decodable` object.
+    /// Meaning that given the resulting decodable object `decodable`:
+    /// `data.len()` >= [`decodable.size()`](struct.DecodableVarint.html#method.size).
     ///
     /// Failing that might result in reading and interpreting data outside the given
-    /// array.
+    /// array (depending on what is done with the resulting object).
     pub const unsafe fn start_decoding_unchecked(data: &[u8]) -> DecodableVarint {
         DecodableVarint::new(data)
     }
@@ -179,11 +196,12 @@ impl Varint {
     ///
     /// This decodable item allows each parts of the item independently.
     ///
-    /// Fails if the input data is too small to decode and requires the minimum
-    /// number of bytes required to continue decoding.
+    /// # Errors
+    /// - Fails if `data.len()` < `HEADER_SIZE`.
+    /// - Fails if data is smaller then the decoded expected size.
     pub fn start_decoding(data: &[u8]) -> Result<DecodableVarint, usize> {
-        if data.is_empty() {
-            return Err(1);
+        if data.len() < HEADER_SIZE {
+            return Err(HEADER_SIZE);
         }
         let ret = unsafe { Self::start_decoding_unchecked(data) };
         let ret_size = ret.size();
@@ -204,9 +222,13 @@ impl Varint {
     /// It is not meant to be used inside a Rust library/binary.
     ///
     /// # Safety
-    /// You are to check that data is not empty and that data.len() >=
-    /// [DecodableVarint.size()](struct.DecodableVarint.html#method.size)
-    /// (the expected byte size of the returned DecodableItem).
+    /// May attempt to read bytes after the end of the array.
+    ///
+    /// You are to check that:
+    /// - The data is bigger than `HEADER_SIZE` (to be sure the Item size will be
+    /// decoded correctly).
+    /// - The resulting size of the data consumed is smaller than the size of the
+    /// decoded data.
     ///
     /// Failing that will result in reading and interpreting data outside the given
     /// array.
@@ -219,9 +241,13 @@ impl Varint {
     /// Returns the decoded data and the number of bytes consumed to produce it.
     ///
     /// # Safety
-    /// You are to check that data is not empty and that data.len() >=
-    /// [DecodableVarint.size()](struct.DecodableVarint.html#method.size)
-    /// (the expected byte size of the returned DecodableItem).
+    /// May attempt to read bytes after the end of the array.
+    ///
+    /// You are to check that:
+    /// - The data is bigger than `HEADER_SIZE` (to be sure the Item size will be
+    /// decoded correctly).
+    /// - The resulting size of the data consumed is smaller than the size of the
+    /// decoded data.
     ///
     /// Failing that will result in reading and interpreting data outside the given
     /// array.
@@ -234,6 +260,7 @@ impl Varint {
     /// On success, returns the decoded data and the number of bytes consumed
     /// to produce it.
     ///
+    /// # Errors
     /// Fails if the input data is too small to decode and requires the minimum
     /// number of bytes required to continue decoding.
     pub fn decode(data: &[u8]) -> Result<(Self, usize), usize> {
@@ -246,7 +273,7 @@ impl Varint {
     /// Encode the value into a single byte array.
     ///
     /// # Safety
-    /// You are to warrant that the value does not exceed [U8_MAX](constant.U8_MAX.html)
+    /// You are to warrant that the value does not exceed [`U8_MAX`](constant.U8_MAX.html)
     pub const unsafe fn encode_as_u8(value: u8) -> [u8; 1] {
         [value & 0x3F]
     }
@@ -257,7 +284,7 @@ impl Varint {
     /// this fixed sized array.
     ///
     /// # Safety
-    /// You are to warrant that the value does not exceed [U16_MAX](constant.U16_MAX.html)
+    /// You are to warrant that the value does not exceed [`U16_MAX`](constant.U16_MAX.html)
     pub const unsafe fn encode_as_u16(value: u16) -> [u8; 2] {
         [((value >> 8) & 0x3F) as u8, (value & 0xFF) as u8]
     }
@@ -268,7 +295,7 @@ impl Varint {
     /// this fixed sized array.
     ///
     /// # Safety
-    /// You are to warrant that the value does not exceed [U24_MAX](constant.U24_MAX.html)
+    /// You are to warrant that the value does not exceed [`U24_MAX`](constant.U24_MAX.html)
     pub const unsafe fn encode_as_u24(value: u32) -> [u8; 3] {
         [
             ((value >> 16) & 0x3F) as u8,
@@ -283,7 +310,7 @@ impl Varint {
     /// this fixed sized array.
     ///
     /// # Safety
-    /// You are to warrant that the value does not exceed [U32_MAX](constant.U32_MAX.html)
+    /// You are to warrant that the value does not exceed [`U32_MAX`](constant.U32_MAX.html)
     pub const unsafe fn encode_as_u32(value: u32) -> [u8; 4] {
         [
             ((value >> 24) & 0x3F) as u8,
@@ -372,7 +399,7 @@ mod test {
     #[test]
     fn test_encode() {
         fn test(n: u32, truth: &[u8]) {
-            let mut encoded = [0u8; MAX_SIZE];
+            let mut encoded = [0_u8; MAX_SIZE];
             let size = Varint::new(n).unwrap().encode_in(&mut encoded[..]).unwrap();
             assert_eq!(truth.len(), size);
             assert_eq!(*truth, encoded[..truth.len()]);
