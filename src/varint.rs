@@ -327,6 +327,7 @@ pub struct DecodableVarint<'data> {
 }
 
 impl<'data> DecodableVarint<'data> {
+    // TODO Link new and from_ptr, for factorization of more complex decodable
     const fn new(data: &'data [u8]) -> Self {
         Self {
             data: data.as_ptr(),
@@ -378,6 +379,8 @@ impl<'data> DecodableVarint<'data> {
 
 #[cfg(test)]
 mod test {
+    #![allow(clippy::unwrap_in_result, clippy::panic, clippy::expect_used)]
+
     use super::*;
     use hex_literal::hex;
 

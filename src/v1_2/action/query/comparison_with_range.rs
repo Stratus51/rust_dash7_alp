@@ -447,6 +447,7 @@ impl<'data> DecodableComparisonWithRange<'data> {
 
 #[cfg(test)]
 mod test {
+    #![allow(clippy::unwrap_in_result, clippy::panic, clippy::expect_used)]
     use super::*;
 
     #[test]

@@ -211,22 +211,23 @@ pub enum DecodableQuery<'data> {
 impl<'data> DecodableQuery<'data> {
     /// # Errors
     /// Fails if the querycode is invalid. Returning the querycode.
-    pub fn new(data: &'data [u8]) -> Result<Self, u8> {
-        let byte = unsafe { *data.get_unchecked(0) };
+    ///
+    /// # Safety
+    /// The data has to contain at least one byte
+    pub unsafe fn new(data: &'data [u8]) -> Result<Self, u8> {
+        let byte = *data.get_unchecked(0);
         let code = (byte >> 5) & 0x07;
         let query_code = match QueryCode::from(code) {
             Ok(code) => code,
             Err(_) => return Err(code),
         };
-        Ok(unsafe {
-            match query_code {
-                QueryCode::ComparisonWithValue => DecodableQuery::ComparisonWithValue(
-                    ComparisonWithValue::start_decoding_unchecked(data),
-                ),
-                QueryCode::ComparisonWithRange => DecodableQuery::ComparisonWithRange(
-                    ComparisonWithRange::start_decoding_unchecked(data),
-                ),
-            }
+        Ok(match query_code {
+            QueryCode::ComparisonWithValue => DecodableQuery::ComparisonWithValue(
+                ComparisonWithValue::start_decoding_unchecked(data),
+            ),
+            QueryCode::ComparisonWithRange => DecodableQuery::ComparisonWithRange(
+                ComparisonWithRange::start_decoding_unchecked(data),
+            ),
         })
     }
 
@@ -275,6 +276,7 @@ impl<'data> DecodableQuery<'data> {
 
 #[cfg(test)]
 mod test {
+    #![allow(clippy::unwrap_in_result, clippy::panic, clippy::expect_used)]
     use super::define::QueryComparisonType;
     use super::*;
     use crate::define::{EncodableData, FileId, MaskedValue};
@@ -290,7 +292,7 @@ mod test {
             assert_eq!(&encoded[..size], data);
 
             // Test decode(data) == op
-            let (ret, size) = Query::decode(&data).unwrap();
+            let (ret, size) = Query::decode(data).unwrap();
             assert_eq!(size, data.len());
             assert_eq!(ret, op);
         }
