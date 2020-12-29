@@ -9,7 +9,7 @@ pub enum BasicDecodeError {
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum QueryDecodeError {
-    /// The decoded query contains an invalid query code.
+    /// The decoded query contains an unknown query code.
     UnknownQueryCode(u8),
     /// The input data is missing bytes to be decoded into the wanted item.
     MissingBytes(usize),
@@ -17,7 +17,7 @@ pub enum QueryDecodeError {
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum QueryOperandDecodeError {
-    /// The decoded query contains an invalid query code.
+    /// The decoded query contains an unknown query code.
     UnknownQueryCode(u8),
     /// The input data is missing bytes to be decoded into the wanted item.
     MissingBytes(usize),
@@ -34,7 +34,7 @@ impl From<QueryOperandDecodeError> for QueryDecodeError {
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum QueryActionDecodeError {
-    /// The decoded query contains an invalid query code.
+    /// The decoded query contains an unknown query code.
     UnknownQueryCode { code: u8, offset: usize },
     /// The input data is missing bytes to be decoded into the wanted item.
     MissingBytes(usize),
@@ -45,7 +45,7 @@ pub enum QueryActionDecodeError {
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum StatusDecodeError {
-    /// The decoded query contains an invalid query code.
+    /// The decoded query contains an unknown query code.
     UnknownExtension { extension: u8, offset: usize },
     /// The input data is missing bytes to be decoded into the wanted item.
     MissingBytes(usize),
@@ -62,7 +62,7 @@ pub enum StatusDecodeError {
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum UncheckedStatusDecodeError {
-    /// The decoded query contains an invalid query code.
+    /// The decoded query contains an unknown query code.
     UnknownExtension { extension: u8, offset: usize },
     /// The input data contains an unknown interface ID
     // TODO This offset needs to be replaced with a reference to the remaining data instead.
