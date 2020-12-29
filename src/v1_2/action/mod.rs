@@ -65,8 +65,7 @@ pub enum Action<'a> {
     // // Response
     // ReturnFileData(ReturnFileData),
     // ReturnFileProperties(ReturnFileProperties),
-    // TODO
-    // Status(Status),
+    Status(status::Status),
     // ResponseTag(ResponseTag),
 
     // // Special
@@ -80,3 +79,5 @@ pub enum Action<'a> {
     // // TODO
     // Extension(Extension),
 }
+
+// TODO Codec interface
