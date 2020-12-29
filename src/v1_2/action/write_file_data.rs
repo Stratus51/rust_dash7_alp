@@ -149,7 +149,7 @@ impl<'item> WriteFileData<'item> {
             None => return Err(BasicDecodeError::MissingBytes(1)),
             Some(byte) => {
                 if *byte & 0x3F != OpCode::WriteFileData as u8 {
-                    return Err(BasicDecodeError::UnknownOpCode);
+                    return Err(BasicDecodeError::BadOpCode);
                 }
             }
         }

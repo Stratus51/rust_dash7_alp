@@ -4,7 +4,7 @@ pub enum BasicDecodeError {
     MissingBytes(usize),
     /// The input contains an opcode that does not match the item you tried to
     /// decode.
-    UnknownOpCode,
+    BadOpCode,
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
@@ -40,7 +40,7 @@ pub enum QueryActionDecodeError {
     MissingBytes(usize),
     /// The input contains an opcode that does not match the item you tried to
     /// decode.
-    UnknownOpCode,
+    BadOpCode,
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
@@ -51,7 +51,7 @@ pub enum StatusDecodeError {
     MissingBytes(usize),
     /// The input contains an opcode that does not match the item you tried to
     /// decode.
-    UnknownOpCode,
+    BadOpCode,
     /// The input data contains an unknown interface ID
     // TODO This offset needs to be replaced with a reference to the remaining data instead.
     // It would require a unique operation from the error generator to build a slice, then it

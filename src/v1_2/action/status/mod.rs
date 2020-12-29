@@ -128,7 +128,7 @@ impl<'item> Status<'item> {
             None => return Err(StatusDecodeError::MissingBytes(1)),
             Some(byte) => {
                 if *byte & 0x3F != OpCode::Status as u8 {
-                    return Err(StatusDecodeError::UnknownOpCode);
+                    return Err(StatusDecodeError::BadOpCode);
                 }
             }
         }

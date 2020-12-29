@@ -121,7 +121,7 @@ impl<'item> ActionQuery<'item> {
             return Err(QueryActionDecodeError::MissingBytes(1));
         }
         if data[0] & 0x3F != OpCode::ActionQuery as u8 {
-            return Err(QueryActionDecodeError::UnknownOpCode);
+            return Err(QueryActionDecodeError::BadOpCode);
         }
         let ret = unsafe { Self::start_decoding_unchecked(data) };
         let ret_size = ret
