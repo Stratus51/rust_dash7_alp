@@ -132,7 +132,7 @@ impl StatusInterface {
         let ret = unsafe { Self::start_decoding_unchecked(data) };
         let ret_size = ret
             .size()
-            .map_err(StatusInterfaceDecodeError::BadInterfaceId)?;
+            .map_err(StatusInterfaceDecodeError::UnknownInterfaceId)?;
         if data.len() < ret_size {
             return Err(StatusInterfaceDecodeError::MissingBytes(ret_size));
         }
@@ -200,7 +200,7 @@ impl StatusInterface {
         match Self::start_decoding(data) {
             Ok(v) => Ok(v
                 .complete_decoding()
-                .map_err(StatusInterfaceDecodeError::BadInterfaceId)?),
+                .map_err(StatusInterfaceDecodeError::UnknownInterfaceId)?),
             Err(e) => Err(e),
         }
     }

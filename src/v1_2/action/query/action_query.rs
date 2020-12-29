@@ -121,12 +121,12 @@ impl<'item> ActionQuery<'item> {
             return Err(QueryActionDecodeError::MissingBytes(1));
         }
         if data[0] & 0x3F != OpCode::ActionQuery as u8 {
-            return Err(QueryActionDecodeError::BadOpCode);
+            return Err(QueryActionDecodeError::UnknownOpCode);
         }
         let ret = unsafe { Self::start_decoding_unchecked(data) };
         let ret_size = ret
             .size()
-            .map_err(|code| QueryActionDecodeError::BadQueryCode { code, offset: 1 })?;
+            .map_err(|code| QueryActionDecodeError::UnknownQueryCode { code, offset: 1 })?;
         if data.len() < ret_size {
             return Err(QueryActionDecodeError::MissingBytes(ret_size));
         }
@@ -199,7 +199,7 @@ impl<'item> ActionQuery<'item> {
             .complete_decoding()
             // TODO This error should never happen as it should be triggered by `start_decoding`
             // first, when fetching the size of the operand.
-            .map_err(|code| QueryActionDecodeError::BadQueryCode { code, offset: 1 })?)
+            .map_err(|code| QueryActionDecodeError::UnknownQueryCode { code, offset: 1 })?)
     }
 }
 

@@ -130,7 +130,7 @@ impl<'item> Query<'item> {
             return Err(QueryDecodeError::MissingBytes(1));
         }
         let ret = unsafe {
-            Self::start_decoding_unchecked(data).map_err(QueryDecodeError::BadQueryCode)?
+            Self::start_decoding_unchecked(data).map_err(QueryDecodeError::UnknownQueryCode)?
         };
         let ret_size = ret.size();
         if data.len() < ret_size {
@@ -163,7 +163,7 @@ impl<'item> Query<'item> {
     /// array (depending on what is done with the resulting object).
     pub unsafe fn decode_ptr(data: *const u8) -> Result<(Self, usize), QueryDecodeError> {
         Ok(Self::start_decoding_ptr(data)
-            .map_err(QueryDecodeError::BadQueryCode)?
+            .map_err(QueryDecodeError::UnknownQueryCode)?
             .complete_decoding())
     }
 
@@ -185,7 +185,7 @@ impl<'item> Query<'item> {
     /// array (depending on what is done with the resulting object).
     pub unsafe fn decode_unchecked(data: &'item [u8]) -> Result<(Self, usize), QueryDecodeError> {
         Ok(Self::start_decoding_unchecked(data)
-            .map_err(QueryDecodeError::BadQueryCode)?
+            .map_err(QueryDecodeError::UnknownQueryCode)?
             .complete_decoding())
     }
 

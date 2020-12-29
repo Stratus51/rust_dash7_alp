@@ -149,7 +149,7 @@ impl ReadFileProperties {
         }
         let byte = unsafe { *data.get_unchecked(0) };
         if byte & 0x3F != OpCode::ReadFileProperties as u8 {
-            return Err(BasicDecodeError::BadOpCode);
+            return Err(BasicDecodeError::UnknownOpCode);
         }
         let ret = unsafe { Self::start_decoding_unchecked(data) };
         Ok(ret)

@@ -167,7 +167,7 @@ impl<'item> ComparisonWithRange<'item> {
             Some(byte) => {
                 let code = *byte >> 5;
                 if code != QueryCode::ComparisonWithRange as u8 {
-                    return Err(QueryOperandDecodeError::BadQueryCode(code));
+                    return Err(QueryOperandDecodeError::UnknownQueryCode(code));
                 }
             }
         }

@@ -128,13 +128,13 @@ impl Status {
             None => return Err(StatusDecodeError::MissingBytes(1)),
             Some(byte) => {
                 if *byte & 0x3F != OpCode::Status as u8 {
-                    return Err(StatusDecodeError::BadOpCode);
+                    return Err(StatusDecodeError::UnknownOpCode);
                 }
             }
         }
         let ret = unsafe {
             Self::start_decoding_unchecked(data).map_err(|extension| {
-                StatusDecodeError::BadExtension {
+                StatusDecodeError::UnknownExtension {
                     extension,
                     offset: 0,
                 }
@@ -142,7 +142,7 @@ impl Status {
         };
         let ret_size = ret
             .size()
-            .map_err(|id| StatusDecodeError::BadInterfaceId { id, offset: 1 })?;
+            .map_err(|id| StatusDecodeError::UnknownInterfaceId { id, offset: 1 })?;
         if data.len() < ret_size {
             return Err(StatusDecodeError::MissingBytes(ret_size));
         }
@@ -173,12 +173,12 @@ impl Status {
     /// array (depending on what is done with the resulting object).
     pub unsafe fn decode_ptr(data: *const u8) -> Result<(Self, usize), UncheckedStatusDecodeError> {
         Self::start_decoding_ptr(data)
-            .map_err(|extension| UncheckedStatusDecodeError::BadExtension {
+            .map_err(|extension| UncheckedStatusDecodeError::UnknownExtension {
                 extension,
                 offset: 0,
             })?
             .complete_decoding()
-            .map_err(|id| UncheckedStatusDecodeError::BadInterfaceId { id, offset: 1 })
+            .map_err(|id| UncheckedStatusDecodeError::UnknownInterfaceId { id, offset: 1 })
     }
 
     /// Decodes the Item from bytes.
@@ -201,12 +201,12 @@ impl Status {
         data: &[u8],
     ) -> Result<(Self, usize), UncheckedStatusDecodeError> {
         Self::start_decoding_unchecked(data)
-            .map_err(|extension| UncheckedStatusDecodeError::BadExtension {
+            .map_err(|extension| UncheckedStatusDecodeError::UnknownExtension {
                 extension,
                 offset: 0,
             })?
             .complete_decoding()
-            .map_err(|id| UncheckedStatusDecodeError::BadInterfaceId { id, offset: 1 })
+            .map_err(|id| UncheckedStatusDecodeError::UnknownInterfaceId { id, offset: 1 })
     }
 
     /// Decodes the item from bytes.
@@ -217,7 +217,7 @@ impl Status {
     pub fn decode(data: &[u8]) -> Result<(Self, usize), StatusDecodeError> {
         Self::start_decoding(data)?
             .complete_decoding()
-            .map_err(|id| StatusDecodeError::BadInterfaceId { id, offset: 1 })
+            .map_err(|id| StatusDecodeError::UnknownInterfaceId { id, offset: 1 })
     }
 }
 

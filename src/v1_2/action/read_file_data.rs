@@ -156,7 +156,7 @@ impl ReadFileData {
             None => return Err(BasicDecodeError::MissingBytes(HEADER_SIZE)),
             Some(byte) => {
                 if *byte & 0x3F != OpCode::ReadFileData as u8 {
-                    return Err(BasicDecodeError::BadOpCode);
+                    return Err(BasicDecodeError::UnknownOpCode);
                 }
             }
         }
