@@ -327,12 +327,8 @@ pub struct DecodableVarint<'data> {
 }
 
 impl<'data> DecodableVarint<'data> {
-    // TODO Link new and from_ptr, for factorization of more complex decodable
     const fn new(data: &'data [u8]) -> Self {
-        Self {
-            data: data.as_ptr(),
-            data_life: core::marker::PhantomData,
-        }
+        Self::from_ptr(data.as_ptr())
     }
 
     const fn from_ptr(data: *const u8) -> Self {

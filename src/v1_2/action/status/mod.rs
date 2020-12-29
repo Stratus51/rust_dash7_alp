@@ -228,27 +228,18 @@ pub enum DecodableStatus<'data> {
 impl<'data> DecodableStatus<'data> {
     /// # Errors
     /// Fails if the status extension is unknown. Return the status extension.
-    pub fn new(data: &'data [u8]) -> Result<Self, u8> {
-        let byte = unsafe { *data.get_unchecked(0) };
-        let code = byte >> 6;
-        let extension = match StatusExtension::from(code) {
-            Ok(ext) => ext,
-            Err(_) => return Err(code),
-        };
-        Ok(unsafe {
-            match extension {
-                StatusExtension::Interface => {
-                    let interface =
-                        StatusInterface::start_decoding_unchecked(data.get_unchecked(1..));
-                    DecodableStatus::Interface(interface)
-                }
-            }
-        })
+    ///
+    /// # Safety
+    /// The data has to contain at least one byte.
+    pub unsafe fn new(data: &'data [u8]) -> Result<Self, u8> {
+        Self::from_ptr(data.as_ptr())
     }
 
-    // TODO This badly needs factorization
     /// # Errors
     /// Fails if the querycode is invalid. Returning the querycode.
+    ///
+    /// # Safety
+    /// The data has to contain at least one byte.
     unsafe fn from_ptr(data: *const u8) -> Result<Self, u8> {
         let byte = *data.add(0);
         let code = byte >> 6;

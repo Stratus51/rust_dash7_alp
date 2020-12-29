@@ -217,12 +217,8 @@ pub struct DecodableStatusInterface<'data> {
 }
 
 impl<'data> DecodableStatusInterface<'data> {
-    // TODO Factorize these constructors
     unsafe fn new(data: &'data [u8]) -> Self {
-        Self {
-            data: data.as_ptr(),
-            data_life: core::marker::PhantomData,
-        }
+        Self::from_ptr(data.as_ptr())
     }
 
     unsafe fn from_ptr(data: *const u8) -> Self {

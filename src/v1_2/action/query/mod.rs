@@ -213,26 +213,16 @@ impl<'data> DecodableQuery<'data> {
     /// Fails if the querycode is invalid. Returning the querycode.
     ///
     /// # Safety
-    /// The data has to contain at least one byte
+    /// The data has to contain at least one byte.
     pub unsafe fn new(data: &'data [u8]) -> Result<Self, u8> {
-        let byte = *data.get_unchecked(0);
-        let code = (byte >> 5) & 0x07;
-        let query_code = match QueryCode::from(code) {
-            Ok(code) => code,
-            Err(_) => return Err(code),
-        };
-        Ok(match query_code {
-            QueryCode::ComparisonWithValue => DecodableQuery::ComparisonWithValue(
-                ComparisonWithValue::start_decoding_unchecked(data),
-            ),
-            QueryCode::ComparisonWithRange => DecodableQuery::ComparisonWithRange(
-                ComparisonWithRange::start_decoding_unchecked(data),
-            ),
-        })
+        Self::from_ptr(data.as_ptr())
     }
 
     /// # Errors
     /// Fails if the querycode is invalid. Returning the querycode.
+    ///
+    /// # Safety
+    /// The data has to contain at least one byte.
     unsafe fn from_ptr(data: *const u8) -> Result<Self, u8> {
         let code = (*data.offset(0) >> 5) & 0x07;
         let query_code = match QueryCode::from(code) {
