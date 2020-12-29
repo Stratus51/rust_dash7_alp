@@ -250,6 +250,9 @@ impl<'data> DecodableComparisonWithValue<'data> {
         }
     }
 
+    // TODO Add intermediate sizes
+    // Add a safe size method in case the data to decode the size of this action
+    // is beyond the size of the accessible data.
     /// Decodes the size of the Item in bytes
     pub fn size(&self) -> usize {
         let (compare_length, compare_length_size) = self.compare_length().complete_decoding();

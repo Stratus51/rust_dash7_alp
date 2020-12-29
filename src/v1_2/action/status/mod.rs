@@ -3,7 +3,10 @@ pub mod define;
 pub mod interface;
 
 use super::super::define::op_code::OpCode;
-use crate::v1_2::error::{StatusDecodeError, UncheckedStatusDecodeError};
+use crate::v1_2::error::{
+    PtrUncheckedStatusDecodeError, PtrUnknownExtension, PtrUnknownInterfaceId, StatusDecodeError,
+    UncheckedStatusDecodeError, UnknownExtension, UnknownInterfaceId,
+};
 pub use define::StatusExtension;
 pub use interface::{DecodableStatusInterface, StatusInterface};
 
@@ -134,15 +137,18 @@ impl<'item> Status<'item> {
         }
         let ret = unsafe {
             Self::start_decoding_unchecked(data).map_err(|extension| {
-                StatusDecodeError::UnknownExtension {
+                StatusDecodeError::UnknownExtension(UnknownExtension {
                     extension,
-                    offset: 0,
-                }
+                    remaining_data: data.get_unchecked(1..),
+                })
             })?
         };
-        let ret_size = ret
-            .size()
-            .map_err(|id| StatusDecodeError::UnknownInterfaceId { id, offset: 1 })?;
+        let ret_size = ret.size().map_err(|id| {
+            StatusDecodeError::UnknownInterfaceId(UnknownInterfaceId {
+                id,
+                remaining_data: unsafe { data.get_unchecked(2..) },
+            })
+        })?;
         if data.len() < ret_size {
             return Err(StatusDecodeError::MissingBytes(ret_size));
         }
@@ -171,14 +177,25 @@ impl<'item> Status<'item> {
     ///
     /// Failing that might result in reading and interpreting data outside the given
     /// array (depending on what is done with the resulting object).
-    pub unsafe fn decode_ptr(data: *const u8) -> Result<(Self, usize), UncheckedStatusDecodeError> {
+    pub unsafe fn decode_ptr(
+        data: *const u8,
+    ) -> Result<(Self, usize), PtrUncheckedStatusDecodeError<'item>> {
         Self::start_decoding_ptr(data)
-            .map_err(|extension| UncheckedStatusDecodeError::UnknownExtension {
-                extension,
-                offset: 0,
+            .map_err(|extension| {
+                PtrUncheckedStatusDecodeError::UnknownExtension(PtrUnknownExtension {
+                    extension,
+                    remaining_data: data.add(1),
+                    phantom: core::marker::PhantomData,
+                })
             })?
             .complete_decoding()
-            .map_err(|id| UncheckedStatusDecodeError::UnknownInterfaceId { id, offset: 1 })
+            .map_err(|id| {
+                PtrUncheckedStatusDecodeError::UnknownInterfaceId(PtrUnknownInterfaceId {
+                    id,
+                    remaining_data: data.add(2),
+                    phantom: core::marker::PhantomData,
+                })
+            })
     }
 
     /// Decodes the Item from bytes.
@@ -201,12 +218,19 @@ impl<'item> Status<'item> {
         data: &'item [u8],
     ) -> Result<(Self, usize), UncheckedStatusDecodeError> {
         Self::start_decoding_unchecked(data)
-            .map_err(|extension| UncheckedStatusDecodeError::UnknownExtension {
-                extension,
-                offset: 0,
+            .map_err(|extension| {
+                UncheckedStatusDecodeError::UnknownExtension(UnknownExtension {
+                    extension,
+                    remaining_data: data.get_unchecked(1..),
+                })
             })?
             .complete_decoding()
-            .map_err(|id| UncheckedStatusDecodeError::UnknownInterfaceId { id, offset: 1 })
+            .map_err(|id| {
+                UncheckedStatusDecodeError::UnknownInterfaceId(UnknownInterfaceId {
+                    id,
+                    remaining_data: data.get_unchecked(2..),
+                })
+            })
     }
 
     /// Decodes the item from bytes.
@@ -217,7 +241,12 @@ impl<'item> Status<'item> {
     pub fn decode(data: &'item [u8]) -> Result<(Self, usize), StatusDecodeError> {
         Self::start_decoding(data)?
             .complete_decoding()
-            .map_err(|id| StatusDecodeError::UnknownInterfaceId { id, offset: 1 })
+            .map_err(|id| {
+                StatusDecodeError::UnknownInterfaceId(UnknownInterfaceId {
+                    id,
+                    remaining_data: unsafe { data.get_unchecked(2..) },
+                })
+            })
     }
 }
 
@@ -254,6 +283,8 @@ impl<'data> DecodableStatus<'data> {
         })
     }
 
+    // TODO Decode size by steps to avoid using out of bound data to calculate
+    // size.
     /// Decodes the size of the Item in bytes
     ///
     /// # Errors
