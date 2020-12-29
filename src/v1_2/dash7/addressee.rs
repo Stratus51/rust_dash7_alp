@@ -105,14 +105,14 @@ impl AddresseeIdentifierType {
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub enum AddresseeIdentifier {
+pub enum AddresseeIdentifier<'item> {
     Nbid(u8),
     Noid,
-    Uid([u8; 8]),
-    Vid([u8; 2]),
+    Uid(&'item [u8; 8]),
+    Vid(&'item [u8; 2]),
 }
 
-impl AddresseeIdentifier {
+impl<'item> AddresseeIdentifier<'item> {
     pub fn id_type(&self) -> AddresseeIdentifierType {
         match self {
             Self::Nbid(_) => AddresseeIdentifierType::Nbid,
@@ -124,13 +124,13 @@ impl AddresseeIdentifier {
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct Addressee {
+pub struct Addressee<'item> {
     pub nls_method: NlsMethod,
     pub access_class: AccessClass,
-    pub identifier: AddresseeIdentifier,
+    pub identifier: AddresseeIdentifier<'item>,
 }
 
-impl Addressee {
+impl<'item> Addressee<'item> {
     /// Encodes the Item into a data pointer without checking the size of the
     /// receiving byte array.
     ///
@@ -230,11 +230,11 @@ impl Addressee {
     ///
     /// This decodable item allows each parts of the item independently.
     ///
+    /// Returns the number of bytes required to continue decoding.
+    ///
     /// # Errors
     /// - Fails if data is less than 2 bytes.
     /// - Fails if data is smaller then the decoded expected size.
-    ///
-    /// Returns the number of bytes required to continue decoding.
     pub fn start_decoding(data: &[u8]) -> Result<DecodableAddressee, usize> {
         if data.len() < HEADER_SIZE {
             return Err(HEADER_SIZE);
@@ -283,7 +283,7 @@ impl Addressee {
     ///
     /// Failing that might result in reading and interpreting data outside the given
     /// array (depending on what is done with the resulting object).
-    pub unsafe fn decode_unchecked(data: &[u8]) -> (Self, usize) {
+    pub unsafe fn decode_unchecked(data: &'item [u8]) -> (Self, usize) {
         Self::start_decoding_unchecked(data).complete_decoding()
     }
 
@@ -297,7 +297,7 @@ impl Addressee {
     /// - Fails if data is smaller then the decoded expected size.
     ///
     /// Returns the number of bytes required to continue decoding.
-    pub fn decode(data: &[u8]) -> Result<(Self, usize), usize> {
+    pub fn decode(data: &'item [u8]) -> Result<(Self, usize), usize> {
         match Self::start_decoding(data) {
             Ok(v) => Ok(v.complete_decoding()),
             Err(e) => Err(e),
@@ -345,14 +345,12 @@ impl<'data> DecodableAddressee<'data> {
                 AddresseeIdentifierType::Nbid => AddresseeIdentifier::Nbid(*self.data.add(2)),
                 AddresseeIdentifierType::Noid => AddresseeIdentifier::Noid,
                 AddresseeIdentifierType::Uid => {
-                    let mut data: [u8; 8] = [core::mem::MaybeUninit::uninit().assume_init(); 8];
-                    data.as_mut_ptr().copy_from(self.data.add(2), 8);
-                    AddresseeIdentifier::Uid(data)
+                    let data = self.data.add(2) as *const [u8; 8];
+                    AddresseeIdentifier::Uid(&*data)
                 }
                 AddresseeIdentifierType::Vid => {
-                    let mut data: [u8; 2] = [core::mem::MaybeUninit::uninit().assume_init(); 2];
-                    data.as_mut_ptr().copy_from(self.data.add(2), 2);
-                    AddresseeIdentifier::Vid(data)
+                    let data = self.data.add(2) as *const [u8; 2];
+                    AddresseeIdentifier::Vid(&*data)
                 }
             }
         }
@@ -361,21 +359,19 @@ impl<'data> DecodableAddressee<'data> {
     /// Fully decode the Item
     ///
     /// Returns the decoded data and the number of bytes consumed to produce it.
-    pub fn complete_decoding(&self) -> (Addressee, usize) {
+    pub fn complete_decoding(&self) -> (Addressee<'data>, usize) {
         let id_type = self.id_type();
         let identifier = unsafe {
             match id_type {
                 AddresseeIdentifierType::Nbid => AddresseeIdentifier::Nbid(*self.data.add(2)),
                 AddresseeIdentifierType::Noid => AddresseeIdentifier::Noid,
                 AddresseeIdentifierType::Uid => {
-                    let mut data: [u8; 8] = [core::mem::MaybeUninit::uninit().assume_init(); 8];
-                    data.as_mut_ptr().copy_from(self.data.add(2), 8);
-                    AddresseeIdentifier::Uid(data)
+                    let data = self.data.add(2) as *const [u8; 8];
+                    AddresseeIdentifier::Uid(&*data)
                 }
                 AddresseeIdentifierType::Vid => {
-                    let mut data: [u8; 2] = [core::mem::MaybeUninit::uninit().assume_init(); 2];
-                    data.as_mut_ptr().copy_from(self.data.add(2), 2);
-                    AddresseeIdentifier::Vid(data)
+                    let data = self.data.add(2) as *const [u8; 2];
+                    AddresseeIdentifier::Vid(&*data)
                 }
             }
         };
@@ -442,7 +438,7 @@ mod test {
             Addressee {
                 nls_method: NlsMethod::AesCcm64,
                 access_class: AccessClass(0xE1),
-                identifier: AddresseeIdentifier::Uid([
+                identifier: AddresseeIdentifier::Uid(&[
                     0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
                 ]),
             },
@@ -452,7 +448,7 @@ mod test {
             Addressee {
                 nls_method: NlsMethod::AesCbcMac64,
                 access_class: AccessClass(0x71),
-                identifier: AddresseeIdentifier::Vid([0xCA, 0xFE]),
+                identifier: AddresseeIdentifier::Vid(&[0xCA, 0xFE]),
             },
             &[0x33, 0x71, 0xCA, 0xFE],
         );
@@ -464,7 +460,7 @@ mod test {
         let op = Addressee {
             nls_method: NlsMethod::AesCcm64,
             access_class: AccessClass(0xE1),
-            identifier: AddresseeIdentifier::Uid([0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77]),
+            identifier: AddresseeIdentifier::Uid(&[0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77]),
         };
 
         // Test decode(op.encode_in()) == op

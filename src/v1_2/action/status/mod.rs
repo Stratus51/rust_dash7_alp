@@ -8,12 +8,12 @@ pub use define::StatusExtension;
 pub use interface::{DecodableStatusInterface, StatusInterface};
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub enum Status {
+pub enum Status<'item> {
     // Action(),
-    Interface(StatusInterface),
+    Interface(StatusInterface<'item>),
 }
 
-impl Status {
+impl<'item> Status<'item> {
     pub fn extension(&self) -> StatusExtension {
         match self {
             Self::Interface(_) => StatusExtension::Interface,
@@ -198,7 +198,7 @@ impl Status {
     /// Failing that might result in reading and interpreting data outside the given
     /// array (depending on what is done with the resulting object).
     pub unsafe fn decode_unchecked(
-        data: &[u8],
+        data: &'item [u8],
     ) -> Result<(Self, usize), UncheckedStatusDecodeError> {
         Self::start_decoding_unchecked(data)
             .map_err(|extension| UncheckedStatusDecodeError::UnknownExtension {
@@ -214,7 +214,7 @@ impl Status {
     /// # Errors
     /// - Fails if the status extension is unknown.
     /// - Fails if data is smaller then the decoded expected size.
-    pub fn decode(data: &[u8]) -> Result<(Self, usize), StatusDecodeError> {
+    pub fn decode(data: &'item [u8]) -> Result<(Self, usize), StatusDecodeError> {
         Self::start_decoding(data)?
             .complete_decoding()
             .map_err(|id| StatusDecodeError::UnknownInterfaceId { id, offset: 1 })
@@ -271,7 +271,7 @@ impl<'data> DecodableStatus<'data> {
     /// # Errors
     /// Fails if the decoded status is an interface status and if the decoded
     /// interface_id is unknown.
-    pub fn complete_decoding(&self) -> Result<(Status, usize), u8> {
+    pub fn complete_decoding(&self) -> Result<(Status<'data>, usize), u8> {
         let (status, size) = match &self {
             DecodableStatus::Interface(interface) => {
                 let (status, size) = interface.complete_decoding()?;
@@ -320,7 +320,7 @@ mod test {
                     Addressee {
                         nls_method: NlsMethod::None,
                         access_class: AccessClass(0xE1),
-                        identifier: AddresseeIdentifier::Uid([
+                        identifier: AddresseeIdentifier::Uid(&[
                             0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
                         ]),
                     },
@@ -373,7 +373,7 @@ mod test {
                 Addressee {
                     nls_method: NlsMethod::None,
                     access_class: AccessClass(0xE1),
-                    identifier: AddresseeIdentifier::Uid([
+                    identifier: AddresseeIdentifier::Uid(&[
                         0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
                     ]),
                 },

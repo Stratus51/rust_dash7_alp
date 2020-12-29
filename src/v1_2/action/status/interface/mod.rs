@@ -56,12 +56,12 @@ use define::InterfaceId;
 
 /// Writes data to a file.
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub enum StatusInterface {
+pub enum StatusInterface<'item> {
     Host,
-    Dash7(Dash7InterfaceStatus),
+    Dash7(Dash7InterfaceStatus<'item>),
 }
 
-impl StatusInterface {
+impl<'item> StatusInterface<'item> {
     /// Encodes the Item into a data pointer without checking the size of the
     /// receiving byte array.
     ///
@@ -141,7 +141,6 @@ impl StatusInterface {
     ///
     /// # Safety
     /// You are to check that:
-    /// - The first byte contains this action's querycode.
     /// - The decoded data is bigger than the expected size of the `decodable` object.
     /// Meaning that given the resulting decodable object `decodable`:
     /// `data.len()` >= [`decodable.size()`](struct.DecodableStatusInterface.html#method.size).
@@ -156,7 +155,6 @@ impl StatusInterface {
     ///
     /// # Safety
     /// You are to check that:
-    /// - The first byte contains this action's querycode.
     /// - The decoded data is bigger than the expected size of the `decodable` object.
     /// Meaning that given the resulting decodable object `decodable`:
     /// `data.len()` >= [`decodable.size()`](struct.DecodableStatusInterface.html#method.size).
@@ -203,7 +201,6 @@ impl StatusInterface {
     ///
     /// # Safety
     /// You are to check that:
-    /// - The first byte contains this action's querycode.
     /// - The data is not empty.
     /// - The resulting size of the data consumed is smaller than the size of the
     /// decoded data.
@@ -229,7 +226,7 @@ impl StatusInterface {
     ///
     /// Failing that might result in reading and interpreting data outside the given
     /// array (depending on what is done with the resulting object).
-    pub unsafe fn decode_unchecked(data: &[u8]) -> Result<(Self, usize), u8> {
+    pub unsafe fn decode_unchecked(data: &'item [u8]) -> Result<(Self, usize), u8> {
         Self::start_decoding_unchecked(data).complete_decoding()
     }
 
@@ -245,7 +242,7 @@ impl StatusInterface {
     // start_decoding_unchecked and verify the size of the decoded data after parsing it.
     // But that implies potentially reading out of accessible memory which may trigger
     // some OS level panic, if the memory accesses are monitored.
-    pub fn decode(data: &[u8]) -> Result<(Self, usize), StatusInterfaceDecodeError> {
+    pub fn decode(data: &'item [u8]) -> Result<(Self, usize), StatusInterfaceDecodeError> {
         match Self::start_decoding(data) {
             Ok(v) => Ok(v
                 .complete_decoding()
@@ -322,7 +319,7 @@ impl<'data> DecodableStatusInterface<'data> {
     ///
     /// # Errors
     /// Fails if the decoded interface_id is unknown.
-    pub fn complete_decoding(&self) -> Result<(StatusInterface, usize), u8> {
+    pub fn complete_decoding(&self) -> Result<(StatusInterface<'data>, usize), u8> {
         let offset = 1 + self.len_field().size();
         unsafe {
             Ok(match self.interface_id()? {
@@ -387,7 +384,7 @@ mod test {
                     Addressee {
                         nls_method: NlsMethod::None,
                         access_class: AccessClass(0xE1),
-                        identifier: AddresseeIdentifier::Uid([
+                        identifier: AddresseeIdentifier::Uid(&[
                             0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
                         ]),
                     },
@@ -419,7 +416,7 @@ mod test {
                 Addressee {
                     nls_method: NlsMethod::None,
                     access_class: AccessClass(0xE1),
-                    identifier: AddresseeIdentifier::Uid([
+                    identifier: AddresseeIdentifier::Uid(&[
                         0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
                     ]),
                 },

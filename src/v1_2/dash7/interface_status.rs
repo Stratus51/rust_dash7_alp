@@ -14,15 +14,18 @@ pub const HEADER_SIZE: usize = 10 + addressee::HEADER_SIZE;
 // This could imply some performance hit. On the decoding, it forces a copy of the
 // data for it to be accessible, which might be a bad thing.
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct AddresseeWithNlsState {
-    addressee: Addressee,
-    nls_state: Option<[u8; 5]>,
+pub struct AddresseeWithNlsState<'item> {
+    addressee: Addressee<'item>,
+    nls_state: Option<&'item [u8; 5]>,
 }
 
-impl AddresseeWithNlsState {
+impl<'item> AddresseeWithNlsState<'item> {
     /// # Safety
     /// You are to make sure the nls_state exists if and only if the addressee nls_method is None.
-    pub unsafe fn new_unchecked(addressee: Addressee, nls_state: Option<[u8; 5]>) -> Self {
+    pub unsafe fn new_unchecked(
+        addressee: Addressee<'item>,
+        nls_state: Option<&'item [u8; 5]>,
+    ) -> Self {
         Self {
             addressee,
             nls_state,
@@ -32,7 +35,7 @@ impl AddresseeWithNlsState {
     /// # Errors
     /// Fails if the nls_method is None and the nls_state is defined or if the nls_method is
     /// not None and the nls_state is None.
-    pub fn new(addressee: Addressee, nls_state: Option<[u8; 5]>) -> Result<Self, ()> {
+    pub fn new(addressee: Addressee<'item>, nls_state: Option<&'item [u8; 5]>) -> Result<Self, ()> {
         let security = addressee.nls_method != NlsMethod::None;
         if security == nls_state.is_some() {
             Ok(unsafe { Self::new_unchecked(addressee, nls_state) })
@@ -45,7 +48,7 @@ impl AddresseeWithNlsState {
         &self.addressee
     }
 
-    pub fn nls_state(&self) -> &Option<[u8; 5]> {
+    pub fn nls_state(&self) -> &Option<&'item [u8; 5]> {
         &self.nls_state
     }
 
@@ -89,24 +92,25 @@ impl<'data> DecodableAddresseeWithNlsState<'data> {
         if self.addressee.nls_method() == NlsMethod::None {
             None
         } else {
-            let size = self.addressee.size();
-            Some(unsafe { core::slice::from_raw_parts(self.data.add(size), 5) })
+            unsafe {
+                let size = self.addressee.size();
+                let data = self.data.add(size) as *const [u8; 5];
+                Some(&*data)
+            }
         }
     }
 
     /// Fully decode the Item
     ///
     /// Returns the decoded data and the number of bytes consumed to produce it.
-    pub fn complete_decoding(&self) -> (AddresseeWithNlsState, usize) {
+    pub fn complete_decoding(&self) -> (AddresseeWithNlsState<'data>, usize) {
         let (addressee, addressee_size) = self.addressee.complete_decoding();
         let (nls_state, nls_state_size) = unsafe {
             if addressee.nls_method == NlsMethod::None {
                 (None, 0)
             } else {
-                let mut data: [u8; 5] = [core::mem::MaybeUninit::uninit().assume_init(); 5];
-                data.as_mut_ptr()
-                    .copy_from(self.data.add(addressee_size), 5);
-                (Some(data), 5)
+                let data = self.data.add(addressee_size) as *const [u8; 5];
+                (Some(&*data), 5)
             }
         };
         (
@@ -118,7 +122,7 @@ impl<'data> DecodableAddresseeWithNlsState<'data> {
 
 /// Writes data to a file.
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct Dash7InterfaceStatus {
+pub struct Dash7InterfaceStatus<'item> {
     pub ch_header: u8,
     pub ch_idx: u16,
     pub rxlev: u8,
@@ -128,10 +132,10 @@ pub struct Dash7InterfaceStatus {
     pub token: u8,
     pub seq: u8,
     pub resp_to: u8,
-    pub addressee_with_nls_state: AddresseeWithNlsState,
+    pub addressee_with_nls_state: AddresseeWithNlsState<'item>,
 }
 
-impl Dash7InterfaceStatus {
+impl<'item> Dash7InterfaceStatus<'item> {
     /// Encodes the Item into a data pointer without checking the size of the
     /// receiving byte array.
     ///
@@ -298,7 +302,7 @@ impl Dash7InterfaceStatus {
     ///
     /// Failing that might result in reading and interpreting data outside the given
     /// array (depending on what is done with the resulting object).
-    pub unsafe fn decode_unchecked(data: &[u8]) -> (Self, usize) {
+    pub unsafe fn decode_unchecked(data: &'item [u8]) -> (Self, usize) {
         Self::start_decoding_unchecked(data).complete_decoding()
     }
 
@@ -310,7 +314,7 @@ impl Dash7InterfaceStatus {
     /// # Errors
     /// - Fails if first byte of the data contains the wrong querycode.
     /// - Fails if data is smaller then the decoded expected size.
-    pub fn decode(data: &[u8]) -> Result<(Self, usize), usize> {
+    pub fn decode(data: &'item [u8]) -> Result<(Self, usize), usize> {
         match Self::start_decoding(data) {
             Ok(v) => Ok(v.complete_decoding()),
             Err(e) => Err(e),
@@ -384,7 +388,7 @@ impl<'data> DecodableDash7InterfaceStatus<'data> {
     /// Fully decode the Item
     ///
     /// Returns the decoded data and the number of bytes consumed to produce it.
-    pub fn complete_decoding(&self) -> (Dash7InterfaceStatus, usize) {
+    pub fn complete_decoding(&self) -> (Dash7InterfaceStatus<'data>, usize) {
         let (addressee_with_nls_state, end_size) =
             self.addressee_with_nls_state().complete_decoding();
         (
@@ -466,11 +470,11 @@ mod test {
                     Addressee {
                         nls_method: NlsMethod::AesCcm64,
                         access_class: AccessClass(0xE1),
-                        identifier: AddresseeIdentifier::Uid([
+                        identifier: AddresseeIdentifier::Uid(&[
                             0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
                         ]),
                     },
-                    Some([0xA, 0xB, 0xC, 0xD, 0xE]),
+                    Some(&[0xA, 0xB, 0xC, 0xD, 0xE]),
                 )
                 .unwrap(),
             },
@@ -494,7 +498,7 @@ mod test {
                     Addressee {
                         nls_method: NlsMethod::None,
                         access_class: AccessClass(0xE1),
-                        identifier: AddresseeIdentifier::Uid([
+                        identifier: AddresseeIdentifier::Uid(&[
                             0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
                         ]),
                     },
@@ -526,11 +530,11 @@ mod test {
                 Addressee {
                     nls_method: NlsMethod::AesCcm64,
                     access_class: AccessClass(0xE1),
-                    identifier: AddresseeIdentifier::Uid([
+                    identifier: AddresseeIdentifier::Uid(&[
                         0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
                     ]),
                 },
-                Some([0xA, 0xB, 0xC, 0xD, 0xE]),
+                Some(&[0xA, 0xB, 0xC, 0xD, 0xE]),
             )
             .unwrap(),
         };

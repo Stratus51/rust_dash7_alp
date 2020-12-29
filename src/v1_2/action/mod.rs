@@ -38,7 +38,7 @@ pub mod write_file_properties;
 
 /// An ALP Action
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub enum Action<'a> {
+pub enum Action<'item> {
     // Nop
     Nop(nop::Nop),
     // Read
@@ -46,9 +46,9 @@ pub enum Action<'a> {
     ReadFileProperties(read_file_properties::ReadFileProperties),
 
     // Write
-    WriteFileData(write_file_data::WriteFileData<'a>),
+    WriteFileData(write_file_data::WriteFileData<'item>),
     // WriteFileProperties(WriteFileProperties),
-    ActionQuery(query::action_query::ActionQuery<'a>),
+    ActionQuery(query::action_query::ActionQuery<'item>),
     // BreakQuery(BreakQuery),
     // PermissionRequest(PermissionRequest),
     // VerifyChecksum(VerifyChecksum),
@@ -65,7 +65,7 @@ pub enum Action<'a> {
     // // Response
     // ReturnFileData(ReturnFileData),
     // ReturnFileProperties(ReturnFileProperties),
-    Status(status::Status),
+    Status(status::Status<'item>),
     // ResponseTag(ResponseTag),
 
     // // Special
