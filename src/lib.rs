@@ -55,13 +55,6 @@ pub mod define;
 pub mod v1_2;
 pub mod varint;
 
-// TODO Non working experimental codec trait
-// It is probably not worth forcing them onto the implementation because while it will offer
-// code consistency and some code factorization, it might strongly limit the way the API
-// will be built. Just like before the refactoring.
-// pub mod decodable;
-// pub mod encodable;
-
 // TODO Verify each item's name against the SPEC
 
 // TODO Look into const function to replace some macros?
