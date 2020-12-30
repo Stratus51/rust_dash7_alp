@@ -141,9 +141,8 @@ impl<'item> StatusInterface<'item> {
     ///
     /// # Safety
     /// You are to check that:
-    /// - The decoded data is bigger than the expected size of the `decodable` object.
-    /// Meaning that given the resulting decodable object `decodable`:
-    /// `data.len()` >= [`decodable.size()`](struct.DecodableStatusInterface.html#method.size).
+    /// - The decodable object fits in the given data:
+    /// [`decodable.smaller_than(data.len())`](struct.DecodableStatusInterface.html#method.smaller_than)
     ///
     /// Failing that might result in reading and interpreting data outside the given
     /// array (depending on what is done with the resulting object).
@@ -155,9 +154,8 @@ impl<'item> StatusInterface<'item> {
     ///
     /// # Safety
     /// You are to check that:
-    /// - The decoded data is bigger than the expected size of the `decodable` object.
-    /// Meaning that given the resulting decodable object `decodable`:
-    /// `data.len()` >= [`decodable.size()`](struct.DecodableStatusInterface.html#method.size).
+    /// - The decodable object fits in the given data:
+    /// [`decodable.smaller_than(data.len())`](struct.DecodableStatusInterface.html#method.smaller_than)
     ///
     /// Failing that might result in reading and interpreting data outside the given
     /// array (depending on what is done with the resulting object).
@@ -165,25 +163,19 @@ impl<'item> StatusInterface<'item> {
         DecodableStatusInterface::new(data)
     }
 
-    /// Creates a decodable item.
+    /// Returns a Decodable object and its expected byte size.
     ///
-    /// This decodable item allows each parts of the item independently.
+    /// This decodable item allows each parts of the item to be decoded independently.
     ///
     /// # Errors
     /// - Fails if first byte of the data contains an unknown interface ID.
-    /// - Fails if data is empty.
     /// - Fails if data is smaller then the decoded expected size.
     pub fn start_decoding(
         data: &[u8],
-    ) -> Result<DecodableStatusInterface, StatusInterfaceDecodeError> {
+    ) -> Result<(DecodableStatusInterface, usize), StatusInterfaceDecodeError> {
         let ret = unsafe { Self::start_decoding_unchecked(data) };
-        let ret_size = ret
-            .size()
-            .map_err(StatusInterfaceDecodeError::UnknownInterfaceId)?;
-        if data.len() < ret_size {
-            return Err(StatusInterfaceDecodeError::MissingBytes(ret_size));
-        }
-        Ok(ret)
+        let size = ret.smaller_than(data.len())?;
+        Ok((ret, size))
     }
 
     /// Decodes the Item from a data pointer.
@@ -201,7 +193,6 @@ impl<'item> StatusInterface<'item> {
     ///
     /// # Safety
     /// You are to check that:
-    /// - The data is not empty.
     /// - The resulting size of the data consumed is smaller than the size of the
     /// decoded data.
     ///
@@ -220,7 +211,6 @@ impl<'item> StatusInterface<'item> {
     ///
     /// # Safety
     /// You are to check that:
-    /// - The data is not empty.
     /// - The resulting size of the data consumed is smaller than the size of the
     /// decoded data.
     ///
@@ -238,13 +228,10 @@ impl<'item> StatusInterface<'item> {
     /// # Errors
     /// - Fails if first byte of the data contains an unknown interface ID.
     /// - Fails if data is smaller then the decoded expected size.
-    // TODO This could be faster if instead of relying on start_decoding, we run a
-    // start_decoding_unchecked and verify the size of the decoded data after parsing it.
-    // But that implies potentially reading out of accessible memory which may trigger
-    // some OS level panic, if the memory accesses are monitored.
     pub fn decode(data: &'item [u8]) -> Result<(Self, usize), StatusInterfaceDecodeError> {
         match Self::start_decoding(data) {
             Ok(v) => Ok(v
+                .0
                 .complete_decoding()
                 .map_err(StatusInterfaceDecodeError::UnknownInterfaceId)?),
             Err(e) => Err(e),
@@ -278,12 +265,49 @@ impl<'data> DecodableStatusInterface<'data> {
     ///
     /// # Errors
     /// Fails if the decoded interface_id is unknown.
-    pub fn size(&self) -> Result<usize, u8> {
-        Ok(1 + self.len_field().size()
+    ///
+    /// # Safety
+    /// This requires reading the data bytes that may be out of bound to be calculate.
+    pub unsafe fn expected_size(&self) -> Result<usize, u8> {
+        Ok(1 + self.len_field().expected_size()
             + match &self.status()? {
                 DecodableStatusInterfaceKind::Host => 0,
-                DecodableStatusInterfaceKind::Dash7(status) => status.size(),
+                DecodableStatusInterfaceKind::Dash7(status) => status.expected_size(),
             })
+    }
+
+    /// Checks whether the given data_size is bigger than the decoded object expected size.
+    ///
+    /// On success, returns the size of the decoded object.
+    ///
+    /// # Errors
+    /// - Fails if the data_size is smaller than the required data size to decode the object.
+    /// - Fails if the decoded interface status has an unknown interface ID
+    pub fn smaller_than(&self, data_size: usize) -> Result<usize, StatusInterfaceDecodeError> {
+        let mut size = 2;
+        if data_size < size {
+            return Err(StatusInterfaceDecodeError::MissingBytes(size));
+        }
+        size = 1 + unsafe { self.len_field().expected_size() };
+        if data_size < size {
+            return Err(StatusInterfaceDecodeError::MissingBytes(size));
+        }
+        size += match &self
+            .status()
+            .map_err(StatusInterfaceDecodeError::UnknownInterfaceId)?
+        {
+            DecodableStatusInterfaceKind::Host => 0,
+            DecodableStatusInterfaceKind::Dash7(status) => {
+                match status.smaller_than(data_size - size + 1) {
+                    Ok(size) => size,
+                    Err(s) => return Err(StatusInterfaceDecodeError::MissingBytes(size - 1 + s)),
+                }
+            }
+        };
+        if data_size < size {
+            return Err(StatusInterfaceDecodeError::MissingBytes(size));
+        }
+        Ok(size)
     }
 
     /// # Errors
@@ -302,7 +326,7 @@ impl<'data> DecodableStatusInterface<'data> {
     /// # Errors
     /// Fails if the decoded interface_id is unknown.
     pub fn status(&self) -> Result<DecodableStatusInterfaceKind<'data>, u8> {
-        let offset = 1 + self.len_field().size();
+        let offset = 1 + unsafe { self.len_field().expected_size() };
         unsafe {
             Ok(match self.interface_id()? {
                 InterfaceId::Host => DecodableStatusInterfaceKind::Host,
@@ -320,7 +344,7 @@ impl<'data> DecodableStatusInterface<'data> {
     /// # Errors
     /// Fails if the decoded interface_id is unknown.
     pub fn complete_decoding(&self) -> Result<(StatusInterface<'data>, usize), u8> {
-        let offset = 1 + self.len_field().size();
+        let offset = 1 + unsafe { self.len_field().expected_size() };
         unsafe {
             Ok(match self.interface_id()? {
                 InterfaceId::Host => (StatusInterface::Host, offset),
@@ -357,8 +381,10 @@ mod test {
             assert_eq!(ret, op);
 
             // Test partial_decode == op
-            let decoder = StatusInterface::start_decoding(data).unwrap();
-            assert_eq!(size, decoder.size().unwrap());
+            let (decoder, expected_size) = StatusInterface::start_decoding(data).unwrap();
+            assert_eq!(expected_size, size);
+            assert_eq!(unsafe { decoder.expected_size().unwrap() }, size);
+            assert_eq!(decoder.smaller_than(data.len()).unwrap(), size);
             assert_eq!(
                 op,
                 match decoder.status().unwrap() {

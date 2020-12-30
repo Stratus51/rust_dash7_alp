@@ -13,10 +13,6 @@ pub const U32_MAX: u32 = 0x3F_FF_FF_FF;
 /// Maximum byte size of an encoded Varint
 pub const MAX_SIZE: usize = 4;
 
-/// Required size of a data buffer to determine the size of a resulting
-/// decoded object
-pub const HEADER_SIZE: usize = 1;
-
 /// Represents a variable integer as described by the Dash7 ALP specification.
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct Varint {
@@ -164,11 +160,8 @@ impl Varint {
     ///
     /// # Safety
     /// You are to check that:
-    /// - The data is bigger than `HEADER_SIZE` (to be sure the Item size will be
-    /// decoded correctly).
-    /// - The decoded data is bigger than the expected size of the `decodable` object.
-    /// Meaning that given the resulting decodable object `decodable`:
-    /// `data.len()` >= [`decodable.size()`](struct.DecodableVarint.html#method.size).
+    /// - The decodable object fits in the given data:
+    /// [`decodable.smaller_than(data.len())`](struct.DecodableVarint.html#method.smaller_than)
     ///
     /// Failing that might result in reading and interpreting data outside the given
     /// array (depending on what is done with the resulting object).
@@ -180,11 +173,8 @@ impl Varint {
     ///
     /// # Safety
     /// You are to check that:
-    /// - The data is bigger than `HEADER_SIZE` (to be sure the Item size will be
-    /// decoded correctly).
-    /// - The decoded data is bigger than the expected size of the `decodable` object.
-    /// Meaning that given the resulting decodable object `decodable`:
-    /// `data.len()` >= [`decodable.size()`](struct.DecodableVarint.html#method.size).
+    /// - The decodable object fits in the given data:
+    /// [`decodable.smaller_than(data.len())`](struct.DecodableVarint.html#method.smaller_than)
     ///
     /// Failing that might result in reading and interpreting data outside the given
     /// array (depending on what is done with the resulting object).
@@ -192,23 +182,16 @@ impl Varint {
         DecodableVarint::new(data)
     }
 
-    /// Creates a decodable item.
+    /// Returns a Decodable object and its expected byte size.
     ///
-    /// This decodable item allows each parts of the item independently.
+    /// This decodable item allows each parts of the item to be decoded independently.
     ///
     /// # Errors
-    /// - Fails if `data.len()` < `HEADER_SIZE`.
     /// - Fails if data is smaller then the decoded expected size.
-    pub fn start_decoding(data: &[u8]) -> Result<DecodableVarint, usize> {
-        if data.len() < HEADER_SIZE {
-            return Err(HEADER_SIZE);
-        }
+    pub fn start_decoding(data: &[u8]) -> Result<(DecodableVarint, usize), usize> {
         let ret = unsafe { Self::start_decoding_unchecked(data) };
-        let ret_size = ret.size();
-        if data.len() < ret_size {
-            return Err(ret_size);
-        }
-        Ok(ret)
+        let size = ret.smaller_than(data.len())?;
+        Ok((ret, size))
     }
 
     /// Decodes the Item from a data pointer.
@@ -225,10 +208,8 @@ impl Varint {
     /// May attempt to read bytes after the end of the array.
     ///
     /// You are to check that:
-    /// - The data is bigger than `HEADER_SIZE` (to be sure the Item size will be
-    /// decoded correctly).
-    /// - The resulting size of the data consumed is smaller than the size of the
-    /// decoded data.
+    /// - The decodable object fits in the given data:
+    /// [`decodable.smaller_than(data.len())`](struct.DecodableVarint.html#method.smaller_than)
     ///
     /// Failing that will result in reading and interpreting data outside the given
     /// array.
@@ -244,10 +225,8 @@ impl Varint {
     /// May attempt to read bytes after the end of the array.
     ///
     /// You are to check that:
-    /// - The data is bigger than `HEADER_SIZE` (to be sure the Item size will be
-    /// decoded correctly).
-    /// - The resulting size of the data consumed is smaller than the size of the
-    /// decoded data.
+    /// - The decodable object fits in the given data:
+    /// [`decodable.smaller_than(data.len())`](struct.DecodableVarint.html#method.smaller_than)
     ///
     /// Failing that will result in reading and interpreting data outside the given
     /// array.
@@ -265,7 +244,7 @@ impl Varint {
     /// number of bytes required to continue decoding.
     pub fn decode(data: &[u8]) -> Result<(Self, usize), usize> {
         match Self::start_decoding(data) {
-            Ok(v) => Ok(v.complete_decoding()),
+            Ok(v) => Ok(v.0.complete_decoding()),
             Err(e) => Err(e),
         }
     }
@@ -338,19 +317,40 @@ impl<'data> DecodableVarint<'data> {
         }
     }
 
-    /// Decodes the size of the Item in bytes
-    pub fn size(&self) -> usize {
-        unsafe { ((*self.data.add(0) & 0xC0) >> 6) as usize + 1 }
+    /// Decodes the expected size of the Item in bytes
+    ///
+    /// # Safety
+    /// This requires reading the data bytes that may be out of bound to be calculate.
+    pub unsafe fn expected_size(&self) -> usize {
+        ((*self.data.add(0) & 0xC0) >> 6) as usize + 1
+    }
+
+    /// Checks whether the given data_size is bigger than the decoded object expected size.
+    ///
+    /// On success, returns the size of the decoded object.
+    ///
+    /// # Errors
+    /// Fails if the data_size is smaller than the required data size to decode the object.
+    pub fn smaller_than(&self, data_size: usize) -> Result<usize, usize> {
+        let mut size = 1;
+        if data_size < size {
+            return Err(size);
+        }
+        size = unsafe { self.expected_size() };
+        if data_size < size {
+            return Err(size);
+        }
+        Ok(size)
     }
 
     /// Fully decode the Item
     ///
     /// Returns the decoded data and the number of bytes consumed to produce it.
     pub fn complete_decoding(&self) -> (Varint, usize) {
-        let size = self.size();
-        let data = &self.data;
-        let ret = unsafe {
-            Varint::new_unchecked(match size {
+        unsafe {
+            let size = self.expected_size();
+            let data = &self.data;
+            let ret = Varint::new_unchecked(match size {
                 1 => (*data.add(0) & 0x3F) as u32,
                 2 => (((*data.add(0) & 0x3F) as u32) << 8) + *data.add(1) as u32,
                 3 => {
@@ -367,9 +367,9 @@ impl<'data> DecodableVarint<'data> {
                 // This is bad and incorrect. But size should mathematically never evaluate to this
                 // case. Let's just hope the size method is not broken.
                 _ => 0,
-            })
-        };
-        (ret, size)
+            });
+            (ret, size)
+        }
     }
 }
 
@@ -419,9 +419,11 @@ mod test {
             assert_eq!(ret, Varint::new(value).unwrap());
 
             // Check partial decoding
-            let decoder = Varint::start_decoding(data).unwrap();
-            let part_size = decoder.size();
+            let (decoder, expected_size) = Varint::start_decoding(data).unwrap();
+            let part_size = decoder.smaller_than(data.len()).unwrap();
+            assert_eq!(expected_size, size);
             assert_eq!(part_size, size);
+            assert_eq!(unsafe { decoder.expected_size() }, size);
         }
         test_ok(&[0], 0x00, 1);
         test_ok(&hex!("3F"), 0x3F, 1);

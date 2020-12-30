@@ -112,19 +112,6 @@ pub enum StatusDecodeError<'data> {
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub enum PtrStatusDecodeError<'data> {
-    /// The decoded query contains an unknown query code.
-    UnknownExtension(PtrUnknownExtension<'data>),
-    /// The input data is missing bytes to be decoded into the wanted item.
-    MissingBytes(usize),
-    /// The input contains an opcode that does not match the item you tried to
-    /// decode.
-    BadOpCode,
-    /// The input data contains an unknown interface ID
-    UnknownInterfaceId(PtrUnknownInterfaceId<'data>),
-}
-
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum UncheckedStatusDecodeError<'data> {
     /// The decoded query contains an unknown query code.
     UnknownExtension(UnknownExtension<'data>),

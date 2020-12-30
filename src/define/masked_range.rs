@@ -33,7 +33,7 @@ impl<'a> MaskedRange<'a> {
     }
 
     pub const fn bitmap_size(start: usize, end: usize) -> usize {
-        (end - start + 6) / 8
+        (end + 6 - start) / 8
     }
 
     /// # Errors

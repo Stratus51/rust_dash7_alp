@@ -1,10 +1,6 @@
 /// Maximum byte size of an encoded `ReadFileData`
 pub const MAX_SIZE: usize = 2 + 8;
 
-/// Required size of a data buffer to determine the size of a resulting
-/// decoded object
-pub const HEADER_SIZE: usize = 2;
-
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct AccessClass(pub u8);
 
@@ -201,9 +197,8 @@ impl<'item> Addressee<'item> {
     /// # Safety
     /// You are to check that:
     /// - The first byte contains this action's querycode.
-    /// - The decoded data is bigger than the expected size of the `decodable` object.
-    /// Meaning that given the resulting decodable object `decodable`:
-    /// `data.len()` >= [`decodable.size()`](struct.DecodableAddressee.html#method.size).
+    /// - The decodable object fits in the given data:
+    /// [`decodable.smaller_than(data.len())`](struct.DecodableAddressee.html#method.smaller_than)
     ///
     /// Failing that might result in reading and interpreting data outside the given
     /// array (depending on what is done with the resulting object).
@@ -216,9 +211,8 @@ impl<'item> Addressee<'item> {
     /// # Safety
     /// You are to check that:
     /// - The first byte contains this action's querycode.
-    /// - The decoded data is bigger than the expected size of the `decodable` object.
-    /// Meaning that given the resulting decodable object `decodable`:
-    /// `data.len()` >= [`decodable.size()`](struct.DecodableAddressee.html#method.size).
+    /// - The decodable object fits in the given data:
+    /// [`decodable.smaller_than(data.len())`](struct.DecodableAddressee.html#method.smaller_than)
     ///
     /// Failing that might result in reading and interpreting data outside the given
     /// array (depending on what is done with the resulting object).
@@ -226,25 +220,18 @@ impl<'item> Addressee<'item> {
         DecodableAddressee::new(data)
     }
 
-    /// Creates a decodable item.
+    /// Returns a Decodable object and its expected byte size.
     ///
-    /// This decodable item allows each parts of the item independently.
+    /// This decodable item allows each parts of the item to be decoded independently.
     ///
     /// Returns the number of bytes required to continue decoding.
     ///
     /// # Errors
-    /// - Fails if data is less than 2 bytes.
     /// - Fails if data is smaller then the decoded expected size.
-    pub fn start_decoding(data: &[u8]) -> Result<DecodableAddressee, usize> {
-        if data.len() < HEADER_SIZE {
-            return Err(HEADER_SIZE);
-        }
+    pub fn start_decoding(data: &[u8]) -> Result<(DecodableAddressee, usize), usize> {
         let ret = unsafe { Self::start_decoding_unchecked(data) };
-        let ret_size = ret.size();
-        if data.len() < ret_size {
-            return Err(ret_size);
-        }
-        Ok(ret)
+        let size = ret.smaller_than(data.len())?;
+        Ok((ret, size))
     }
 
     /// Decodes the Item from a data pointer.
@@ -260,7 +247,6 @@ impl<'item> Addressee<'item> {
     /// # Safety
     /// You are to check that:
     /// - The first byte contains this action's querycode.
-    /// - The data is not empty.
     /// - The resulting size of the data consumed is smaller than the size of the
     /// decoded data.
     ///
@@ -277,7 +263,6 @@ impl<'item> Addressee<'item> {
     /// # Safety
     /// You are to check that:
     /// - The first byte contains this action's querycode.
-    /// - The data is not empty.
     /// - The resulting size of the data consumed is smaller than the size of the
     /// decoded data.
     ///
@@ -293,13 +278,12 @@ impl<'item> Addressee<'item> {
     /// to produce it.
     ///
     /// # Errors
-    /// - Fails if data is less than 2 bytes.
     /// - Fails if data is smaller then the decoded expected size.
     ///
     /// Returns the number of bytes required to continue decoding.
     pub fn decode(data: &'item [u8]) -> Result<(Self, usize), usize> {
         match Self::start_decoding(data) {
-            Ok(v) => Ok(v.complete_decoding()),
+            Ok(v) => Ok(v.0.complete_decoding()),
             Err(e) => Err(e),
         }
     }
@@ -323,8 +307,29 @@ impl<'data> DecodableAddressee<'data> {
     }
 
     /// Decodes the size of the Item in bytes
-    pub fn size(&self) -> usize {
+    ///
+    /// # Safety
+    /// This requires reading the data bytes that may be out of bound to be calculate.
+    pub unsafe fn expected_size(&self) -> usize {
         2 + self.id_type().size()
+    }
+
+    /// Checks whether the given data_size is bigger than the decoded object expected size.
+    ///
+    /// On success, returns the size of the decoded object.
+    ///
+    /// # Errors
+    /// Fails if the data_size is smaller than the required data size to decode the object.
+    pub fn smaller_than(&self, data_size: usize) -> Result<usize, usize> {
+        let mut size = 1;
+        if data_size < size {
+            return Err(size);
+        }
+        size = unsafe { self.expected_size() };
+        if data_size < size {
+            return Err(size);
+        }
+        Ok(size)
     }
 
     pub fn id_type(&self) -> AddresseeIdentifierType {
@@ -406,9 +411,11 @@ mod test {
             assert_eq!(ret, op);
 
             // Test partial_decode == op
-            let decoder = Addressee::start_decoding(data).unwrap();
+            let (decoder, expected_size) = Addressee::start_decoding(data).unwrap();
             assert_eq!(ret.identifier.id_type(), decoder.id_type());
-            assert_eq!(size, decoder.size());
+            assert_eq!(expected_size, size);
+            assert_eq!(unsafe { decoder.expected_size() }, size);
+            assert_eq!(decoder.smaller_than(data.len()).unwrap(), size);
             assert_eq!(
                 op,
                 Addressee {

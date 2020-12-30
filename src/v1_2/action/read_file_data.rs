@@ -12,10 +12,6 @@ use crate::varint::{self, DecodableVarint, Varint};
 /// Maximum byte size of an encoded `ReadFileData`
 pub const MAX_SIZE: usize = 2 + 2 * varint::MAX_SIZE;
 
-/// Required size of a data buffer to determine the size of a resulting
-/// decoded object
-pub const HEADER_SIZE: usize = 1;
-
 /// Read data from a file.
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct ReadFileData {
@@ -116,10 +112,8 @@ impl ReadFileData {
     /// # Safety
     /// You are to check that:
     /// - The first byte contains this action's opcode.
-    /// - The data is bigger than `HEADER_SIZE`.
-    /// - The decoded data is bigger than the expected size of the `decodable` object.
-    /// Meaning that given the resulting decodable object `decodable`:
-    /// `data.len()` >= [`decodable.size()`](struct.DecodableReadFileData.html#method.size).
+    /// - The decodable object fits in the given data:
+    /// [`decodable.smaller_than(data.len())`](struct.DecodableReadFileData.html#method.smaller_than)
     ///
     /// Failing that might result in reading and interpreting data outside the given
     /// array (depending on what is done with the resulting object).
@@ -132,10 +126,8 @@ impl ReadFileData {
     /// # Safety
     /// You are to check that:
     /// - The first byte contains this action's opcode.
-    /// - The data is bigger than `HEADER_SIZE`.
-    /// - The decoded data is bigger than the expected size of the `decodable` object.
-    /// Meaning that given the resulting decodable object `decodable`:
-    /// `data.len()` >= [`decodable.size()`](struct.DecodableReadFileData.html#method.size).
+    /// - The decodable object fits in the given data:
+    /// [`decodable.smaller_than(data.len())`](struct.DecodableReadFileData.html#method.smaller_than)
     ///
     /// Failing that might result in reading and interpreting data outside the given
     /// array (depending on what is done with the resulting object).
@@ -143,17 +135,16 @@ impl ReadFileData {
         DecodableReadFileData::new(data)
     }
 
-    /// Creates a decodable item.
+    /// Returns a Decodable object and its expected byte size.
     ///
-    /// This decodable item allows each parts of the item independently.
+    /// This decodable item allows each parts of the item to be decoded independently.
     ///
     /// # Errors
     /// - Fails if first byte of the data contains the wrong opcode.
-    /// - Fails if `data.len()` < `HEADER_SIZE`.
     /// - Fails if data is smaller then the decoded expected size.
-    pub fn start_decoding(data: &[u8]) -> Result<DecodableReadFileData, BasicDecodeError> {
+    pub fn start_decoding(data: &[u8]) -> Result<(DecodableReadFileData, usize), BasicDecodeError> {
         match data.get(0) {
-            None => return Err(BasicDecodeError::MissingBytes(HEADER_SIZE)),
+            None => return Err(BasicDecodeError::MissingBytes(1)),
             Some(byte) => {
                 if *byte & 0x3F != OpCode::ReadFileData as u8 {
                     return Err(BasicDecodeError::BadOpCode);
@@ -161,11 +152,10 @@ impl ReadFileData {
             }
         }
         let ret = unsafe { Self::start_decoding_unchecked(data) };
-        let ret_size = ret.size();
-        if data.len() < ret_size {
-            return Err(BasicDecodeError::MissingBytes(ret_size));
-        }
-        Ok(ret)
+        let size = ret
+            .smaller_than(data.len())
+            .map_err(BasicDecodeError::MissingBytes)?;
+        Ok((ret, size))
     }
 
     /// Decodes the Item from a data pointer.
@@ -183,8 +173,6 @@ impl ReadFileData {
     ///
     /// You are to check that:
     /// - The first byte contains this action's opcode.
-    /// - The data is bigger than `HEADER_SIZE` (to be sure the Item size will be
-    /// decoded correctly).
     /// - The resulting size of the data consumed is smaller than the size of the
     /// decoded data.
     ///
@@ -203,8 +191,6 @@ impl ReadFileData {
     ///
     /// You are to check that:
     /// - The first byte contains this action's opcode.
-    /// - The data is bigger than `HEADER_SIZE` (to be sure the Item size will be
-    /// decoded correctly).
     /// - The resulting size of the data consumed is smaller than the size of the
     /// decoded data.
     ///
@@ -221,11 +207,10 @@ impl ReadFileData {
     ///
     /// # Errors
     /// - Fails if first byte of the data contains the wrong opcode.
-    /// - Fails if `data.len()` < `HEADER_SIZE`.
     /// - Fails if data is smaller then the decoded expected size.
     pub fn decode(data: &[u8]) -> Result<(Self, usize), BasicDecodeError> {
         match Self::start_decoding(data) {
-            Ok(v) => Ok(v.complete_decoding()),
+            Ok(v) => Ok(v.0.complete_decoding()),
             Err(e) => Err(e),
         }
     }
@@ -249,11 +234,39 @@ impl<'data> DecodableReadFileData<'data> {
     }
 
     /// Decodes the size of the Item in bytes
-    pub fn size(&self) -> usize {
-        let offset_size = self.offset().size();
+    ///
+    /// # Safety
+    /// This requires reading the data bytes that may be out of bound to be calculate.
+    pub unsafe fn expected_size(&self) -> usize {
+        let offset_size = self.offset().expected_size();
         let length_size =
-            unsafe { Varint::start_decoding_ptr(self.data.add(2 + offset_size)).size() };
+            Varint::start_decoding_ptr(self.data.add(2 + offset_size)).expected_size();
         2 + offset_size + length_size
+    }
+
+    /// Checks whether the given data_size is bigger than the decoded object expected size.
+    ///
+    /// On success, returns the size of the decoded object.
+    ///
+    /// # Errors
+    /// Fails if the data_size is smaller than the required data size to decode the object.
+    pub fn smaller_than(&self, data_size: usize) -> Result<usize, usize> {
+        unsafe {
+            let mut size = 3;
+            if data_size < size {
+                return Err(size);
+            }
+            size += self.offset().expected_size();
+            if data_size < size {
+                return Err(size);
+            }
+            size += Varint::start_decoding_ptr(self.data.add(size - 1)).expected_size();
+            size -= 1;
+            if data_size < size {
+                return Err(size);
+            }
+            Ok(size)
+        }
     }
 
     pub fn group(&self) -> bool {
@@ -318,8 +331,10 @@ mod test {
             assert_eq!(ret, op);
 
             // Test partial_decode == op
-            let decoder = ReadFileData::start_decoding(data).unwrap();
-            assert_eq!(size, decoder.size());
+            let (decoder, expected_size) = ReadFileData::start_decoding(data).unwrap();
+            assert_eq!(expected_size, size);
+            assert_eq!(unsafe { decoder.expected_size() }, size);
+            assert_eq!(decoder.smaller_than(data.len()).unwrap(), size);
             assert_eq!(
                 op,
                 ReadFileData {

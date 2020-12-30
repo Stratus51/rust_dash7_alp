@@ -1,6 +1,8 @@
 use super::super::super::define::flag;
 use super::super::super::define::op_code::OpCode;
-use super::super::super::error::{PtrUnknownQueryCode, QueryActionDecodeError, UnknownQueryCode};
+use super::super::super::error::{
+    PtrUnknownQueryCode, QueryActionDecodeError, QueryDecodeError, UnknownQueryCode,
+};
 use super::{DecodableQuery, Query};
 
 /// Writes data to a file.
@@ -81,10 +83,8 @@ impl<'item> ActionQuery<'item> {
     /// # Safety
     /// You are to check that:
     /// - The first byte contains this action's opcode.
-    /// - The data is bigger than `HEADER_SIZE`.
-    /// - The decoded data is bigger than the expected size of the `decodable` object.
-    /// Meaning that given the resulting decodable object `decodable`:
-    /// `data.len()` >= [`decodable.size()`](struct.DecodableActionQuery.html#method.size).
+    /// - The decodable object fits in the given data:
+    /// [`decodable.smaller_than(data.len())`](struct.DecodableActionQuery.html#method.smaller_than)
     ///
     /// Failing that might result in reading and interpreting data outside the given
     /// array (depending on what is done with the resulting object).
@@ -97,10 +97,8 @@ impl<'item> ActionQuery<'item> {
     /// # Safety
     /// You are to check that:
     /// - The first byte contains this action's opcode.
-    /// - The data is bigger than `HEADER_SIZE`.
-    /// - The decoded data is bigger than the expected size of the `decodable` object.
-    /// Meaning that given the resulting decodable object `decodable`:
-    /// `data.len()` >= [`decodable.size()`](struct.DecodableActionQuery.html#method.size).
+    /// - The decodable object fits in the given data:
+    /// [`decodable.smaller_than(data.len())`](struct.DecodableActionQuery.html#method.smaller_than)
     ///
     /// Failing that might result in reading and interpreting data outside the given
     /// array (depending on what is done with the resulting object).
@@ -108,15 +106,16 @@ impl<'item> ActionQuery<'item> {
         DecodableActionQuery::new(data)
     }
 
-    /// Creates a decodable item.
+    /// Returns a Decodable object and its expected byte size.
     ///
-    /// This decodable item allows each parts of the item independently.
+    /// This decodable item allows each parts of the item to be decoded independently.
     ///
     /// # Errors
     /// - Fails if first byte of the data contains the wrong opcode.
-    /// - Fails if data is empty.
     /// - Fails if data is smaller then the decoded expected size.
-    pub fn start_decoding(data: &[u8]) -> Result<DecodableActionQuery, QueryActionDecodeError> {
+    pub fn start_decoding(
+        data: &[u8],
+    ) -> Result<(DecodableActionQuery, usize), QueryActionDecodeError> {
         if data.is_empty() {
             return Err(QueryActionDecodeError::MissingBytes(1));
         }
@@ -124,16 +123,16 @@ impl<'item> ActionQuery<'item> {
             return Err(QueryActionDecodeError::BadOpCode);
         }
         let ret = unsafe { Self::start_decoding_unchecked(data) };
-        let ret_size = ret.size().map_err(|code| {
-            QueryActionDecodeError::UnknownQueryCode(UnknownQueryCode {
-                code,
-                remaining_data: unsafe { data.get_unchecked(1..) },
-            })
+        let size = ret.smaller_than(data.len()).map_err(|e| match e {
+            QueryDecodeError::UnknownQueryCode(code) => {
+                QueryActionDecodeError::UnknownQueryCode(UnknownQueryCode {
+                    code,
+                    remaining_data: unsafe { data.get_unchecked(1..) },
+                })
+            }
+            QueryDecodeError::MissingBytes(n) => QueryActionDecodeError::MissingBytes(n),
         })?;
-        if data.len() < ret_size {
-            return Err(QueryActionDecodeError::MissingBytes(ret_size));
-        }
-        Ok(ret)
+        Ok((ret, size))
     }
 
     /// Decodes the Item from a data pointer.
@@ -155,7 +154,6 @@ impl<'item> ActionQuery<'item> {
     ///
     /// You are to check that:
     /// - The first byte contains this action's opcode.
-    /// - The data is not empty.
     /// - The resulting size of the data consumed is smaller than the size of the
     /// decoded data.
     ///
@@ -184,7 +182,6 @@ impl<'item> ActionQuery<'item> {
     ///
     /// You are to check that:
     /// - The first byte contains this action's opcode.
-    /// - The data is not empty.
     /// - The resulting size of the data consumed is smaller than the size of the
     /// decoded data.
     ///
@@ -206,10 +203,10 @@ impl<'item> ActionQuery<'item> {
     ///
     /// # Errors
     /// - Fails if first byte of the data contains the wrong opcode.
-    /// - Fails if `data.len()` < `HEADER_SIZE`.
     /// - Fails if data is smaller then the decoded expected size.
     pub fn decode(data: &'item [u8]) -> Result<(Self, usize), QueryActionDecodeError> {
         Ok(Self::start_decoding(data)?
+            .0
             .complete_decoding()
             // TODO This error should never happen as it should be triggered by `start_decoding`
             // first, when fetching the size of the operand.
@@ -244,8 +241,26 @@ impl<'data> DecodableActionQuery<'data> {
     /// # Errors
     /// Fails if the parsed data corresponds to an invalid querycode.
     /// Returns the invalid querycode.
-    pub fn size(&self) -> Result<usize, u8> {
-        Ok(1 + self.query()?.size())
+    ///
+    /// # Safety
+    /// This requires reading the data bytes that may be out of bound to be calculate.
+    pub unsafe fn expected_size(&self) -> Result<usize, u8> {
+        Ok(1 + self.query()?.expected_size())
+    }
+
+    /// Checks whether the given data_size is bigger than the decoded object expected size.
+    ///
+    /// On success, returns the size of the decoded object.
+    ///
+    /// # Errors
+    /// - Fails if the querycode is unknown
+    /// - Fails if the data_size is smaller than the required data size to decode the object.
+    pub fn smaller_than(&self, data_size: usize) -> Result<usize, QueryDecodeError> {
+        self.query()
+            .map_err(QueryDecodeError::UnknownQueryCode)?
+            .smaller_than(data_size - 1)
+            .map(|size| 1 + size)
+            .map_err(|size| QueryDecodeError::MissingBytes(1 + size))
     }
 
     pub fn group(&self) -> bool {
@@ -308,7 +323,8 @@ mod test {
             assert_eq!(ret, op);
 
             // Test partial_decode == op
-            let decoder = ActionQuery::start_decoding(data).unwrap();
+            let (decoder, expected_size) = ActionQuery::start_decoding(data).unwrap();
+            assert_eq!(expected_size, size);
             assert_eq!(
                 op,
                 ActionQuery {

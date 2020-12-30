@@ -93,7 +93,7 @@ impl ReadFileProperties {
 
     /// Size in bytes of the encoded equivalent of the item.
     pub const fn size(&self) -> usize {
-        2
+        SIZE
     }
 
     /// Creates a decodable item from a data pointer without checking the data size.
@@ -108,9 +108,6 @@ impl ReadFileProperties {
     /// You are to check that:
     /// - The first byte contains this action's opcode.
     /// - The data is bigger than `SIZE`.
-    /// - The decoded data is bigger than the expected size of the `decodable` object.
-    /// Meaning that given the resulting decodable object `decodable`:
-    /// `data.len()` >= [`decodable.size()`](struct.DecodableReadFileProperties.html#method.size).
     ///
     /// Failing that might result in reading and interpreting data outside the given
     /// array (depending on what is done with the resulting object).
@@ -126,9 +123,6 @@ impl ReadFileProperties {
     /// You are to check that:
     /// - The first byte contains this action's opcode.
     /// - The data is bigger than `SIZE`.
-    /// - The decoded data is bigger than the expected size of the `decodable` object.
-    /// Meaning that given the resulting decodable object `decodable`:
-    /// `data.len()` >= [`decodable.size()`](struct.DecodableReadFileProperties.html#method.size).
     ///
     /// Failing that might result in reading and interpreting data outside the given
     /// array (depending on what is done with the resulting object).
@@ -136,13 +130,13 @@ impl ReadFileProperties {
         DecodableReadFileProperties::new(data)
     }
 
-    /// Creates a decodable item.
+    /// Returns a Decodable object.
     ///
-    /// This decodable item allows each parts of the item independently.
+    /// This decodable item allows each parts of the item to be decoded independently.
     ///
     /// # Errors
-    /// Fails if first byte of the data contains the wrong opcode.
-    /// Fails if the data is less than 2 bytes.
+    /// - Fails if first byte of the data contains the wrong opcode.
+    /// - Fails if the data is less than 2 bytes.
     pub fn start_decoding(data: &[u8]) -> Result<DecodableReadFileProperties, BasicDecodeError> {
         if data.len() < 2 {
             return Err(BasicDecodeError::MissingBytes(2));
@@ -229,8 +223,21 @@ impl<'data> DecodableReadFileProperties<'data> {
     }
 
     /// Decodes the size of the Item in bytes
-    pub const fn size(&self) -> usize {
-        2
+    pub const fn expected_size(&self) -> usize {
+        SIZE
+    }
+
+    /// Checks whether the given data_size is bigger than the decoded object expected size.
+    ///
+    /// On success, returns the size of the decoded object.
+    ///
+    /// # Errors
+    /// Fails if the data_size is smaller than the required data size to decode the object.
+    pub const fn smaller_than(&self, data_size: usize) -> Result<usize, usize> {
+        if data_size < SIZE {
+            return Err(SIZE);
+        }
+        Ok(SIZE)
     }
 
     pub fn group(&self) -> bool {
@@ -284,7 +291,8 @@ mod test {
 
             // Test partial_decode == op
             let decoder = ReadFileProperties::start_decoding(data).unwrap();
-            assert_eq!(size, decoder.size());
+            assert_eq!(size, decoder.expected_size());
+            assert_eq!(size, decoder.smaller_than(data.len()).unwrap());
             assert_eq!(
                 op,
                 ReadFileProperties {

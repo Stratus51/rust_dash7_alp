@@ -107,10 +107,8 @@ impl<'item> WriteFileData<'item> {
     /// # Safety
     /// You are to check that:
     /// - The first byte contains this action's opcode.
-    /// - The data is bigger than `HEADER_SIZE`.
-    /// - The decoded data is bigger than the expected size of the `decodable` object.
-    /// Meaning that given the resulting decodable object `decodable`:
-    /// `data.len()` >= [`decodable.size()`](struct.DecodableWriteFileData.html#method.size).
+    /// - The decodable object fits in the given data:
+    /// [`decodable.smaller_than(data.len())`](struct.DecodableWriteFileData.html#method.smaller_than)
     ///
     /// Failing that might result in reading and interpreting data outside the given
     /// array (depending on what is done with the resulting object).
@@ -125,10 +123,8 @@ impl<'item> WriteFileData<'item> {
     /// # Safety
     /// You are to check that:
     /// - The first byte contains this action's opcode.
-    /// - The data is bigger than `HEADER_SIZE`.
-    /// - The decoded data is bigger than the expected size of the `decodable` object.
-    /// Meaning that given the resulting decodable object `decodable`:
-    /// `data.len()` >= [`decodable.size()`](struct.DecodableWriteFileData.html#method.size).
+    /// - The decodable object fits in the given data:
+    /// [`decodable.smaller_than(data.len())`](struct.DecodableWriteFileData.html#method.smaller_than)
     ///
     /// Failing that might result in reading and interpreting data outside the given
     /// array (depending on what is done with the resulting object).
@@ -136,15 +132,16 @@ impl<'item> WriteFileData<'item> {
         DecodableWriteFileData::new(data)
     }
 
-    /// Creates a decodable item.
+    /// Returns a Decodable object and its expected byte size.
     ///
-    /// This decodable item allows each parts of the item independently.
+    /// This decodable item allows each parts of the item to be decoded independently.
     ///
     /// # Errors
     /// - Fails if first byte of the data contains the wrong opcode.
-    /// - Fails if data is empty.
     /// - Fails if data is smaller then the decoded expected size.
-    pub fn start_decoding(data: &[u8]) -> Result<DecodableWriteFileData, BasicDecodeError> {
+    pub fn start_decoding(
+        data: &[u8],
+    ) -> Result<(DecodableWriteFileData, usize), BasicDecodeError> {
         match data.get(0) {
             None => return Err(BasicDecodeError::MissingBytes(1)),
             Some(byte) => {
@@ -154,11 +151,10 @@ impl<'item> WriteFileData<'item> {
             }
         }
         let ret = unsafe { Self::start_decoding_unchecked(data) };
-        let ret_size = ret.size();
-        if data.len() < ret_size {
-            return Err(BasicDecodeError::MissingBytes(ret_size));
-        }
-        Ok(ret)
+        let size = ret
+            .smaller_than(data.len())
+            .map_err(BasicDecodeError::MissingBytes)?;
+        Ok((ret, size))
     }
 
     /// Decodes the Item from a data pointer.
@@ -176,7 +172,6 @@ impl<'item> WriteFileData<'item> {
     ///
     /// You are to check that:
     /// - The first byte contains this action's opcode.
-    /// - The data is not empty.
     /// - The resulting size of the data consumed is smaller than the size of the
     /// decoded data.
     ///
@@ -195,7 +190,6 @@ impl<'item> WriteFileData<'item> {
     ///
     /// You are to check that:
     /// - The first byte contains this action's opcode.
-    /// - The data is not empty.
     /// - The resulting size of the data consumed is smaller than the size of the
     /// decoded data.
     ///
@@ -212,11 +206,10 @@ impl<'item> WriteFileData<'item> {
     ///
     /// # Errors
     /// - Fails if first byte of the data contains the wrong opcode.
-    /// - Fails if `data.len()` < `HEADER_SIZE`.
     /// - Fails if data is smaller then the decoded expected size.
     pub fn decode(data: &'item [u8]) -> Result<(Self, usize), BasicDecodeError> {
         match Self::start_decoding(data) {
-            Ok(v) => Ok(v.complete_decoding()),
+            Ok(v) => Ok(v.0.complete_decoding()),
             Err(e) => Err(e),
         }
     }
@@ -240,13 +233,38 @@ impl<'data> DecodableWriteFileData<'data> {
     }
 
     /// Decodes the size of the Item in bytes
-    pub fn size(&self) -> usize {
-        let offset_size = self.offset().size();
-        let (length_size, length) = unsafe {
-            let (length, length_size) = Varint::decode_ptr(self.data.add(2 + offset_size));
-            (length_size, length.u32())
-        };
-        2 + offset_size + length_size + length as usize
+    ///
+    /// # Safety
+    /// This requires reading the data bytes that may be out of bound to be calculate.
+    pub unsafe fn expected_size(&self) -> usize {
+        let offset_size = self.offset().expected_size();
+        let (length, length_size) = Varint::decode_ptr(self.data.add(2 + offset_size));
+        2 + offset_size + length_size + length.usize()
+    }
+
+    /// Checks whether the given data_size is bigger than the decoded object expected size.
+    ///
+    /// On success, returns the size of the decoded object.
+    ///
+    /// # Errors
+    /// Fails if the data_size is smaller than the required data size to decode the object.
+    pub fn smaller_than(&self, data_size: usize) -> Result<usize, usize> {
+        unsafe {
+            let mut size = 3;
+            if data_size < size {
+                return Err(size);
+            }
+            size += self.offset().expected_size();
+            if data_size < size {
+                return Err(size);
+            }
+            let (length, length_size) = Varint::decode_ptr(self.data.add(size - 1));
+            size += length.usize() + length_size - 1;
+            if data_size < size {
+                return Err(size);
+            }
+            Ok(size)
+        }
     }
 
     pub fn group(&self) -> bool {
@@ -335,8 +353,10 @@ mod test {
             assert_eq!(ret, op);
 
             // Test partial_decode == op
-            let decoder = WriteFileData::start_decoding(data).unwrap();
-            assert_eq!(size, decoder.size());
+            let (decoder, expected_size) = WriteFileData::start_decoding(data).unwrap();
+            assert_eq!(expected_size, size);
+            assert_eq!(unsafe { decoder.expected_size() }, size);
+            assert_eq!(decoder.smaller_than(data.len()).unwrap(), size);
             assert_eq!(
                 op.data.len(),
                 decoder.length().complete_decoding().0.u32() as usize

@@ -5,7 +5,7 @@ pub mod interface;
 use super::super::define::op_code::OpCode;
 use crate::v1_2::error::{
     PtrUncheckedStatusDecodeError, PtrUnknownExtension, PtrUnknownInterfaceId, StatusDecodeError,
-    UncheckedStatusDecodeError, UnknownExtension, UnknownInterfaceId,
+    StatusInterfaceDecodeError, UncheckedStatusDecodeError, UnknownExtension, UnknownInterfaceId,
 };
 pub use define::StatusExtension;
 pub use interface::{DecodableStatusInterface, StatusInterface};
@@ -90,9 +90,8 @@ impl<'item> Status<'item> {
     ///
     /// # Safety
     /// You are to check that:
-    /// - The decoded data is bigger than the expected size of the `decodable` object.
-    /// Meaning that given the resulting decodable object `decodable`:
-    /// `data.len()` >= [`decodable.size()`](struct.DecodableStatus.html#method.size).
+    /// - The decodable object fits in the given data:
+    /// [`decodable.smaller_than(data.len())`](struct.DecodableStatus.html#method.smaller_than)
     ///
     /// Failing that might result in reading and interpreting data outside the given
     /// array (depending on what is done with the resulting object).
@@ -107,9 +106,8 @@ impl<'item> Status<'item> {
     ///
     /// # Safety
     /// You are to check that:
-    /// - The decoded data is bigger than the expected size of the `decodable` object.
-    /// Meaning that given the resulting decodable object `decodable`:
-    /// `data.len()` >= [`decodable.size()`](struct.DecodableStatus.html#method.size).
+    /// - The decodable object fits in the given data:
+    /// [`decodable.smaller_than(data.len())`](struct.DecodableStatus.html#method.smaller_than)
     ///
     /// Failing that might result in reading and interpreting data outside the given
     /// array (depending on what is done with the resulting object).
@@ -117,16 +115,15 @@ impl<'item> Status<'item> {
         DecodableStatus::new(data)
     }
 
-    /// Creates a decodable item.
+    /// Returns a Decodable object and its expected byte size.
     ///
-    /// This decodable item allows each parts of the item independently.
+    /// This decodable item allows each parts of the item to be decoded independently.
     ///
     /// # Errors
-    /// - Fails if first byte of the data contains an invalid querycode.
     /// - Fails if the status extension is unknown.
-    /// - Fails if data is empty.
+    /// - Fails if this is an interface status with an unknown interface ID.
     /// - Fails if data is smaller then the decoded expected size.
-    pub fn start_decoding(data: &[u8]) -> Result<DecodableStatus, StatusDecodeError> {
+    pub fn start_decoding(data: &[u8]) -> Result<(DecodableStatus, usize), StatusDecodeError> {
         match data.get(0) {
             None => return Err(StatusDecodeError::MissingBytes(1)),
             Some(byte) => {
@@ -143,16 +140,16 @@ impl<'item> Status<'item> {
                 })
             })?
         };
-        let ret_size = ret.size().map_err(|id| {
-            StatusDecodeError::UnknownInterfaceId(UnknownInterfaceId {
-                id,
-                remaining_data: unsafe { data.get_unchecked(2..) },
-            })
+        let size = ret.smaller_than(data.len()).map_err(|e| match e {
+            StatusInterfaceDecodeError::UnknownInterfaceId(id) => {
+                StatusDecodeError::UnknownInterfaceId(UnknownInterfaceId {
+                    id,
+                    remaining_data: unsafe { data.get_unchecked(2..) },
+                })
+            }
+            StatusInterfaceDecodeError::MissingBytes(size) => StatusDecodeError::MissingBytes(size),
         })?;
-        if data.len() < ret_size {
-            return Err(StatusDecodeError::MissingBytes(ret_size));
-        }
-        Ok(ret)
+        Ok((ret, size))
     }
 
     /// Decodes the Item from a data pointer.
@@ -171,7 +168,6 @@ impl<'item> Status<'item> {
     /// # Safety
     /// You are to check that:
     /// - The first byte contains this action's querycode.
-    /// - The data is not empty.
     /// - The resulting size of the data consumed is smaller than the size of the
     /// decoded data.
     ///
@@ -208,7 +204,6 @@ impl<'item> Status<'item> {
     /// # Safety
     /// You are to check that:
     /// - The first byte contains this action's querycode.
-    /// - The data is not empty.
     /// - The resulting size of the data consumed is smaller than the size of the
     /// decoded data.
     ///
@@ -233,13 +228,16 @@ impl<'item> Status<'item> {
             })
     }
 
+    // TODO Homogenize decode method implementation style
     /// Decodes the item from bytes.
     ///
     /// # Errors
     /// - Fails if the status extension is unknown.
+    /// - Fails if this is an interface status with an unknown interface ID.
     /// - Fails if data is smaller then the decoded expected size.
     pub fn decode(data: &'item [u8]) -> Result<(Self, usize), StatusDecodeError> {
         Self::start_decoding(data)?
+            .0
             .complete_decoding()
             .map_err(|id| {
                 StatusDecodeError::UnknownInterfaceId(UnknownInterfaceId {
@@ -283,15 +281,28 @@ impl<'data> DecodableStatus<'data> {
         })
     }
 
-    // TODO Decode size by steps to avoid using out of bound data to calculate
-    // size.
     /// Decodes the size of the Item in bytes
     ///
     /// # Errors
     /// Fails if this is an interface status with an unknown interface ID.
-    pub fn size(&self) -> Result<usize, u8> {
+    ///
+    /// # Safety
+    /// This requires reading the data bytes that may be out of bound to be calculate.
+    pub unsafe fn expected_size(&self) -> Result<usize, u8> {
         Ok(1 + match self {
-            Self::Interface(status) => status.size()?,
+            Self::Interface(status) => status.expected_size()?,
+        })
+    }
+
+    /// Checks whether the given data_size is bigger than the decoded object expected size.
+    ///
+    /// On success, returns the size of the decoded object.
+    ///
+    /// # Errors
+    /// Fails if the data_size is smaller than the required data size to decode the object.
+    pub fn smaller_than(&self, data_size: usize) -> Result<usize, StatusInterfaceDecodeError> {
+        Ok(1 + match self {
+            Self::Interface(status) => status.smaller_than(data_size - 1)?,
         })
     }
 

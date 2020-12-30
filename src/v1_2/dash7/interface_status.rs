@@ -3,10 +3,6 @@ use super::addressee::{self, Addressee, DecodableAddressee, NlsMethod};
 /// Maximum byte size of an encoded `ReadFileData`
 pub const MAX_SIZE: usize = 10 + addressee::MAX_SIZE + 5;
 
-/// Required size of a data buffer to determine the size of a resulting
-/// decoded object
-pub const HEADER_SIZE: usize = 10 + addressee::HEADER_SIZE;
-
 // TODO This structure contains owned fixed size array for a size of up to
 // 13 bytes. It is contrasting most other structures having variable sized
 // arrays, which are not owned and therefore do not require a copy of the data
@@ -75,9 +71,31 @@ impl<'data> DecodableAddresseeWithNlsState<'data> {
         }
     }
 
-    pub fn size(&self) -> usize {
+    /// Decodes the size of the Item in bytes
+    ///
+    /// # Safety
+    /// This requires reading the data bytes that may be out of bound to be calculate.
+    pub unsafe fn expected_size(&self) -> usize {
         let nls_state_size = if self.has_auth() { 5 } else { 0 };
-        self.addressee.size() + nls_state_size
+        self.addressee.expected_size() + nls_state_size
+    }
+
+    /// Checks whether the given data_size is bigger than the decoded object expected size.
+    ///
+    /// On success, returns the size of the decoded object.
+    ///
+    /// # Errors
+    /// Fails if the data_size is smaller than the required data size to decode the object.
+    pub fn smaller_than(&self, data_size: usize) -> Result<usize, usize> {
+        let mut size = 1;
+        if data_size < size {
+            return Err(size);
+        }
+        size = unsafe { self.addressee.expected_size() };
+        if data_size < size {
+            return Err(size);
+        }
+        Ok(size)
     }
 
     pub fn has_auth(&self) -> bool {
@@ -93,7 +111,7 @@ impl<'data> DecodableAddresseeWithNlsState<'data> {
             None
         } else {
             unsafe {
-                let size = self.addressee.size();
+                let size = self.addressee.expected_size();
                 let data = self.data.add(size) as *const [u8; 5];
                 Some(&*data)
             }
@@ -218,10 +236,8 @@ impl<'item> Dash7InterfaceStatus<'item> {
     ///
     /// # Safety
     /// You are to check that:
-    /// - The first byte contains this action's querycode.
-    /// - The decoded data is bigger than the expected size of the `decodable` object.
-    /// Meaning that given the resulting decodable object `decodable`:
-    /// `data.len()` >= [`decodable.size()`](struct.DecodableDash7InterfaceStatus.html#method.size).
+    /// - The decodable object fits in the given data:
+    /// [`decodable.smaller_than(data.len())`](struct.DecodableDash7InterfaceStatus.html#method.smaller_than)
     ///
     /// Failing that might result in reading and interpreting data outside the given
     /// array (depending on what is done with the resulting object).
@@ -235,10 +251,8 @@ impl<'item> Dash7InterfaceStatus<'item> {
     ///
     /// # Safety
     /// You are to check that:
-    /// - The first byte contains this action's querycode.
-    /// - The decoded data is bigger than the expected size of the `decodable` object.
-    /// Meaning that given the resulting decodable object `decodable`:
-    /// `data.len()` >= [`decodable.size()`](struct.DecodableDash7InterfaceStatus.html#method.size).
+    /// - The decodable object fits in the given data:
+    /// [`decodable.smaller_than(data.len())`](struct.DecodableDash7InterfaceStatus.html#method.smaller_than)
     ///
     /// Failing that might result in reading and interpreting data outside the given
     /// array (depending on what is done with the resulting object).
@@ -246,24 +260,18 @@ impl<'item> Dash7InterfaceStatus<'item> {
         DecodableDash7InterfaceStatus::new(data)
     }
 
-    /// Creates a decodable item.
+    /// Returns a Decodable object and its expected byte size.
     ///
-    /// This decodable item allows each parts of the item independently.
+    /// This decodable item allows each parts of the item to be decoded independently.
     ///
     /// # Errors
-    /// - Fails if first byte of the data contains the wrong querycode.
-    /// - Fails if data is empty.
     /// - Fails if data is smaller then the decoded expected size.
-    pub fn start_decoding(data: &[u8]) -> Result<DecodableDash7InterfaceStatus, usize> {
-        if data.len() < HEADER_SIZE {
-            return Err(HEADER_SIZE);
-        }
+    ///
+    /// Returns the number of bytes required to continue decoding.
+    pub fn start_decoding(data: &[u8]) -> Result<(DecodableDash7InterfaceStatus, usize), usize> {
         let ret = unsafe { Self::start_decoding_unchecked(data) };
-        let ret_size = ret.size();
-        if data.len() < ret_size {
-            return Err(ret_size);
-        }
-        Ok(ret)
+        let size = ret.smaller_than(data.len())?;
+        Ok((ret, size))
     }
 
     /// Decodes the Item from a data pointer.
@@ -278,8 +286,6 @@ impl<'item> Dash7InterfaceStatus<'item> {
     ///
     /// # Safety
     /// You are to check that:
-    /// - The first byte contains this action's querycode.
-    /// - The data is not empty.
     /// - The resulting size of the data consumed is smaller than the size of the
     /// decoded data.
     ///
@@ -295,8 +301,6 @@ impl<'item> Dash7InterfaceStatus<'item> {
     ///
     /// # Safety
     /// You are to check that:
-    /// - The first byte contains this action's querycode.
-    /// - The data is not empty.
     /// - The resulting size of the data consumed is smaller than the size of the
     /// decoded data.
     ///
@@ -312,11 +316,12 @@ impl<'item> Dash7InterfaceStatus<'item> {
     /// to produce it.
     ///
     /// # Errors
-    /// - Fails if first byte of the data contains the wrong querycode.
     /// - Fails if data is smaller then the decoded expected size.
+    ///
+    /// Returns the number of bytes required to continue decoding.
     pub fn decode(data: &'item [u8]) -> Result<(Self, usize), usize> {
         match Self::start_decoding(data) {
-            Ok(v) => Ok(v.complete_decoding()),
+            Ok(v) => Ok(v.0.complete_decoding()),
             Err(e) => Err(e),
         }
     }
@@ -340,8 +345,30 @@ impl<'data> DecodableDash7InterfaceStatus<'data> {
     }
 
     /// Decodes the size of the Item in bytes
-    pub fn size(&self) -> usize {
-        10 + self.addressee_with_nls_state().size()
+    ///
+    /// # Safety
+    /// This requires reading the data bytes that may be out of bound to be calculate.
+    pub unsafe fn expected_size(&self) -> usize {
+        10 + self.addressee_with_nls_state().expected_size()
+    }
+
+    /// Checks whether the given data_size is bigger than the decoded object expected size.
+    ///
+    /// On success, returns the size of the decoded object.
+    ///
+    /// # Errors
+    /// Fails if the data_size is smaller than the required data size to decode the object.
+    pub fn smaller_than(&self, data_size: usize) -> Result<usize, usize> {
+        let mut size = 11;
+        if data_size < size {
+            return Err(size);
+        }
+        size += unsafe { self.addressee_with_nls_state().expected_size() };
+        size -= 1;
+        if data_size < size {
+            return Err(size);
+        }
+        Ok(size)
     }
 
     pub fn ch_header(&self) -> u8 {
@@ -430,12 +457,14 @@ mod test {
             assert_eq!(ret, op);
 
             // Test partial_decode == op
-            let decoder = Dash7InterfaceStatus::start_decoding(data).unwrap();
+            let (decoder, expected_size) = Dash7InterfaceStatus::start_decoding(data).unwrap();
             assert_eq!(
                 ret.addressee_with_nls_state.addressee(),
                 &decoder.addressee().complete_decoding().0
             );
-            assert_eq!(size, decoder.size());
+            assert_eq!(expected_size, size);
+            assert_eq!(unsafe { decoder.expected_size() }, size);
+            assert_eq!(decoder.smaller_than(data.len()).unwrap(), size);
             assert_eq!(
                 op,
                 Dash7InterfaceStatus {

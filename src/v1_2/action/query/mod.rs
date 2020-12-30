@@ -90,9 +90,8 @@ impl<'item> Query<'item> {
     ///
     /// # Safety
     /// You are to check that:
-    /// - The decoded data is bigger than the expected size of the `decodable` object.
-    /// Meaning that given the resulting decodable object `decodable`:
-    /// `data.len()` >= [`decodable.size()`](struct.DecodableQuery.html#method.size).
+    /// - The decodable object fits in the given data:
+    /// [`decodable.smaller_than(data.len())`](struct.DecodableQuery.html#method.smaller_than)
     ///
     /// Failing that might result in reading and interpreting data outside the given
     /// array (depending on what is done with the resulting object).
@@ -107,9 +106,8 @@ impl<'item> Query<'item> {
     ///
     /// # Safety
     /// You are to check that:
-    /// - The decoded data is bigger than the expected size of the `decodable` object.
-    /// Meaning that given the resulting decodable object `decodable`:
-    /// `data.len()` >= [`decodable.size()`](struct.DecodableQuery.html#method.size).
+    /// - The decodable object fits in the given data:
+    /// [`decodable.smaller_than(data.len())`](struct.DecodableQuery.html#method.smaller_than)
     ///
     /// Failing that might result in reading and interpreting data outside the given
     /// array (depending on what is done with the resulting object).
@@ -117,26 +115,24 @@ impl<'item> Query<'item> {
         DecodableQuery::new(data)
     }
 
-    /// Creates a decodable item.
+    /// Returns a Decodable object and its expected byte size.
     ///
-    /// This decodable item allows each parts of the item independently.
+    /// This decodable item allows each parts of the item to be decoded independently.
     ///
     /// # Errors
     /// - Fails if first byte of the data contains an invalid querycode.
-    /// - Fails if data is empty.
     /// - Fails if data is smaller then the decoded expected size.
-    pub fn start_decoding(data: &[u8]) -> Result<DecodableQuery, QueryDecodeError> {
+    pub fn start_decoding(data: &[u8]) -> Result<(DecodableQuery, usize), QueryDecodeError> {
         if data.is_empty() {
             return Err(QueryDecodeError::MissingBytes(1));
         }
         let ret = unsafe {
             Self::start_decoding_unchecked(data).map_err(QueryDecodeError::UnknownQueryCode)?
         };
-        let ret_size = ret.size();
-        if data.len() < ret_size {
-            return Err(QueryDecodeError::MissingBytes(ret_size));
-        }
-        Ok(ret)
+        let size = ret
+            .smaller_than(data.len())
+            .map_err(QueryDecodeError::MissingBytes)?;
+        Ok((ret, size))
     }
 
     /// Decodes the Item from a data pointer.
@@ -155,7 +151,6 @@ impl<'item> Query<'item> {
     /// # Safety
     /// You are to check that:
     /// - The first byte contains this action's querycode.
-    /// - The data is not empty.
     /// - The resulting size of the data consumed is smaller than the size of the
     /// decoded data.
     ///
@@ -177,7 +172,6 @@ impl<'item> Query<'item> {
     /// # Safety
     /// You are to check that:
     /// - The first byte contains this action's querycode.
-    /// - The data is not empty.
     /// - The resulting size of the data consumed is smaller than the size of the
     /// decoded data.
     ///
@@ -195,7 +189,7 @@ impl<'item> Query<'item> {
     /// - Fails if first byte of the data contains an invalid querycode.
     /// - Fails if data is smaller then the decoded expected size.
     pub fn decode(data: &'item [u8]) -> Result<(Self, usize), QueryDecodeError> {
-        Ok(Self::start_decoding(data)?.complete_decoding())
+        Ok(Self::start_decoding(data)?.0.complete_decoding())
     }
 }
 
@@ -240,10 +234,26 @@ impl<'data> DecodableQuery<'data> {
     }
 
     /// Decodes the size of the Item in bytes
-    pub fn size(&self) -> usize {
+    ///
+    /// # Safety
+    /// This requires reading the data bytes that may be out of bound to be calculate.
+    pub unsafe fn expected_size(&self) -> usize {
         match self {
-            Self::ComparisonWithValue(d) => d.size(),
-            Self::ComparisonWithRange(d) => d.size(),
+            Self::ComparisonWithValue(d) => d.expected_size(),
+            Self::ComparisonWithRange(d) => d.expected_size(),
+        }
+    }
+
+    /// Checks whether the given data_size is bigger than the decoded object expected size.
+    ///
+    /// On success, returns the size of the decoded object.
+    ///
+    /// # Errors
+    /// Fails if the data_size is smaller than the required data size to decode the object.
+    pub fn smaller_than(&self, data_size: usize) -> Result<usize, usize> {
+        match self {
+            Self::ComparisonWithValue(d) => d.smaller_than(data_size),
+            Self::ComparisonWithRange(d) => d.smaller_than(data_size),
         }
     }
 
