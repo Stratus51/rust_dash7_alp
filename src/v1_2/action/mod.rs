@@ -80,4 +80,5 @@ pub enum Action<'item> {
     // Extension(Extension),
 }
 
+// TODO Put action decoding behind feature flags
 // TODO Codec interface
