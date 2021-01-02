@@ -124,16 +124,12 @@ impl<'item> ActionQuery<'item> {
     /// This decodable item allows each parts of the item to be decoded independently.
     ///
     /// # Errors
-    /// - Fails if first byte of the data contains the wrong opcode.
     /// - Fails if data is smaller then the decoded expected size.
     pub fn start_decoding(
         data: &[u8],
     ) -> Result<(DecodableActionQuery, usize), QueryActionDecodeError> {
-        if data.is_empty() {
-            return Err(QueryActionDecodeError::MissingBytes(1));
-        }
-        if data[0] & 0x3F != OpCode::ActionQuery as u8 {
-            return Err(QueryActionDecodeError::BadOpCode);
+        if data.len() < 2 {
+            return Err(QueryActionDecodeError::MissingBytes(2));
         }
         let ret = unsafe {
             Self::start_decoding_unchecked(data)
@@ -163,7 +159,6 @@ impl<'item> ActionQuery<'item> {
     /// May attempt to read bytes after the end of the array.
     ///
     /// You are to check that:
-    /// - The first byte contains this action's opcode.
     /// - The resulting size of the data consumed is smaller than the size of the
     /// decoded data.
     ///
@@ -185,7 +180,6 @@ impl<'item> ActionQuery<'item> {
     /// May attempt to read bytes after the end of the array.
     ///
     /// You are to check that:
-    /// - The first byte contains this action's opcode.
     /// - The resulting size of the data consumed is smaller than the size of the
     /// decoded data.
     ///
@@ -201,7 +195,6 @@ impl<'item> ActionQuery<'item> {
     /// to produce it.
     ///
     /// # Errors
-    /// - Fails if first byte of the data contains the wrong opcode.
     /// - Fails if data is smaller then the decoded expected size.
     pub fn decode(data: &'item [u8]) -> Result<(Self, usize), QueryActionDecodeError> {
         Ok(Self::start_decoding(data)?.0.complete_decoding())

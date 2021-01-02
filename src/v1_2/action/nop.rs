@@ -103,7 +103,6 @@ impl Nop {
     ///
     /// # Safety
     /// You are to check that:
-    /// - The first byte contains this action's opcode.
     /// - The data is bigger than `SIZE`.
     ///
     /// Failing that might result in reading and interpreting data outside the given
@@ -116,7 +115,6 @@ impl Nop {
     ///
     /// # Safety
     /// You are to check that:
-    /// - The first byte contains this action's opcode.
     /// - The data is bigger than `SIZE`.
     ///
     /// Failing that might result in reading and interpreting data outside the given
@@ -130,16 +128,10 @@ impl Nop {
     /// This decodable item allows each parts of the item to be decoded independently.
     ///
     /// # Errors
-    /// - Fails if first byte of the data contains the wrong opcode.
     /// - Fails if `data.len()` < `SIZE`.
     pub fn start_decoding(data: &[u8]) -> Result<DecodableNop, BasicDecodeError> {
-        match data.get(0) {
-            None => return Err(BasicDecodeError::MissingBytes(SIZE)),
-            Some(byte) => {
-                if *byte & 0x3F != OpCode::Nop as u8 {
-                    return Err(BasicDecodeError::BadOpCode);
-                }
-            }
+        if data.is_empty() {
+            return Err(BasicDecodeError::MissingBytes(SIZE));
         }
         let ret = unsafe { Self::start_decoding_unchecked(data) };
         Ok(ret)
@@ -159,7 +151,6 @@ impl Nop {
     /// May attempt to read bytes after the end of the array.
     ///
     /// You are to check that:
-    /// - The first byte contains this action's opcode.
     /// - The data is bigger than `SIZE`.
     ///
     /// Failing that will result in reading and interpreting data outside the given
@@ -176,7 +167,6 @@ impl Nop {
     /// May attempt to read bytes after the end of the array.
     ///
     /// You are to check that:
-    /// - The first byte contains this action's opcode.
     /// - The data is bigger than `SIZE`.
     ///
     /// Failing that will result in reading and interpreting data outside the given
@@ -191,7 +181,6 @@ impl Nop {
     /// to produce it.
     ///
     /// # Errors
-    /// - Fails if first byte of the data contains the wrong opcode.
     /// - Fails if `data.len()` < `SIZE`.
     pub fn decode(data: &[u8]) -> Result<(Self, usize), BasicDecodeError> {
         match Self::start_decoding(data) {

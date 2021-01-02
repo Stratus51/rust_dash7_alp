@@ -106,7 +106,6 @@ impl<'item> WriteFileData<'item> {
     ///
     /// # Safety
     /// You are to check that:
-    /// - The first byte contains this action's opcode.
     /// - The decodable object fits in the given data:
     /// [`decodable.smaller_than(data.len())`](struct.DecodableWriteFileData.html#method.smaller_than)
     ///
@@ -122,7 +121,6 @@ impl<'item> WriteFileData<'item> {
     ///
     /// # Safety
     /// You are to check that:
-    /// - The first byte contains this action's opcode.
     /// - The decodable object fits in the given data:
     /// [`decodable.smaller_than(data.len())`](struct.DecodableWriteFileData.html#method.smaller_than)
     ///
@@ -137,18 +135,12 @@ impl<'item> WriteFileData<'item> {
     /// This decodable item allows each parts of the item to be decoded independently.
     ///
     /// # Errors
-    /// - Fails if first byte of the data contains the wrong opcode.
     /// - Fails if data is smaller then the decoded expected size.
     pub fn start_decoding(
         data: &[u8],
     ) -> Result<(DecodableWriteFileData, usize), BasicDecodeError> {
-        match data.get(0) {
-            None => return Err(BasicDecodeError::MissingBytes(1)),
-            Some(byte) => {
-                if *byte & 0x3F != OpCode::WriteFileData as u8 {
-                    return Err(BasicDecodeError::BadOpCode);
-                }
-            }
+        if data.is_empty() {
+            return Err(BasicDecodeError::MissingBytes(1));
         }
         let ret = unsafe { Self::start_decoding_unchecked(data) };
         let size = ret
@@ -171,7 +163,6 @@ impl<'item> WriteFileData<'item> {
     /// May attempt to read bytes after the end of the array.
     ///
     /// You are to check that:
-    /// - The first byte contains this action's opcode.
     /// - The resulting size of the data consumed is smaller than the size of the
     /// decoded data.
     ///
@@ -189,7 +180,6 @@ impl<'item> WriteFileData<'item> {
     /// May attempt to read bytes after the end of the array.
     ///
     /// You are to check that:
-    /// - The first byte contains this action's opcode.
     /// - The resulting size of the data consumed is smaller than the size of the
     /// decoded data.
     ///
@@ -205,7 +195,6 @@ impl<'item> WriteFileData<'item> {
     /// to produce it.
     ///
     /// # Errors
-    /// - Fails if first byte of the data contains the wrong opcode.
     /// - Fails if data is smaller then the decoded expected size.
     pub fn decode(data: &'item [u8]) -> Result<(Self, usize), BasicDecodeError> {
         match Self::start_decoding(data) {

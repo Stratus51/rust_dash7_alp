@@ -158,13 +158,8 @@ impl<'item> Status<'item> {
     /// - Fails if this is an interface status with an unknown interface ID.
     /// - Fails if data is smaller then the decoded expected size.
     pub fn start_decoding(data: &[u8]) -> Result<(DecodableStatus, usize), StatusDecodeError> {
-        match data.get(0) {
-            None => return Err(StatusDecodeError::MissingBytes(1)),
-            Some(byte) => {
-                if *byte & 0x3F != OpCode::Status as u8 {
-                    return Err(StatusDecodeError::BadOpCode);
-                }
-            }
+        if data.is_empty() {
+            return Err(StatusDecodeError::MissingBytes(1));
         }
         let ret = unsafe {
             Self::start_decoding_unchecked(data).map_err(|e| match e {

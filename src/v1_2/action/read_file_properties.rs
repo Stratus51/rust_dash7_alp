@@ -106,7 +106,6 @@ impl ReadFileProperties {
     ///
     /// # Safety
     /// You are to check that:
-    /// - The first byte contains this action's opcode.
     /// - The data is bigger than `SIZE`.
     ///
     /// Failing that might result in reading and interpreting data outside the given
@@ -121,7 +120,6 @@ impl ReadFileProperties {
     ///
     /// # Safety
     /// You are to check that:
-    /// - The first byte contains this action's opcode.
     /// - The data is bigger than `SIZE`.
     ///
     /// Failing that might result in reading and interpreting data outside the given
@@ -135,15 +133,10 @@ impl ReadFileProperties {
     /// This decodable item allows each parts of the item to be decoded independently.
     ///
     /// # Errors
-    /// - Fails if first byte of the data contains the wrong opcode.
     /// - Fails if the data is less than 2 bytes.
     pub fn start_decoding(data: &[u8]) -> Result<DecodableReadFileProperties, BasicDecodeError> {
-        if data.len() < 2 {
-            return Err(BasicDecodeError::MissingBytes(2));
-        }
-        let byte = unsafe { *data.get_unchecked(0) };
-        if byte & 0x3F != OpCode::ReadFileProperties as u8 {
-            return Err(BasicDecodeError::BadOpCode);
+        if data.len() < SIZE {
+            return Err(BasicDecodeError::MissingBytes(SIZE));
         }
         let ret = unsafe { Self::start_decoding_unchecked(data) };
         Ok(ret)
@@ -163,7 +156,6 @@ impl ReadFileProperties {
     /// May attempt to read bytes after the end of the array.
     ///
     /// You are to check that:
-    /// - The first byte contains this action's opcode.
     /// - The data is bigger than `SIZE`.
     ///
     /// Failing that will result in reading and interpreting data outside the given
@@ -180,7 +172,6 @@ impl ReadFileProperties {
     /// May attempt to read bytes after the end of the array.
     ///
     /// You are to check that:
-    /// - The first byte contains this action's opcode.
     /// - The data is bigger than `SIZE`.
     ///
     /// Failing that will result in reading and interpreting data outside the given
@@ -195,7 +186,6 @@ impl ReadFileProperties {
     /// to produce it.
     ///
     /// # Errors
-    /// - Fails if first byte of the data contains the wrong opcode.
     /// - Fails if `data.len()` < `SIZE`.
     pub fn decode(data: &[u8]) -> Result<(Self, usize), BasicDecodeError> {
         match Self::start_decoding(data) {
