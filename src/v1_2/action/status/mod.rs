@@ -5,7 +5,7 @@ pub mod interface;
 use super::super::define::op_code::OpCode;
 use crate::v1_2::error::{
     PtrUncheckedStatusDecodeError, PtrUnknownExtension, PtrUnknownInterfaceId, StatusDecodeError,
-    StatusInterfaceDecodeError, UncheckedStatusDecodeError, UnknownExtension, UnknownInterfaceId,
+    UncheckedStatusDecodeError, UnknownExtension, UnknownInterfaceId,
 };
 pub use define::StatusExtension;
 pub use interface::{DecodableStatusInterface, StatusInterface};
@@ -86,7 +86,8 @@ impl<'item> Status<'item> {
     /// It is not meant to be used inside a Rust library/binary.
     ///
     /// # Errors
-    /// Fails if the status extension is unknown. Returns the status extension.
+    /// - Fails if the status extension is unknown. Returns the status extension.
+    /// - Fails if the status is an interface status with an unknown interface ID.
     ///
     /// # Safety
     /// You are to check that:
@@ -95,14 +96,32 @@ impl<'item> Status<'item> {
     ///
     /// Failing that might result in reading and interpreting data outside the given
     /// array (depending on what is done with the resulting object).
-    pub unsafe fn start_decoding_ptr<'data>(data: *const u8) -> Result<DecodableStatus<'data>, u8> {
-        DecodableStatus::from_ptr(data)
+    pub unsafe fn start_decoding_ptr<'data>(
+        data: *const u8,
+    ) -> Result<DecodableStatus<'data>, PtrUncheckedStatusDecodeError<'data>> {
+        DecodableStatus::from_ptr(data).map_err(|e| match e {
+            DecodableNewError::UnknownExtension(extension) => {
+                PtrUncheckedStatusDecodeError::UnknownExtension(PtrUnknownExtension {
+                    extension,
+                    remaining_data: data.add(1),
+                    phantom: core::marker::PhantomData,
+                })
+            }
+            DecodableNewError::UnknownInterfaceId(id) => {
+                PtrUncheckedStatusDecodeError::UnknownInterfaceId(PtrUnknownInterfaceId {
+                    id,
+                    remaining_data: data.add(2),
+                    phantom: core::marker::PhantomData,
+                })
+            }
+        })
     }
 
     /// Creates a decodable item without checking the data size.
     ///
     /// # Errors
-    /// Fails if the status extension is unknown. Returns the status extension.
+    /// - Fails if the status extension is unknown. Returns the status extension.
+    /// - Fails if the status is an interface status with an unknown interface ID.
     ///
     /// # Safety
     /// You are to check that:
@@ -111,8 +130,23 @@ impl<'item> Status<'item> {
     ///
     /// Failing that might result in reading and interpreting data outside the given
     /// array (depending on what is done with the resulting object).
-    pub unsafe fn start_decoding_unchecked(data: &[u8]) -> Result<DecodableStatus, u8> {
-        DecodableStatus::new(data)
+    pub unsafe fn start_decoding_unchecked(
+        data: &[u8],
+    ) -> Result<DecodableStatus, UncheckedStatusDecodeError> {
+        DecodableStatus::new(data).map_err(|e| match e {
+            DecodableNewError::UnknownExtension(extension) => {
+                UncheckedStatusDecodeError::UnknownExtension(UnknownExtension {
+                    extension,
+                    remaining_data: data.get_unchecked(1..),
+                })
+            }
+            DecodableNewError::UnknownInterfaceId(id) => {
+                UncheckedStatusDecodeError::UnknownInterfaceId(UnknownInterfaceId {
+                    id,
+                    remaining_data: data.get_unchecked(2..),
+                })
+            }
+        })
     }
 
     /// Returns a Decodable object and its expected byte size.
@@ -133,22 +167,18 @@ impl<'item> Status<'item> {
             }
         }
         let ret = unsafe {
-            Self::start_decoding_unchecked(data).map_err(|extension| {
-                StatusDecodeError::UnknownExtension(UnknownExtension {
-                    extension,
-                    remaining_data: data.get_unchecked(1..),
-                })
+            Self::start_decoding_unchecked(data).map_err(|e| match e {
+                UncheckedStatusDecodeError::UnknownExtension(e) => {
+                    StatusDecodeError::UnknownExtension(e)
+                }
+                UncheckedStatusDecodeError::UnknownInterfaceId(e) => {
+                    StatusDecodeError::UnknownInterfaceId(e)
+                }
             })?
         };
-        let size = ret.smaller_than(data.len()).map_err(|e| match e {
-            StatusInterfaceDecodeError::UnknownInterfaceId(id) => {
-                StatusDecodeError::UnknownInterfaceId(UnknownInterfaceId {
-                    id,
-                    remaining_data: unsafe { data.get_unchecked(2..) },
-                })
-            }
-            StatusInterfaceDecodeError::MissingBytes(size) => StatusDecodeError::MissingBytes(size),
-        })?;
+        let size = ret
+            .smaller_than(data.len())
+            .map_err(StatusDecodeError::MissingBytes)?;
         Ok((ret, size))
     }
 
@@ -163,7 +193,8 @@ impl<'item> Status<'item> {
     /// It is not meant to be used inside a Rust library/binary.
     ///
     /// # Errors
-    /// Fails if the status extension is unknown. Returns the status extension.
+    /// - Fails if the status extension is unknown. Returns the status extension.
+    /// - Fails if the status is an interface status with an unknown interface ID.
     ///
     /// # Safety
     /// You are to check that:
@@ -176,22 +207,7 @@ impl<'item> Status<'item> {
     pub unsafe fn decode_ptr(
         data: *const u8,
     ) -> Result<(Self, usize), PtrUncheckedStatusDecodeError<'item>> {
-        Self::start_decoding_ptr(data)
-            .map_err(|extension| {
-                PtrUncheckedStatusDecodeError::UnknownExtension(PtrUnknownExtension {
-                    extension,
-                    remaining_data: data.add(1),
-                    phantom: core::marker::PhantomData,
-                })
-            })?
-            .complete_decoding()
-            .map_err(|id| {
-                PtrUncheckedStatusDecodeError::UnknownInterfaceId(PtrUnknownInterfaceId {
-                    id,
-                    remaining_data: data.add(2),
-                    phantom: core::marker::PhantomData,
-                })
-            })
+        Ok(Self::start_decoding_ptr(data)?.complete_decoding())
     }
 
     /// Decodes the Item from bytes.
@@ -199,7 +215,8 @@ impl<'item> Status<'item> {
     /// Returns the decoded data and the number of bytes consumed to produce it.
     ///
     /// # Errors
-    /// Fails if the status extension is unknown. Returns the status extension.
+    /// - Fails if the status extension is unknown. Returns the status extension.
+    /// - Fails if the status is an interface status with an unknown interface ID.
     ///
     /// # Safety
     /// You are to check that:
@@ -212,20 +229,7 @@ impl<'item> Status<'item> {
     pub unsafe fn decode_unchecked(
         data: &'item [u8],
     ) -> Result<(Self, usize), UncheckedStatusDecodeError> {
-        Self::start_decoding_unchecked(data)
-            .map_err(|extension| {
-                UncheckedStatusDecodeError::UnknownExtension(UnknownExtension {
-                    extension,
-                    remaining_data: data.get_unchecked(1..),
-                })
-            })?
-            .complete_decoding()
-            .map_err(|id| {
-                UncheckedStatusDecodeError::UnknownInterfaceId(UnknownInterfaceId {
-                    id,
-                    remaining_data: data.get_unchecked(2..),
-                })
-            })
+        Ok(Self::start_decoding_unchecked(data)?.complete_decoding())
     }
 
     // TODO Homogenize decode method implementation style
@@ -236,16 +240,14 @@ impl<'item> Status<'item> {
     /// - Fails if this is an interface status with an unknown interface ID.
     /// - Fails if data is smaller then the decoded expected size.
     pub fn decode(data: &'item [u8]) -> Result<(Self, usize), StatusDecodeError> {
-        Self::start_decoding(data)?
-            .0
-            .complete_decoding()
-            .map_err(|id| {
-                StatusDecodeError::UnknownInterfaceId(UnknownInterfaceId {
-                    id,
-                    remaining_data: unsafe { data.get_unchecked(2..) },
-                })
-            })
+        Ok(Self::start_decoding(data)?.0.complete_decoding())
     }
+}
+
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+enum DecodableNewError {
+    UnknownExtension(u8),
+    UnknownInterfaceId(u8),
 }
 
 pub enum DecodableStatus<'data> {
@@ -258,7 +260,7 @@ impl<'data> DecodableStatus<'data> {
     ///
     /// # Safety
     /// The data has to contain at least one byte.
-    pub unsafe fn new(data: &'data [u8]) -> Result<Self, u8> {
+    unsafe fn new(data: &'data [u8]) -> Result<Self, DecodableNewError> {
         Self::from_ptr(data.as_ptr())
     }
 
@@ -267,31 +269,29 @@ impl<'data> DecodableStatus<'data> {
     ///
     /// # Safety
     /// The data has to contain at least one byte.
-    unsafe fn from_ptr(data: *const u8) -> Result<Self, u8> {
+    unsafe fn from_ptr(data: *const u8) -> Result<Self, DecodableNewError> {
         let byte = *data.add(0);
         let code = byte >> 6;
         let extension = match StatusExtension::from(code) {
             Ok(ext) => ext,
-            Err(_) => return Err(code),
+            Err(_) => return Err(DecodableNewError::UnknownExtension(code)),
         };
         Ok(match extension {
-            StatusExtension::Interface => {
-                DecodableStatus::Interface(StatusInterface::start_decoding_ptr(data.add(1)))
-            }
+            StatusExtension::Interface => DecodableStatus::Interface(
+                StatusInterface::start_decoding_ptr(data.add(1))
+                    .map_err(DecodableNewError::UnknownInterfaceId)?,
+            ),
         })
     }
 
     /// Decodes the size of the Item in bytes
     ///
-    /// # Errors
-    /// Fails if this is an interface status with an unknown interface ID.
-    ///
     /// # Safety
     /// This requires reading the data bytes that may be out of bound to be calculate.
-    pub unsafe fn expected_size(&self) -> Result<usize, u8> {
-        Ok(1 + match self {
-            Self::Interface(status) => status.expected_size()?,
-        })
+    pub unsafe fn expected_size(&self) -> usize {
+        1 + match self {
+            Self::Interface(status) => status.expected_size(),
+        }
     }
 
     /// Checks whether the given data_size is bigger than the decoded object expected size.
@@ -300,10 +300,12 @@ impl<'data> DecodableStatus<'data> {
     ///
     /// # Errors
     /// Fails if the data_size is smaller than the required data size to decode the object.
-    pub fn smaller_than(&self, data_size: usize) -> Result<usize, StatusInterfaceDecodeError> {
-        Ok(1 + match self {
-            Self::Interface(status) => status.smaller_than(data_size - 1)?,
-        })
+    pub fn smaller_than(&self, data_size: usize) -> Result<usize, usize> {
+        match self {
+            Self::Interface(status) => status.smaller_than(data_size - 1),
+        }
+        .map(|v| v + 1)
+        .map_err(|v| v + 1)
     }
 
     /// Fully decode the Item
@@ -313,14 +315,14 @@ impl<'data> DecodableStatus<'data> {
     /// # Errors
     /// Fails if the decoded status is an interface status and if the decoded
     /// interface_id is unknown.
-    pub fn complete_decoding(&self) -> Result<(Status<'data>, usize), u8> {
+    pub fn complete_decoding(&self) -> (Status<'data>, usize) {
         let (status, size) = match &self {
             DecodableStatus::Interface(interface) => {
-                let (status, size) = interface.complete_decoding()?;
+                let (status, size) = interface.complete_decoding();
                 (Status::Interface(status), size)
             }
         };
-        Ok((status, 1 + size))
+        (status, 1 + size)
     }
 }
 

@@ -1,8 +1,6 @@
 use super::super::super::define::flag;
 use super::super::super::define::op_code::OpCode;
-use super::super::super::error::{
-    PtrUnknownQueryCode, QueryActionDecodeError, QueryDecodeError, UnknownQueryCode,
-};
+use super::super::super::error::{PtrUnknownQueryCode, QueryActionDecodeError, UnknownQueryCode};
 use super::{DecodableQuery, Query};
 
 /// Writes data to a file.
@@ -80,30 +78,45 @@ impl<'item> ActionQuery<'item> {
     ///
     /// It is not meant to be used inside a Rust library/binary.
     ///
+    /// # Errors
+    /// - Fails if the querycode is unknown.
+    ///
     /// # Safety
     /// You are to check that:
-    /// - The first byte contains this action's opcode.
     /// - The decodable object fits in the given data:
     /// [`decodable.smaller_than(data.len())`](struct.DecodableActionQuery.html#method.smaller_than)
     ///
     /// Failing that might result in reading and interpreting data outside the given
     /// array (depending on what is done with the resulting object).
-    pub const unsafe fn start_decoding_ptr<'data>(data: *const u8) -> DecodableActionQuery<'data> {
-        DecodableActionQuery::from_ptr(data)
+    pub unsafe fn start_decoding_ptr<'data>(
+        data: *const u8,
+    ) -> Result<DecodableActionQuery<'data>, PtrUnknownQueryCode<'data>> {
+        DecodableActionQuery::from_ptr(data).map_err(|code| PtrUnknownQueryCode {
+            code,
+            remaining_data: data.add(1),
+            phantom: core::marker::PhantomData,
+        })
     }
 
     /// Creates a decodable item without checking the data size.
     ///
+    /// # Errors
+    /// - Fails if the querycode is unknown.
+    ///
     /// # Safety
     /// You are to check that:
-    /// - The first byte contains this action's opcode.
     /// - The decodable object fits in the given data:
     /// [`decodable.smaller_than(data.len())`](struct.DecodableActionQuery.html#method.smaller_than)
     ///
     /// Failing that might result in reading and interpreting data outside the given
     /// array (depending on what is done with the resulting object).
-    pub const unsafe fn start_decoding_unchecked(data: &[u8]) -> DecodableActionQuery {
-        DecodableActionQuery::new(data)
+    pub unsafe fn start_decoding_unchecked(
+        data: &[u8],
+    ) -> Result<DecodableActionQuery, UnknownQueryCode> {
+        DecodableActionQuery::new(data).map_err(|code| UnknownQueryCode {
+            code,
+            remaining_data: data.get_unchecked(1..),
+        })
     }
 
     /// Returns a Decodable object and its expected byte size.
@@ -122,16 +135,13 @@ impl<'item> ActionQuery<'item> {
         if data[0] & 0x3F != OpCode::ActionQuery as u8 {
             return Err(QueryActionDecodeError::BadOpCode);
         }
-        let ret = unsafe { Self::start_decoding_unchecked(data) };
-        let size = ret.smaller_than(data.len()).map_err(|e| match e {
-            QueryDecodeError::UnknownQueryCode(code) => {
-                QueryActionDecodeError::UnknownQueryCode(UnknownQueryCode {
-                    code,
-                    remaining_data: unsafe { data.get_unchecked(1..) },
-                })
-            }
-            QueryDecodeError::MissingBytes(n) => QueryActionDecodeError::MissingBytes(n),
-        })?;
+        let ret = unsafe {
+            Self::start_decoding_unchecked(data)
+                .map_err(QueryActionDecodeError::UnknownQueryCode)?
+        };
+        let size = ret
+            .smaller_than(data.len())
+            .map_err(QueryActionDecodeError::MissingBytes)?;
         Ok((ret, size))
     }
 
@@ -160,13 +170,7 @@ impl<'item> ActionQuery<'item> {
     /// Failing that will result in reading and interpreting data outside the given
     /// array.
     pub unsafe fn decode_ptr(data: *const u8) -> Result<(Self, usize), PtrUnknownQueryCode<'item>> {
-        Self::start_decoding_ptr(data)
-            .complete_decoding()
-            .map_err(|code| PtrUnknownQueryCode {
-                code,
-                remaining_data: data.add(1),
-                phantom: core::marker::PhantomData,
-            })
+        Ok(Self::start_decoding_ptr(data)?.complete_decoding())
     }
 
     /// Decodes the Item from bytes.
@@ -188,12 +192,7 @@ impl<'item> ActionQuery<'item> {
     /// Failing that will result in reading and interpreting data outside the given
     /// array.
     pub unsafe fn decode_unchecked(data: &'item [u8]) -> Result<(Self, usize), UnknownQueryCode> {
-        Self::start_decoding_unchecked(data)
-            .complete_decoding()
-            .map_err(|code| UnknownQueryCode {
-                code,
-                remaining_data: data.get_unchecked(1..),
-            })
+        Ok(Self::start_decoding_unchecked(data)?.complete_decoding())
     }
 
     /// Decodes the item from bytes.
@@ -205,47 +204,40 @@ impl<'item> ActionQuery<'item> {
     /// - Fails if first byte of the data contains the wrong opcode.
     /// - Fails if data is smaller then the decoded expected size.
     pub fn decode(data: &'item [u8]) -> Result<(Self, usize), QueryActionDecodeError> {
-        Ok(Self::start_decoding(data)?
-            .0
-            .complete_decoding()
-            // TODO This error should never happen as it should be triggered by `start_decoding`
-            // first, when fetching the size of the operand.
-            .map_err(|code| {
-                QueryActionDecodeError::UnknownQueryCode(UnknownQueryCode {
-                    code,
-                    remaining_data: unsafe { data.get_unchecked(1..) },
-                })
-            })?)
+        Ok(Self::start_decoding(data)?.0.complete_decoding())
     }
 }
 
 pub struct DecodableActionQuery<'data> {
     data: *const u8,
     data_life: core::marker::PhantomData<&'data ()>,
+    query: DecodableQuery<'data>,
 }
 
 impl<'data> DecodableActionQuery<'data> {
-    const fn new(data: &'data [u8]) -> Self {
+    /// # Errors
+    /// - Fails if the querycode is unknown
+    fn new(data: &'data [u8]) -> Result<Self, u8> {
         Self::from_ptr(data.as_ptr())
     }
 
-    const fn from_ptr(data: *const u8) -> Self {
-        Self {
+    /// # Errors
+    /// - Fails if the querycode is unknown
+    fn from_ptr(data: *const u8) -> Result<Self, u8> {
+        let query = unsafe { Query::start_decoding_ptr(data.add(1))? };
+        Ok(Self {
             data,
             data_life: core::marker::PhantomData,
-        }
+            query,
+        })
     }
 
     /// Decodes the size of the Item in bytes
     ///
-    /// # Errors
-    /// Fails if the parsed data corresponds to an invalid querycode.
-    /// Returns the invalid querycode.
-    ///
     /// # Safety
     /// This requires reading the data bytes that may be out of bound to be calculate.
-    pub unsafe fn expected_size(&self) -> Result<usize, u8> {
-        Ok(1 + self.query()?.expected_size())
+    pub unsafe fn expected_size(&self) -> usize {
+        1 + self.query.expected_size()
     }
 
     /// Checks whether the given data_size is bigger than the decoded object expected size.
@@ -253,14 +245,12 @@ impl<'data> DecodableActionQuery<'data> {
     /// On success, returns the size of the decoded object.
     ///
     /// # Errors
-    /// - Fails if the querycode is unknown
     /// - Fails if the data_size is smaller than the required data size to decode the object.
-    pub fn smaller_than(&self, data_size: usize) -> Result<usize, QueryDecodeError> {
-        self.query()
-            .map_err(QueryDecodeError::UnknownQueryCode)?
+    pub fn smaller_than(&self, data_size: usize) -> Result<usize, usize> {
+        self.query
             .smaller_than(data_size - 1)
             .map(|size| 1 + size)
-            .map_err(|size| QueryDecodeError::MissingBytes(1 + size))
+            .map_err(|size| 1 + size)
     }
 
     pub fn group(&self) -> bool {
@@ -271,30 +261,23 @@ impl<'data> DecodableActionQuery<'data> {
         unsafe { *self.data.add(0) & flag::RESPONSE != 0 }
     }
 
-    /// # Errors
-    /// Fails if the parsed data corresponds to an invalid querycode.
-    /// Returns the invalid querycode.
-    pub fn query(&self) -> Result<DecodableQuery<'data>, u8> {
-        unsafe { Query::start_decoding_ptr(self.data.add(1)) }
+    pub fn query(&self) -> &DecodableQuery<'data> {
+        &self.query
     }
 
     /// Fully decode the Item
     ///
     /// Returns the decoded data and the number of bytes consumed to produce it.
-    ///
-    /// # Errors
-    /// Fails if the parsed data corresponds to an invalid querycode.
-    /// Returns the invalid querycode.
-    pub fn complete_decoding(&self) -> Result<(ActionQuery<'data>, usize), u8> {
-        let (query, query_size) = self.query()?.complete_decoding();
-        Ok((
+    pub fn complete_decoding(&self) -> (ActionQuery<'data>, usize) {
+        let (query, query_size) = self.query.complete_decoding();
+        (
             ActionQuery {
                 group: self.group(),
                 response: self.response(),
                 query,
             },
             1 + query_size,
-        ))
+        )
     }
 }
 
@@ -330,7 +313,7 @@ mod test {
                 ActionQuery {
                     group: decoder.group(),
                     response: decoder.response(),
-                    query: decoder.query().unwrap().complete_decoding().0,
+                    query: decoder.query().complete_decoding().0,
                 }
             );
         }
