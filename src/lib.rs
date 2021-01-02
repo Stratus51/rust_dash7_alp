@@ -61,7 +61,6 @@ pub mod varint;
 // TODO Int enums: optim: find a way to cast from int to enum instead of calling a matching
 // function (much more resource intensive). Only do that for enums that match all possible
 // values that result from the parsing.
-// TODO Optimize min size calculation (fold it into the upper OP when possible)
 // TODO usize is target dependent. In other words, on a 16 bit processor, we will run into
 // troubles if we were to convert u32 to usize (even if a 64Ko payload seems a bit big).
 // Maybe we should just embrace this limitation? (Not to be lazy or anything...)

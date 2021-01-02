@@ -3,12 +3,6 @@ use super::addressee::{self, Addressee, DecodableAddressee, NlsMethod};
 /// Maximum byte size of an encoded `ReadFileData`
 pub const MAX_SIZE: usize = 10 + addressee::MAX_SIZE + 5;
 
-// TODO This structure contains owned fixed size array for a size of up to
-// 13 bytes. It is contrasting most other structures having variable sized
-// arrays, which are not owned and therefore do not require a copy of the data
-// to exist.
-// This could imply some performance hit. On the decoding, it forces a copy of the
-// data for it to be accessible, which might be a bad thing.
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct AddresseeWithNlsState<'item> {
     addressee: Addressee<'item>,

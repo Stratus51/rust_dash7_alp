@@ -92,7 +92,6 @@ pub enum Action<'item> {
 }
 
 // TODO Put action decoding behind feature flags
-// TODO Codec interface
 
 impl<'item> Action<'item> {
     /// Encodes the Item into a data pointer without checking the size of the
