@@ -125,3 +125,52 @@ pub enum StatusInterfaceDecodeError {
     /// The input data contains an unknown interface ID
     UnknownInterfaceId(u8),
 }
+
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+pub enum ActionDecodeError<'data> {
+    UnknownActionCode(u8),
+    MissingBytes(usize),
+    UnknownQueryCode(UnknownQueryCode<'data>),
+    UnknownStatusExtension(UnknownExtension<'data>),
+    UnknownStatusInterfaceId(UnknownInterfaceId<'data>),
+}
+
+impl<'data> From<UncheckedStatusDecodeError<'data>> for ActionDecodeError<'data> {
+    fn from(e: UncheckedStatusDecodeError<'data>) -> Self {
+        match e {
+            UncheckedStatusDecodeError::UnknownExtension(e) => Self::UnknownStatusExtension(e),
+            UncheckedStatusDecodeError::UnknownInterfaceId(e) => Self::UnknownStatusInterfaceId(e),
+        }
+    }
+}
+
+impl<'data> From<UnknownQueryCode<'data>> for ActionDecodeError<'data> {
+    fn from(e: UnknownQueryCode<'data>) -> Self {
+        Self::UnknownQueryCode(e)
+    }
+}
+
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+pub enum PtrActionDecodeError<'data> {
+    UnknownActionCode(u8),
+    UnknownQueryCode(PtrUnknownQueryCode<'data>),
+    UnknownStatusExtension(PtrUnknownExtension<'data>),
+    UnknownStatusInterfaceId(PtrUnknownInterfaceId<'data>),
+}
+
+impl<'data> From<PtrUncheckedStatusDecodeError<'data>> for PtrActionDecodeError<'data> {
+    fn from(e: PtrUncheckedStatusDecodeError<'data>) -> Self {
+        match e {
+            PtrUncheckedStatusDecodeError::UnknownExtension(e) => Self::UnknownStatusExtension(e),
+            PtrUncheckedStatusDecodeError::UnknownInterfaceId(e) => {
+                Self::UnknownStatusInterfaceId(e)
+            }
+        }
+    }
+}
+
+impl<'data> From<PtrUnknownQueryCode<'data>> for PtrActionDecodeError<'data> {
+    fn from(e: PtrUnknownQueryCode<'data>) -> Self {
+        Self::UnknownQueryCode(e)
+    }
+}
