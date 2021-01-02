@@ -295,6 +295,12 @@ mod test {
             let (ret, size) = Query::decode(data).unwrap();
             assert_eq!(size, data.len());
             assert_eq!(ret, op);
+
+            // Test partial_decode == op
+            let (decoder, expected_size) = Query::start_decoding(data).unwrap();
+            assert_eq!(expected_size, size);
+            assert_eq!(unsafe { decoder.expected_size() }, size);
+            assert_eq!(decoder.smaller_than(data.len()).unwrap(), size);
         }
         test(
             Query::ComparisonWithValue(ComparisonWithValue {
