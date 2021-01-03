@@ -19,6 +19,7 @@ impl AccessClass {
     }
 }
 
+#[cfg_attr(feature = "repr_c", repr(C))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum NlsMethod {
     None = 0,
@@ -68,6 +69,7 @@ impl NlsMethod {
     }
 }
 
+#[cfg_attr(feature = "repr_c", repr(C))]
 // TODO All those intermediary types probably an impact on binary size and performance.
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum AddresseeIdentifierType {
@@ -100,6 +102,8 @@ impl AddresseeIdentifierType {
     }
 }
 
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum AddresseeIdentifier<'item> {
     Nbid(u8),
@@ -119,6 +123,8 @@ impl<'item> AddresseeIdentifier<'item> {
     }
 }
 
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct Addressee<'item> {
     pub nls_method: NlsMethod,

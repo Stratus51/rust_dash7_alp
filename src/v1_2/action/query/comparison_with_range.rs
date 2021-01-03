@@ -5,6 +5,8 @@ use crate::define::{FileId, MaskedRange};
 use crate::varint::{DecodableVarint, Varint};
 
 /// Writes data to a file.
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct ComparisonWithRange<'item> {
     pub signed_data: bool,

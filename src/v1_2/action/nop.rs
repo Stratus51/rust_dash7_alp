@@ -9,15 +9,19 @@ pub const MAX_SIZE: usize = 1;
 pub const SIZE: usize = 1;
 
 /// Does nothing.
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct Nop {
+pub struct Nop<'item> {
     /// Group with next action
     pub group: bool,
     /// Ask for a response (status)
     pub response: bool,
+    /// Empty data required for lifetime compilation.
+    pub phantom: core::marker::PhantomData<&'item ()>,
 }
 
-impl Default for Nop {
+impl<'item> Default for Nop<'item> {
     /// Default Nop with group = false and response = true.
     ///
     /// Because that would be the most common use case: a ping command.
@@ -25,13 +29,18 @@ impl Default for Nop {
         Self {
             group: false,
             response: true,
+            phantom: core::marker::PhantomData,
         }
     }
 }
 
-impl Nop {
+impl<'item> Nop<'item> {
     pub const fn new(group: bool, response: bool) -> Self {
-        Self { group, response }
+        Self {
+            group,
+            response,
+            phantom: core::marker::PhantomData,
+        }
     }
 
     /// Encodes the Item into a fixed size array
@@ -236,11 +245,12 @@ impl<'data> DecodableNop<'data> {
     /// Fully decode the Item
     ///
     /// Returns the decoded data and the number of bytes consumed to produce it.
-    pub fn complete_decoding(&self) -> (Nop, usize) {
+    pub fn complete_decoding<'item>(&self) -> (Nop<'item>, usize) {
         (
             Nop {
                 group: self.group(),
                 response: self.response(),
+                phantom: core::marker::PhantomData,
             },
             1,
         )
@@ -278,6 +288,7 @@ mod test {
                 Nop {
                     group: decoder.group(),
                     response: decoder.response(),
+                    phantom: core::marker::PhantomData,
                 }
             );
         }
@@ -285,6 +296,7 @@ mod test {
             Nop {
                 group: false,
                 response: true,
+                phantom: core::marker::PhantomData,
             },
             &[0x40],
         );
@@ -292,6 +304,7 @@ mod test {
             Nop {
                 group: true,
                 response: false,
+                phantom: core::marker::PhantomData,
             },
             &[0x80],
         );
@@ -299,6 +312,7 @@ mod test {
             Nop {
                 group: true,
                 response: true,
+                phantom: core::marker::PhantomData,
             },
             &[0xC0],
         );
@@ -306,6 +320,7 @@ mod test {
             Nop {
                 group: false,
                 response: false,
+                phantom: core::marker::PhantomData,
             },
             &[0x00],
         );
@@ -316,6 +331,7 @@ mod test {
         let op = Nop {
             group: true,
             response: false,
+            phantom: core::marker::PhantomData,
         };
 
         // Test decode(op.encode_to_array()) == op

@@ -8,29 +8,43 @@ pub mod flush_file;
 pub mod forward;
 pub mod indirect_forward;
 pub mod logic;
+#[cfg(feature = "nop")]
 pub mod nop;
 pub mod permission_request;
+#[cfg(any(feature = "action_query", feature = "break_query"))]
 pub mod query;
+#[cfg(feature = "read_file_data")]
 pub mod read_file_data;
+#[cfg(feature = "read_file_properties")]
 pub mod read_file_properties;
 pub mod request_tag;
 pub mod response_tag;
 pub mod restore_file;
 pub mod return_file_data;
 pub mod return_file_properties;
+#[cfg(feature = "status")]
 pub mod status;
 pub mod verify_checksum;
+#[cfg(feature = "write_file_data")]
 pub mod write_file_data;
 pub mod write_file_properties;
 
+#[cfg(feature = "decode_action")]
 use crate::v1_2::define::op_code::OpCode;
+#[cfg(feature = "decode_action")]
 use crate::v1_2::error::{ActionDecodeError, PtrActionDecodeError};
 
+#[cfg(feature = "decode_nop")]
 use nop::{DecodableNop, Nop};
+#[cfg(feature = "decode_action_query")]
 use query::action_query::{ActionQuery, DecodableActionQuery};
+#[cfg(feature = "decode_read_file_data")]
 use read_file_data::{DecodableReadFileData, ReadFileData};
+#[cfg(feature = "decode_read_file_properties")]
 use read_file_properties::{DecodableReadFileProperties, ReadFileProperties};
+#[cfg(feature = "decode_status")]
 use status::{DecodableStatus, Status};
+#[cfg(feature = "decode_write_file_data")]
 use write_file_data::{DecodableWriteFileData, WriteFileData};
 
 // TODO SPEC: Why are some actions named "return". Removing that from the name would still
@@ -46,18 +60,29 @@ use write_file_data::{DecodableWriteFileData, WriteFileData};
 
 // TODO Extension
 
+// TODO Find a way to get rid of the enum lifetime if there is no action
+// requiring a lifetime
+
 /// An ALP Action
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
+#[cfg(feature = "decode_action")]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum Action<'item> {
+    #[cfg(feature = "decode_nop")]
     // Nop
-    Nop(Nop),
+    Nop(Nop<'item>),
     // Read
-    ReadFileData(ReadFileData),
-    ReadFileProperties(ReadFileProperties),
+    #[cfg(feature = "decode_read_file_data")]
+    ReadFileData(ReadFileData<'item>),
+    #[cfg(feature = "decode_read_file_properties")]
+    ReadFileProperties(ReadFileProperties<'item>),
 
     // Write
+    #[cfg(feature = "decode_write_file_data")]
     WriteFileData(WriteFileData<'item>),
     // WriteFileProperties(WriteFileProperties),
+    #[cfg(feature = "decode_action_query")]
     ActionQuery(ActionQuery<'item>),
     // BreakQuery(BreakQuery),
     // TODO
@@ -76,6 +101,7 @@ pub enum Action<'item> {
     // // Response
     // ReturnFileData(ReturnFileData),
     // ReturnFileProperties(ReturnFileProperties),
+    #[cfg(feature = "decode_status")]
     Status(Status<'item>),
     // ResponseTag(ResponseTag),
 
@@ -93,6 +119,7 @@ pub enum Action<'item> {
 
 // TODO Put action decoding behind feature flags
 
+#[cfg(feature = "decode_action")]
 impl<'item> Action<'item> {
     /// Encodes the Item into a data pointer without checking the size of the
     /// receiving byte array.
@@ -110,11 +137,17 @@ impl<'item> Action<'item> {
     /// random parts of your memory.
     pub unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
         match self {
+            #[cfg(feature = "decode_nop")]
             Self::Nop(action) => action.encode_in_ptr(out),
+            #[cfg(feature = "decode_read_file_data")]
             Self::ReadFileData(action) => action.encode_in_ptr(out),
+            #[cfg(feature = "decode_read_file_properties")]
             Self::ReadFileProperties(action) => action.encode_in_ptr(out),
+            #[cfg(feature = "decode_write_file_data")]
             Self::WriteFileData(action) => action.encode_in_ptr(out),
+            #[cfg(feature = "decode_action_query")]
             Self::ActionQuery(action) => action.encode_in_ptr(out),
+            #[cfg(feature = "decode_status")]
             Self::Status(action) => action.encode_in_ptr(out),
         }
     }
@@ -148,11 +181,17 @@ impl<'item> Action<'item> {
     /// Size in bytes of the encoded equivalent of the item.
     pub fn size(&self) -> usize {
         match self {
+            #[cfg(feature = "decode_nop")]
             Self::Nop(action) => action.size(),
+            #[cfg(feature = "decode_read_file_data")]
             Self::ReadFileData(action) => action.size(),
+            #[cfg(feature = "decode_read_file_properties")]
             Self::ReadFileProperties(action) => action.size(),
+            #[cfg(feature = "decode_write_file_data")]
             Self::WriteFileData(action) => action.size(),
+            #[cfg(feature = "decode_action_query")]
             Self::ActionQuery(action) => action.size(),
+            #[cfg(feature = "decode_status")]
             Self::Status(action) => action.size(),
         }
     }
@@ -279,15 +318,23 @@ impl<'item> Action<'item> {
     }
 }
 
+#[cfg(feature = "decode_action")]
 pub enum DecodableAction<'data> {
+    #[cfg(feature = "decode_nop")]
     Nop(DecodableNop<'data>),
+    #[cfg(feature = "decode_read_file_data")]
     ReadFileData(DecodableReadFileData<'data>),
+    #[cfg(feature = "decode_read_file_properties")]
     ReadFileProperties(DecodableReadFileProperties<'data>),
+    #[cfg(feature = "decode_write_file_data")]
     WriteFileData(DecodableWriteFileData<'data>),
+    #[cfg(feature = "decode_action_query")]
     ActionQuery(DecodableActionQuery<'data>),
+    #[cfg(feature = "decode_status")]
     Status(DecodableStatus<'data>),
 }
 
+#[cfg(feature = "decode_action")]
 impl<'data> DecodableAction<'data> {
     /// # Errors
     /// Fails if the opcode is invalid. Returning the opcode.
@@ -301,23 +348,30 @@ impl<'data> DecodableAction<'data> {
             Err(_) => return Err(ActionDecodeError::UnknownActionCode(code)),
         };
         Ok(match op_code {
+            #[cfg(feature = "decode_nop")]
             OpCode::Nop => Self::Nop(Nop::start_decoding_unchecked(data)),
+            #[cfg(feature = "decode_read_file_data")]
             OpCode::ReadFileData => {
                 Self::ReadFileData(ReadFileData::start_decoding_unchecked(data))
             }
+            #[cfg(feature = "decode_read_file_properties")]
             OpCode::ReadFileProperties => {
                 Self::ReadFileProperties(ReadFileProperties::start_decoding_unchecked(data))
             }
+            #[cfg(feature = "decode_write_file_data")]
             OpCode::WriteFileData => {
                 Self::WriteFileData(WriteFileData::start_decoding_unchecked(data))
             }
+            #[cfg(feature = "decode_action_query")]
             OpCode::ActionQuery => {
                 if data.len() < 2 {
                     return Err(ActionDecodeError::MissingBytes(2));
                 }
                 Self::ActionQuery(ActionQuery::start_decoding_unchecked(data)?)
             }
+            #[cfg(feature = "decode_status")]
             OpCode::Status => Self::Status(Status::start_decoding_unchecked(data)?),
+            _ => return Err(ActionDecodeError::UnknownActionCode(code)),
         })
     }
 
@@ -333,14 +387,21 @@ impl<'data> DecodableAction<'data> {
             Err(_) => return Err(PtrActionDecodeError::UnknownActionCode(code)),
         };
         Ok(match op_code {
+            #[cfg(feature = "decode_nop")]
             OpCode::Nop => Self::Nop(Nop::start_decoding_ptr(data)),
+            #[cfg(feature = "decode_read_file_data")]
             OpCode::ReadFileData => Self::ReadFileData(ReadFileData::start_decoding_ptr(data)),
+            #[cfg(feature = "decode_read_file_properties")]
             OpCode::ReadFileProperties => {
                 Self::ReadFileProperties(ReadFileProperties::start_decoding_ptr(data))
             }
+            #[cfg(feature = "decode_write_file_data")]
             OpCode::WriteFileData => Self::WriteFileData(WriteFileData::start_decoding_ptr(data)),
+            #[cfg(feature = "decode_action_query")]
             OpCode::ActionQuery => Self::ActionQuery(ActionQuery::start_decoding_ptr(data)?),
+            #[cfg(feature = "decode_status")]
             OpCode::Status => Self::Status(Status::start_decoding_ptr(data)?),
+            _ => return Err(PtrActionDecodeError::UnknownActionCode(code)),
         })
     }
 
@@ -350,11 +411,17 @@ impl<'data> DecodableAction<'data> {
     /// This requires reading the data bytes that may be out of bound to be calculate.
     pub unsafe fn expected_size(&self) -> usize {
         match self {
+            #[cfg(feature = "decode_nop")]
             Self::Nop(action) => action.expected_size(),
+            #[cfg(feature = "decode_read_file_data")]
             Self::ReadFileData(action) => action.expected_size(),
+            #[cfg(feature = "decode_read_file_properties")]
             Self::ReadFileProperties(action) => action.expected_size(),
+            #[cfg(feature = "decode_write_file_data")]
             Self::WriteFileData(action) => action.expected_size(),
+            #[cfg(feature = "decode_action_query")]
             Self::ActionQuery(action) => action.expected_size(),
+            #[cfg(feature = "decode_status")]
             Self::Status(action) => action.expected_size(),
         }
     }
@@ -367,11 +434,17 @@ impl<'data> DecodableAction<'data> {
     /// Fails if the data_size is smaller than the required data size to decode the object.
     pub fn smaller_than(&self, data_size: usize) -> Result<usize, usize> {
         match self {
+            #[cfg(feature = "decode_nop")]
             Self::Nop(action) => action.smaller_than(data_size),
+            #[cfg(feature = "decode_read_file_data")]
             Self::ReadFileData(action) => action.smaller_than(data_size),
+            #[cfg(feature = "decode_read_file_properties")]
             Self::ReadFileProperties(action) => action.smaller_than(data_size),
+            #[cfg(feature = "decode_write_file_data")]
             Self::WriteFileData(action) => action.smaller_than(data_size),
+            #[cfg(feature = "decode_action_query")]
             Self::ActionQuery(action) => action.smaller_than(data_size),
+            #[cfg(feature = "decode_status")]
             Self::Status(action) => action.smaller_than(data_size),
         }
     }
@@ -381,26 +454,32 @@ impl<'data> DecodableAction<'data> {
     /// Returns the decoded data and the number of bytes consumed to produce it.
     pub fn complete_decoding(&self) -> (Action<'data>, usize) {
         match self {
+            #[cfg(feature = "decode_nop")]
             Self::Nop(action) => {
                 let (action, size) = action.complete_decoding();
                 (Action::Nop(action), size)
             }
+            #[cfg(feature = "decode_read_file_data")]
             Self::ReadFileData(action) => {
                 let (action, size) = action.complete_decoding();
                 (Action::ReadFileData(action), size)
             }
+            #[cfg(feature = "decode_read_file_properties")]
             Self::ReadFileProperties(action) => {
                 let (action, size) = action.complete_decoding();
                 (Action::ReadFileProperties(action), size)
             }
+            #[cfg(feature = "decode_write_file_data")]
             Self::WriteFileData(action) => {
                 let (action, size) = action.complete_decoding();
                 (Action::WriteFileData(action), size)
             }
+            #[cfg(feature = "decode_action_query")]
             Self::ActionQuery(action) => {
                 let (action, size) = action.complete_decoding();
                 (Action::ActionQuery(action), size)
             }
+            #[cfg(feature = "decode_status")]
             Self::Status(action) => {
                 let (action, size) = action.complete_decoding();
                 (Action::Status(action), size)
@@ -412,15 +491,32 @@ impl<'data> DecodableAction<'data> {
 // TODO Add action specific test cases to verify that smaller_than does its job correctly: No out
 // of bound read.
 
+#[cfg(feature = "decode_action")]
 #[cfg(test)]
 mod test {
     #![allow(clippy::unwrap_in_result, clippy::panic, clippy::expect_used)]
     use super::*;
-    use crate::define::{EncodableData, FileId, MaskedValue};
+    #[cfg(any(feature = "decode_action_query", feature = "decode_write_file_data"))]
+    use crate::define::EncodableData;
+    #[cfg(any(
+        feature = "decode_read_file_data",
+        feature = "decode_read_file_properties",
+        feature = "decode_write_file_data",
+        feature = "decode_action_query",
+    ))]
+    use crate::define::FileId;
+    #[cfg(feature = "decode_action_query")]
+    use crate::define::MaskedValue;
+    #[cfg(feature = "decode_status")]
     use crate::v1_2::dash7::{
         addressee::{AccessClass, Addressee, AddresseeIdentifier, NlsMethod},
         interface_status::{AddresseeWithNlsState, Dash7InterfaceStatus},
     };
+    #[cfg(any(
+        feature = "decode_read_file_data",
+        feature = "decode_write_file_data",
+        feature = "decode_action_query",
+    ))]
     use crate::varint::Varint;
 
     #[test]
@@ -443,21 +539,16 @@ mod test {
             assert_eq!(unsafe { decoder.expected_size() }, size);
             assert_eq!(decoder.smaller_than(data.len()).unwrap(), size);
         }
+        #[cfg(feature = "decode_nop")]
         test(
             Action::Nop(Nop {
                 group: false,
                 response: true,
+                phantom: core::marker::PhantomData,
             }),
             &[0x40],
         );
-        test(
-            Action::ReadFileProperties(ReadFileProperties {
-                group: false,
-                response: false,
-                file_id: FileId::new(0xFF),
-            }),
-            &[0x02, 0xFF],
-        );
+        #[cfg(feature = "decode_read_file_data")]
         test(
             Action::ReadFileData(ReadFileData {
                 group: false,
@@ -465,9 +556,21 @@ mod test {
                 file_id: FileId::new(0xFF),
                 offset: Varint::new(0x3F_FF_FF_FF).unwrap(),
                 length: Varint::new(0x3F_FF_FF_FF).unwrap(),
+                phantom: core::marker::PhantomData,
             }),
             &[0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF],
         );
+        #[cfg(feature = "decode_read_file_properties")]
+        test(
+            Action::ReadFileProperties(ReadFileProperties {
+                group: false,
+                response: false,
+                file_id: FileId::new(0xFF),
+                phantom: core::marker::PhantomData,
+            }),
+            &[0x02, 0xFF],
+        );
+        #[cfg(feature = "decode_write_file_data")]
         test(
             Action::WriteFileData(WriteFileData {
                 group: false,
@@ -478,6 +581,7 @@ mod test {
             }),
             &[0x04, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x02, 0xFF, 0xFE],
         );
+        #[cfg(feature = "decode_action_query")]
         test(
             Action::ActionQuery(ActionQuery {
                 group: false,
@@ -509,6 +613,7 @@ mod test {
                 0x00,
             ],
         );
+        #[cfg(feature = "decode_status")]
         test(
             Action::Status(Status::Interface(
                 status::interface::StatusInterface::Dash7(Dash7InterfaceStatus {
@@ -562,25 +667,14 @@ mod test {
         );
     }
 
+    #[cfg(feature = "decode_nop")]
     #[test]
     fn consistence() {
-        const TOT_SIZE: usize = 1 + 1 + 3 + 3 + 1 + 3;
-        let op = Action::ActionQuery(ActionQuery {
+        const TOT_SIZE: usize = 1;
+        let op = Action::Nop(Nop {
             group: true,
             response: false,
-            query: query::Query::ComparisonWithValue(
-                query::comparison_with_value::ComparisonWithValue {
-                    signed_data: true,
-                    comparison_type: query::define::QueryComparisonType::Equal,
-                    compare_value: MaskedValue::new(
-                        EncodableData::new(&[0x00, 0x01, 0x02]).unwrap(),
-                        None,
-                    )
-                    .unwrap(),
-                    file_id: FileId::new(0x42),
-                    offset: Varint::new(0x40_00).unwrap(),
-                },
-            ),
+            phantom: core::marker::PhantomData,
         });
 
         // Test decode(op.encode_in()) == op

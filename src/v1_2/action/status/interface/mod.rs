@@ -55,6 +55,8 @@ use define::InterfaceId;
 // using it for the wrong reasons.
 
 /// Writes data to a file.
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum StatusInterface<'item> {
     Host,

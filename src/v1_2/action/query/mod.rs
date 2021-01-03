@@ -11,6 +11,8 @@ pub use comparison_with_value::{ComparisonWithValue, DecodableComparisonWithValu
 use super::super::error::QueryDecodeError;
 use define::QueryCode;
 
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum Query<'item> {
     // NonVoid(non_void::NonVoid),

@@ -4,6 +4,8 @@ use super::super::super::error::{PtrUnknownQueryCode, QueryActionDecodeError, Un
 use super::{DecodableQuery, Query};
 
 /// Writes data to a file.
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct ActionQuery<'item> {
     /// Group with next action

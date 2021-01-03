@@ -10,17 +10,21 @@ pub const MAX_SIZE: usize = 2;
 pub const SIZE: usize = 2;
 
 /// Reads the properties of a file
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct ReadFileProperties {
+pub struct ReadFileProperties<'item> {
     /// Group with next action
     pub group: bool,
     /// Ask for a response (status)
     pub response: bool,
     /// File ID of the file to read
     pub file_id: FileId,
+    /// Empty data required for lifetime compilation.
+    pub phantom: core::marker::PhantomData<&'item ()>,
 }
 
-impl ReadFileProperties {
+impl<'item> ReadFileProperties<'item> {
     /// Most common builder `ReadFileProperties` builder.
     ///
     /// group = false
@@ -30,6 +34,7 @@ impl ReadFileProperties {
             group: false,
             response: true,
             file_id,
+            phantom: core::marker::PhantomData,
         }
     }
 
@@ -245,12 +250,13 @@ impl<'data> DecodableReadFileProperties<'data> {
     /// Fully decode the Item
     ///
     /// Returns the decoded data and the number of bytes consumed to produce it.
-    pub fn complete_decoding(&self) -> (ReadFileProperties, usize) {
+    pub fn complete_decoding<'item>(&self) -> (ReadFileProperties<'item>, usize) {
         (
             ReadFileProperties {
                 group: self.group(),
                 response: self.response(),
                 file_id: self.file_id(),
+                phantom: core::marker::PhantomData,
             },
             2,
         )
@@ -289,6 +295,7 @@ mod test {
                     group: decoder.group(),
                     response: decoder.response(),
                     file_id: decoder.file_id(),
+                    phantom: core::marker::PhantomData,
                 }
             );
         }
@@ -297,6 +304,7 @@ mod test {
                 group: false,
                 response: true,
                 file_id: FileId::new(0),
+                phantom: core::marker::PhantomData,
             },
             &[0x42, 0x00],
         );
@@ -305,6 +313,7 @@ mod test {
                 group: true,
                 response: false,
                 file_id: FileId::new(1),
+                phantom: core::marker::PhantomData,
             },
             &[0x82, 0x01],
         );
@@ -313,6 +322,7 @@ mod test {
                 group: true,
                 response: true,
                 file_id: FileId::new(2),
+                phantom: core::marker::PhantomData,
             },
             &[0xC2, 0x02],
         );
@@ -321,6 +331,7 @@ mod test {
                 group: false,
                 response: false,
                 file_id: FileId::new(0xFF),
+                phantom: core::marker::PhantomData,
             },
             &[0x02, 0xFF],
         );
@@ -332,6 +343,7 @@ mod test {
             group: true,
             response: false,
             file_id: FileId::new(42),
+            phantom: core::marker::PhantomData,
         };
 
         // Test decode(op.encode_to_array()) == op

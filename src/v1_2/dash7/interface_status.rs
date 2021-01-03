@@ -3,6 +3,8 @@ use super::addressee::{self, Addressee, DecodableAddressee, NlsMethod};
 /// Maximum byte size of an encoded `ReadFileData`
 pub const MAX_SIZE: usize = 10 + addressee::MAX_SIZE + 5;
 
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct AddresseeWithNlsState<'item> {
     addressee: Addressee<'item>,
@@ -44,9 +46,10 @@ impl<'item> AddresseeWithNlsState<'item> {
 
     pub fn size(&self) -> usize {
         let addressee_size = self.addressee.size();
-        match &self.nls_state {
-            Some(_) => addressee_size + 5,
-            None => addressee_size,
+        if self.nls_state.is_some() {
+            addressee_size + 5
+        } else {
+            addressee_size
         }
     }
 }
@@ -133,6 +136,8 @@ impl<'data> DecodableAddresseeWithNlsState<'data> {
 }
 
 /// Writes data to a file.
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct Dash7InterfaceStatus<'item> {
     pub ch_header: u8,

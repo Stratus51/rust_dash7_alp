@@ -10,6 +10,7 @@ pub use masked_value::MaskedValue;
 ///
 /// It is exactly homogeneous to a byte, and the wrapping is only done
 /// to help insure semantic correctness of the code.
+#[cfg_attr(feature = "repr_c", repr(transparent))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct FileId(pub u8);
 

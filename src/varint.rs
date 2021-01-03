@@ -14,6 +14,8 @@ pub const U32_MAX: u32 = 0x3F_FF_FF_FF;
 pub const MAX_SIZE: usize = 4;
 
 /// Represents a variable integer as described by the Dash7 ALP specification.
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct Varint {
     value: u32,

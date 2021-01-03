@@ -1,3 +1,5 @@
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum QueryComparisonType {
     Inequal = 0,
@@ -45,6 +47,8 @@ impl QueryComparisonType {
     }
 }
 
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum QueryRangeComparisonType {
     NotInRange = 0,
@@ -92,6 +96,8 @@ impl QueryRangeComparisonType {
     }
 }
 
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum QueryCode {
     // NonVoid = 0,

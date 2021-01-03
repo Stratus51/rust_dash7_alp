@@ -1,9 +1,13 @@
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum BasicDecodeError {
     /// The input data is missing bytes to be decoded into the wanted item.
     MissingBytes(usize),
 }
 
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum QueryDecodeError {
     /// The decoded query contains an unknown query code.
@@ -12,6 +16,8 @@ pub enum QueryDecodeError {
     MissingBytes(usize),
 }
 
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum QueryOperandDecodeError {
     /// The decoded query contains an unknown query code.
@@ -29,6 +35,8 @@ impl From<QueryOperandDecodeError> for QueryDecodeError {
     }
 }
 
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct UnknownQueryCode<'data> {
     /// Parsed query code
@@ -38,6 +46,8 @@ pub struct UnknownQueryCode<'data> {
     pub remaining_data: &'data [u8],
 }
 
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct PtrUnknownQueryCode<'data> {
     /// Parsed query code
@@ -48,6 +58,8 @@ pub struct PtrUnknownQueryCode<'data> {
     pub phantom: core::marker::PhantomData<&'data ()>,
 }
 
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum QueryActionDecodeError<'data> {
     /// The decoded query contains an unknown query code.
@@ -56,6 +68,8 @@ pub enum QueryActionDecodeError<'data> {
     MissingBytes(usize),
 }
 
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct UnknownExtension<'data> {
     /// Parsed status extension field
@@ -65,6 +79,8 @@ pub struct UnknownExtension<'data> {
     pub remaining_data: &'data [u8],
 }
 
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct PtrUnknownExtension<'data> {
     /// Parsed status extension field
@@ -75,6 +91,8 @@ pub struct PtrUnknownExtension<'data> {
     pub phantom: core::marker::PhantomData<&'data ()>,
 }
 
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct UnknownInterfaceId<'data> {
     /// Parsed status extension field
@@ -83,6 +101,8 @@ pub struct UnknownInterfaceId<'data> {
     pub remaining_data: &'data [u8],
 }
 
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct PtrUnknownInterfaceId<'data> {
     /// Parsed status extension field
@@ -92,6 +112,8 @@ pub struct PtrUnknownInterfaceId<'data> {
     pub phantom: core::marker::PhantomData<&'data ()>,
 }
 
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum StatusDecodeError<'data> {
     /// The decoded query contains an unknown query code.
@@ -102,6 +124,8 @@ pub enum StatusDecodeError<'data> {
     UnknownInterfaceId(UnknownInterfaceId<'data>),
 }
 
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum UncheckedStatusDecodeError<'data> {
     /// The decoded query contains an unknown query code.
@@ -110,6 +134,8 @@ pub enum UncheckedStatusDecodeError<'data> {
     UnknownInterfaceId(UnknownInterfaceId<'data>),
 }
 
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum PtrUncheckedStatusDecodeError<'data> {
     /// The decoded query contains an unknown query code.
@@ -118,6 +144,8 @@ pub enum PtrUncheckedStatusDecodeError<'data> {
     UnknownInterfaceId(PtrUnknownInterfaceId<'data>),
 }
 
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum StatusInterfaceDecodeError {
     /// The input data is missing bytes to be decoded into the wanted item.
@@ -126,6 +154,8 @@ pub enum StatusInterfaceDecodeError {
     UnknownInterfaceId(u8),
 }
 
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum ActionDecodeError<'data> {
     UnknownActionCode(u8),
@@ -150,6 +180,8 @@ impl<'data> From<UnknownQueryCode<'data>> for ActionDecodeError<'data> {
     }
 }
 
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum PtrActionDecodeError<'data> {
     UnknownActionCode(u8),

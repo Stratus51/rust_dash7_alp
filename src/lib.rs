@@ -65,3 +65,7 @@ pub mod varint;
 // troubles if we were to convert u32 to usize (even if a 64Ko payload seems a bit big).
 // Maybe we should just embrace this limitation? (Not to be lazy or anything...)
 // The bad thing is that u32 to u16 will compile and panic at runtime if the value is too big.
+
+// TODO Turn into cargo multi-project
+// TODO Add cross language wrapper embryo to check compatibility
+// TODO Optimize struct fields order for repr(C) alignment?

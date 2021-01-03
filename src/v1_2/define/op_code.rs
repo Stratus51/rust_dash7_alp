@@ -1,3 +1,5 @@
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum OpCode {
     // // Nop
@@ -36,7 +38,7 @@ pub enum OpCode {
     // Forward = 50,
     // IndirectForward = 51,
     // RequestTag = 52,
-    // Extension = 63,
+    Extension = 63,
 }
 
 impl OpCode {

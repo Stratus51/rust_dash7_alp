@@ -13,8 +13,10 @@ use crate::varint::{self, DecodableVarint, Varint};
 pub const MAX_SIZE: usize = 2 + 2 * varint::MAX_SIZE;
 
 /// Read data from a file.
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct ReadFileData {
+pub struct ReadFileData<'item> {
     /// Group with next action
     pub group: bool,
     /// Ask for a response (read data via ReturnFileData)
@@ -27,9 +29,11 @@ pub struct ReadFileData {
     pub offset: Varint,
     /// Number of bytes to read after offset
     pub length: Varint,
+    /// Empty data required for lifetime compilation.
+    pub phantom: core::marker::PhantomData<&'item ()>,
 }
 
-impl ReadFileData {
+impl<'item> ReadFileData<'item> {
     /// Most common builder `ReadFileData` builder.
     ///
     /// group = false
@@ -41,6 +45,7 @@ impl ReadFileData {
             file_id,
             offset,
             length,
+            phantom: core::marker::PhantomData,
         }
     }
 
@@ -284,7 +289,7 @@ impl<'data> DecodableReadFileData<'data> {
     /// Fully decode the Item
     ///
     /// Returns the decoded data and the number of bytes consumed to produce it.
-    pub fn complete_decoding(&self) -> (ReadFileData, usize) {
+    pub fn complete_decoding<'item>(&self) -> (ReadFileData<'item>, usize) {
         let (offset, offset_size) = self.offset().complete_decoding();
         let (length, length_size) = unsafe { Varint::decode_ptr(self.data.add(2 + offset_size)) };
         (
@@ -294,6 +299,7 @@ impl<'data> DecodableReadFileData<'data> {
                 file_id: self.file_id(),
                 offset,
                 length,
+                phantom: core::marker::PhantomData,
             },
             2 + offset_size + length_size,
         )
@@ -332,6 +338,7 @@ mod test {
                     file_id: decoder.file_id(),
                     offset: decoder.offset().complete_decoding().0,
                     length: decoder.length().complete_decoding().0,
+                    phantom: core::marker::PhantomData,
                 }
             );
         }
@@ -342,6 +349,7 @@ mod test {
                 file_id: FileId::new(0),
                 offset: Varint::new(0).unwrap(),
                 length: Varint::new(0x3F_FF_FF_FF).unwrap(),
+                phantom: core::marker::PhantomData,
             },
             &[0x41, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF],
         );
@@ -352,6 +360,7 @@ mod test {
                 file_id: FileId::new(1),
                 offset: Varint::new(0x3F_FF).unwrap(),
                 length: Varint::new(0x3F_FF_FF).unwrap(),
+                phantom: core::marker::PhantomData,
             },
             &[0x81, 0x01, 0x7F, 0xFF, 0xBF, 0xFF, 0xFF],
         );
@@ -362,6 +371,7 @@ mod test {
                 file_id: FileId::new(0x80),
                 offset: Varint::new(0).unwrap(),
                 length: Varint::new(0).unwrap(),
+                phantom: core::marker::PhantomData,
             },
             &[0xC1, 0x80, 0x00, 0x00],
         );
@@ -372,6 +382,7 @@ mod test {
                 file_id: FileId::new(0xFF),
                 offset: Varint::new(0x3F_FF_FF_FF).unwrap(),
                 length: Varint::new(0x3F_FF_FF_FF).unwrap(),
+                phantom: core::marker::PhantomData,
             },
             &[0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF],
         );
@@ -385,6 +396,7 @@ mod test {
             file_id: FileId::new(0x80),
             offset: Varint::new(89).unwrap(),
             length: Varint::new(0xFF_FF_FF).unwrap(),
+            phantom: core::marker::PhantomData,
         };
 
         // Test decode(op.encode_in()) == op
