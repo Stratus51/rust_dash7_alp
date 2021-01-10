@@ -8,24 +8,18 @@ pub mod flush_file;
 pub mod forward;
 pub mod indirect_forward;
 pub mod logic;
-#[cfg(feature = "nop")]
 pub mod nop;
 pub mod permission_request;
-#[cfg(any(feature = "action_query", feature = "break_query"))]
 pub mod query;
-#[cfg(feature = "read_file_data")]
 pub mod read_file_data;
-#[cfg(feature = "read_file_properties")]
 pub mod read_file_properties;
 pub mod request_tag;
 pub mod response_tag;
 pub mod restore_file;
 pub mod return_file_data;
 pub mod return_file_properties;
-#[cfg(feature = "status")]
 pub mod status;
 pub mod verify_checksum;
-#[cfg(feature = "write_file_data")]
 pub mod write_file_data;
 pub mod write_file_properties;
 

@@ -17,21 +17,13 @@ hex-literal = "0"
 
 [features]
 default = ["decode_nop", "decode_action_query", "decode_read_file_data", "decode_read_file_properties", "decode_status", "decode_write_file_data"]
-decode_nop = ["decode_action", "nop"]
-decode_read_file_data = ["decode_action", "read_file_data"]
-decode_read_file_properties = ["decode_action", "read_file_properties"]
-decode_write_file_data = ["decode_action_lifetime", "write_file_data"]
-decode_action_query = ["decode_action_lifetime", "action_query"]
-decode_status = ["decode_action_lifetime", "status"]
+decode_nop = ["decode_action"]
+decode_read_file_data = ["decode_action"]
+decode_read_file_properties = ["decode_action"]
+decode_write_file_data = ["decode_action"]
+decode_action_query = ["decode_action"]
+decode_status = ["decode_action"]
 
-nop = []
-read_file_data = []
-read_file_properties = []
-write_file_data = []
-action_query = []
-status = []
-
-decode_action_lifetime = ["decode_action"]
 decode_action = []
 
 repr_c = []
