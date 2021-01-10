@@ -61,7 +61,7 @@ impl<'item> WriteFileData<'item> {
         let length = Varint::new_unchecked(self.data.len() as u32);
         size += length.encode_in_ptr(out.add(size));
         out.add(size)
-            .copy_from(self.data.get().as_ptr(), length.u32() as usize);
+            .copy_from(self.data.data().as_ptr(), length.u32() as usize);
         size += length.u32() as usize;
         size
     }

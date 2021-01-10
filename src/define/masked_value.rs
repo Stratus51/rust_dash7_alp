@@ -28,7 +28,7 @@ impl<'a> MaskedValue<'a> {
     }
 
     pub const fn value(&self) -> &[u8] {
-        self.value.get()
+        self.value.data()
     }
 
     pub const fn mask(&self) -> Option<&[u8]> {

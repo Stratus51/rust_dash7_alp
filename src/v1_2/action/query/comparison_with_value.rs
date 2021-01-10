@@ -453,7 +453,7 @@ mod test {
                 decoder.compare_length().complete_decoding().0.u32() as usize
             );
             assert_eq!(ret.compare_value.mask(), decoder.mask());
-            assert_eq!(ret.compare_value.value(), decoder.value().get());
+            assert_eq!(ret.compare_value.value(), decoder.value().data());
             assert_eq!(expected_size, size);
             assert_eq!(unsafe { decoder.expected_size() }, size);
             assert_eq!(decoder.smaller_than(data.len()).unwrap(), size);

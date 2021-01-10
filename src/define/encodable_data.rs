@@ -25,16 +25,16 @@ impl<'a> EncodableData<'a> {
         }
     }
 
-    pub const fn get(&self) -> &[u8] {
+    pub const fn data(&self) -> &[u8] {
         let Self(data) = self;
         data
     }
 
     pub fn len(&self) -> usize {
-        self.get().len()
+        self.data().len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.get().is_empty()
+        self.data().is_empty()
     }
 }
