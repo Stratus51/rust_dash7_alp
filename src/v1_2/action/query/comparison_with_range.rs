@@ -1,22 +1,25 @@
 use super::super::super::define::flag;
 use super::super::super::error::QueryOperandDecodeError;
 use super::define::{QueryCode, QueryRangeComparisonType};
-use crate::define::{FileId, MaskedRange};
+use crate::define::{FileId, MaskedRangeRef};
 use crate::varint::{DecodableVarint, Varint};
 
-/// Writes data to a file.
+#[cfg(feature = "alloc")]
+use crate::define::MaskedRange;
+
+/// Compares data to a range of data.
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct ComparisonWithRange<'item> {
+pub struct ComparisonWithRangeRef<'item> {
     pub signed_data: bool,
     pub comparison_type: QueryRangeComparisonType,
-    pub range: MaskedRange<'item>,
+    pub range: MaskedRangeRef<'item>,
     pub file_id: FileId,
     pub offset: Varint,
 }
 
-impl<'item> ComparisonWithRange<'item> {
+impl<'item> ComparisonWithRangeRef<'item> {
     /// Encodes the Item into a data pointer without checking the size of the
     /// receiving byte array.
     ///
@@ -230,6 +233,17 @@ impl<'item> ComparisonWithRange<'item> {
             Err(e) => Err(e),
         }
     }
+
+    #[cfg(feature = "alloc")]
+    pub fn to_owned(&self) -> ComparisonWithRange {
+        ComparisonWithRange {
+            signed_data: self.signed_data,
+            comparison_type: self.comparison_type,
+            range: self.range.to_owned(),
+            file_id: self.file_id,
+            offset: self.offset,
+        }
+    }
 }
 
 pub struct DecodableComparisonWithRange<'data> {
@@ -269,7 +283,7 @@ impl<'data> DecodableComparisonWithRange<'data> {
             size += compare_length.usize();
             let start = usize::from_le_bytes(start_slice);
             let end = usize::from_le_bytes(end_slice);
-            let bitmap_size = MaskedRange::bitmap_size(start, end);
+            let bitmap_size = MaskedRangeRef::bitmap_size(start, end);
             size += bitmap_size;
         } else {
             size += 2 * compare_length.usize();
@@ -315,7 +329,7 @@ impl<'data> DecodableComparisonWithRange<'data> {
                     .copy_from(self.data.add(size - compare_length), compare_length);
                 let start = usize::from_le_bytes(start_slice);
                 let end = usize::from_le_bytes(end_slice);
-                let bitmap_size = MaskedRange::bitmap_size(start, end);
+                let bitmap_size = MaskedRangeRef::bitmap_size(start, end);
                 size += bitmap_size;
             } else {
                 size += compare_length;
@@ -374,7 +388,7 @@ impl<'data> DecodableComparisonWithRange<'data> {
         )
     }
 
-    pub fn range(&self) -> MaskedRange<'data> {
+    pub fn range(&self) -> MaskedRangeRef<'data> {
         unsafe {
             let (compare_length, compare_length_size) = self.compare_length().complete_decoding();
             let mut start_slice = 0_usize.to_le_bytes();
@@ -392,13 +406,13 @@ impl<'data> DecodableComparisonWithRange<'data> {
             let end = usize::from_le_bytes(end_slice);
 
             let bitmap = if self.mask_flag() {
-                let bitmap_size = MaskedRange::bitmap_size(start, end);
+                let bitmap_size = MaskedRangeRef::bitmap_size(start, end);
                 let bitmap = core::slice::from_raw_parts(self.data.add(size), bitmap_size);
                 Some(bitmap)
             } else {
                 None
             };
-            MaskedRange::new_unchecked(start, end, bitmap)
+            MaskedRangeRef::new_unchecked(start, end, bitmap)
         }
     }
 
@@ -418,7 +432,7 @@ impl<'data> DecodableComparisonWithRange<'data> {
             size += compare_length.usize();
             let start = usize::from_le_bytes(start_slice);
             let end = usize::from_le_bytes(end_slice);
-            let bitmap_size = MaskedRange::bitmap_size(start, end);
+            let bitmap_size = MaskedRangeRef::bitmap_size(start, end);
             size += bitmap_size;
 
             FileId(*self.data.add(size))
@@ -441,7 +455,7 @@ impl<'data> DecodableComparisonWithRange<'data> {
             size += compare_length.usize();
             let start = usize::from_le_bytes(start_slice);
             let end = usize::from_le_bytes(end_slice);
-            let bitmap_size = MaskedRange::bitmap_size(start, end);
+            let bitmap_size = MaskedRangeRef::bitmap_size(start, end);
             size += bitmap_size;
             size += 1;
 
@@ -452,7 +466,7 @@ impl<'data> DecodableComparisonWithRange<'data> {
     /// Fully decode the Item
     ///
     /// Returns the decoded data and the number of bytes consumed to produce it.
-    pub fn complete_decoding(&self) -> (ComparisonWithRange<'data>, usize) {
+    pub fn complete_decoding(&self) -> (ComparisonWithRangeRef<'data>, usize) {
         unsafe {
             let (compare_length, compare_length_size) = self.compare_length().complete_decoding();
             let mut start_slice = 0_usize.to_le_bytes();
@@ -470,14 +484,14 @@ impl<'data> DecodableComparisonWithRange<'data> {
             let end = usize::from_le_bytes(end_slice);
 
             let bitmap = if self.mask_flag() {
-                let bitmap_size = MaskedRange::bitmap_size(start, end);
+                let bitmap_size = MaskedRangeRef::bitmap_size(start, end);
                 let bitmap = core::slice::from_raw_parts(self.data.add(size), bitmap_size);
                 size += bitmap_size;
                 Some(bitmap)
             } else {
                 None
             };
-            let range = MaskedRange::new_unchecked(start, end, bitmap);
+            let range = MaskedRangeRef::new_unchecked(start, end, bitmap);
 
             let file_id = FileId(*self.data.add(size));
             size += 1;
@@ -485,7 +499,7 @@ impl<'data> DecodableComparisonWithRange<'data> {
             size += offset_size;
 
             (
-                ComparisonWithRange {
+                ComparisonWithRangeRef {
                     signed_data: self.signed_data(),
                     comparison_type: self.comparison_type(),
                     range,
@@ -498,6 +512,32 @@ impl<'data> DecodableComparisonWithRange<'data> {
     }
 }
 
+/// Compares data to a range of data.
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
+#[cfg(feature = "alloc")]
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+pub struct ComparisonWithRange {
+    pub signed_data: bool,
+    pub comparison_type: QueryRangeComparisonType,
+    pub range: MaskedRange,
+    pub file_id: FileId,
+    pub offset: Varint,
+}
+
+#[cfg(feature = "alloc")]
+impl ComparisonWithRange {
+    pub fn as_ref(&self) -> ComparisonWithRangeRef {
+        ComparisonWithRangeRef {
+            signed_data: self.signed_data,
+            comparison_type: self.comparison_type,
+            range: self.range.as_ref(),
+            file_id: self.file_id,
+            offset: self.offset,
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     #![allow(clippy::unwrap_in_result, clippy::panic, clippy::expect_used)]
@@ -505,7 +545,7 @@ mod test {
 
     #[test]
     fn known() {
-        fn test(op: ComparisonWithRange, data: &[u8]) {
+        fn test(op: ComparisonWithRangeRef, data: &[u8]) {
             // Test op.encode_in() == data
             let mut encoded = [0_u8; 64];
             let size = op.encode_in(&mut encoded).unwrap();
@@ -513,12 +553,12 @@ mod test {
             assert_eq!(&encoded[..size], data);
 
             // Test decode(data) == op
-            let (ret, size) = ComparisonWithRange::decode(data).unwrap();
+            let (ret, size) = ComparisonWithRangeRef::decode(data).unwrap();
             assert_eq!(size, data.len());
             assert_eq!(ret, op);
 
             // Test partial_decode == op
-            let (decoder, expected_size) = ComparisonWithRange::start_decoding(data).unwrap();
+            let (decoder, expected_size) = ComparisonWithRangeRef::start_decoding(data).unwrap();
             assert_eq!(ret.range.bitmap().is_some(), decoder.mask_flag());
             assert_eq!(
                 ret.range.boundaries_size(),
@@ -534,7 +574,7 @@ mod test {
             assert_eq!(decoder.smaller_than(data.len()).unwrap(), size);
             assert_eq!(
                 op,
-                ComparisonWithRange {
+                ComparisonWithRangeRef {
                     signed_data: decoder.signed_data(),
                     comparison_type: decoder.comparison_type(),
                     range: decoder.range(),
@@ -544,10 +584,10 @@ mod test {
             );
         }
         test(
-            ComparisonWithRange {
+            ComparisonWithRangeRef {
                 signed_data: true,
                 comparison_type: QueryRangeComparisonType::InRange,
-                range: MaskedRange::new(0, 5, Some(&[0x11])).unwrap(),
+                range: MaskedRangeRef::new(0, 5, Some(&[0x11])).unwrap(),
                 file_id: FileId::new(0x42),
                 offset: Varint::new(0x40_00).unwrap(),
             },
@@ -564,10 +604,10 @@ mod test {
             ],
         );
         test(
-            ComparisonWithRange {
+            ComparisonWithRangeRef {
                 signed_data: false,
                 comparison_type: QueryRangeComparisonType::NotInRange,
-                range: MaskedRange::new(50, 66, Some(&[0x33, 0x22])).unwrap(),
+                range: MaskedRangeRef::new(50, 66, Some(&[0x33, 0x22])).unwrap(),
                 file_id: FileId::new(0x88),
                 offset: Varint::new(0xFF).unwrap(),
             },
@@ -578,10 +618,10 @@ mod test {
     #[test]
     fn consistence() {
         const TOT_SIZE: usize = 1 + 1 + 1 + 1 + 4 + 1 + 3;
-        let op = ComparisonWithRange {
+        let op = ComparisonWithRangeRef {
             signed_data: true,
             comparison_type: QueryRangeComparisonType::InRange,
-            range: MaskedRange::new(0, 32, Some(&[0x33, 0x22, 0x33, 0x44])).unwrap(),
+            range: MaskedRangeRef::new(0, 32, Some(&[0x33, 0x22, 0x33, 0x44])).unwrap(),
             file_id: FileId::new(0xFF),
             offset: Varint::new(0x3F_FF_00).unwrap(),
         };
@@ -589,7 +629,7 @@ mod test {
         // Test decode(op.encode_in()) == op
         let mut encoded = [0_u8; TOT_SIZE];
         let size_encoded = op.encode_in(&mut encoded).unwrap();
-        let (ret, size_decoded) = ComparisonWithRange::decode(&encoded).unwrap();
+        let (ret, size_decoded) = ComparisonWithRangeRef::decode(&encoded).unwrap();
         assert_eq!(size_encoded, size_decoded);
         assert_eq!(ret, op);
 

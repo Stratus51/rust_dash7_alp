@@ -105,14 +105,14 @@ impl AddresseeIdentifierType {
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub enum AddresseeIdentifier<'item> {
+pub enum AddresseeIdentifierRef<'item> {
     Nbid(u8),
     Noid,
     Uid(&'item [u8; 8]),
     Vid(&'item [u8; 2]),
 }
 
-impl<'item> AddresseeIdentifier<'item> {
+impl<'item> AddresseeIdentifierRef<'item> {
     pub fn id_type(&self) -> AddresseeIdentifierType {
         match self {
             Self::Nbid(_) => AddresseeIdentifierType::Nbid,
@@ -121,18 +121,48 @@ impl<'item> AddresseeIdentifier<'item> {
             Self::Vid(_) => AddresseeIdentifierType::Vid,
         }
     }
+
+    pub fn to_owned(&self) -> AddresseeIdentifier {
+        match self {
+            Self::Nbid(n) => AddresseeIdentifier::Nbid(*n),
+            Self::Noid => AddresseeIdentifier::Noid,
+            Self::Uid(uid) => AddresseeIdentifier::Uid(**uid),
+            Self::Vid(vid) => AddresseeIdentifier::Vid(**vid),
+        }
+    }
 }
 
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct Addressee<'item> {
-    pub nls_method: NlsMethod,
-    pub access_class: AccessClass,
-    pub identifier: AddresseeIdentifier<'item>,
+pub enum AddresseeIdentifier {
+    Nbid(u8),
+    Noid,
+    Uid([u8; 8]),
+    Vid([u8; 2]),
 }
 
-impl<'item> Addressee<'item> {
+impl AddresseeIdentifier {
+    pub fn as_ref(&self) -> AddresseeIdentifierRef {
+        match self {
+            Self::Nbid(n) => AddresseeIdentifierRef::Nbid(*n),
+            Self::Noid => AddresseeIdentifierRef::Noid,
+            Self::Uid(uid) => AddresseeIdentifierRef::Uid(uid),
+            Self::Vid(vid) => AddresseeIdentifierRef::Vid(vid),
+        }
+    }
+}
+
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+pub struct AddresseeRef<'item> {
+    pub nls_method: NlsMethod,
+    pub access_class: AccessClass,
+    pub identifier: AddresseeIdentifierRef<'item>,
+}
+
+impl<'item> AddresseeRef<'item> {
     /// Encodes the Item into a data pointer without checking the size of the
     /// receiving byte array.
     ///
@@ -152,10 +182,10 @@ impl<'item> Addressee<'item> {
         *out.add(0) = (id_type as u8) << 4 | (self.nls_method as u8);
         *out.add(1) = self.access_class.u8();
         match &self.identifier {
-            AddresseeIdentifier::Nbid(n) => *out.add(2) = *n,
-            AddresseeIdentifier::Noid => (),
-            AddresseeIdentifier::Uid(uid) => out.add(2).copy_from(uid.as_ptr(), uid.len()),
-            AddresseeIdentifier::Vid(vid) => out.add(2).copy_from(vid.as_ptr(), vid.len()),
+            AddresseeIdentifierRef::Nbid(n) => *out.add(2) = *n,
+            AddresseeIdentifierRef::Noid => (),
+            AddresseeIdentifierRef::Uid(uid) => out.add(2).copy_from(uid.as_ptr(), uid.len()),
+            AddresseeIdentifierRef::Vid(vid) => out.add(2).copy_from(vid.as_ptr(), vid.len()),
         }
 
         2 + id_type.size()
@@ -293,6 +323,14 @@ impl<'item> Addressee<'item> {
             Err(e) => Err(e),
         }
     }
+
+    pub fn to_owned(&self) -> Addressee {
+        Addressee {
+            nls_method: self.nls_method,
+            access_class: self.access_class,
+            identifier: self.identifier.to_owned(),
+        }
+    }
 }
 
 pub struct DecodableAddressee<'data> {
@@ -350,18 +388,18 @@ impl<'data> DecodableAddressee<'data> {
         unsafe { AccessClass(*self.data.add(1)) }
     }
 
-    pub fn identifier(&self) -> AddresseeIdentifier {
+    pub fn identifier(&self) -> AddresseeIdentifierRef {
         unsafe {
             match self.id_type() {
-                AddresseeIdentifierType::Nbid => AddresseeIdentifier::Nbid(*self.data.add(2)),
-                AddresseeIdentifierType::Noid => AddresseeIdentifier::Noid,
+                AddresseeIdentifierType::Nbid => AddresseeIdentifierRef::Nbid(*self.data.add(2)),
+                AddresseeIdentifierType::Noid => AddresseeIdentifierRef::Noid,
                 AddresseeIdentifierType::Uid => {
                     let data = self.data.add(2) as *const [u8; 8];
-                    AddresseeIdentifier::Uid(&*data)
+                    AddresseeIdentifierRef::Uid(&*data)
                 }
                 AddresseeIdentifierType::Vid => {
                     let data = self.data.add(2) as *const [u8; 2];
-                    AddresseeIdentifier::Vid(&*data)
+                    AddresseeIdentifierRef::Vid(&*data)
                 }
             }
         }
@@ -370,30 +408,49 @@ impl<'data> DecodableAddressee<'data> {
     /// Fully decode the Item
     ///
     /// Returns the decoded data and the number of bytes consumed to produce it.
-    pub fn complete_decoding(&self) -> (Addressee<'data>, usize) {
+    pub fn complete_decoding(&self) -> (AddresseeRef<'data>, usize) {
         let id_type = self.id_type();
         let identifier = unsafe {
             match id_type {
-                AddresseeIdentifierType::Nbid => AddresseeIdentifier::Nbid(*self.data.add(2)),
-                AddresseeIdentifierType::Noid => AddresseeIdentifier::Noid,
+                AddresseeIdentifierType::Nbid => AddresseeIdentifierRef::Nbid(*self.data.add(2)),
+                AddresseeIdentifierType::Noid => AddresseeIdentifierRef::Noid,
                 AddresseeIdentifierType::Uid => {
                     let data = self.data.add(2) as *const [u8; 8];
-                    AddresseeIdentifier::Uid(&*data)
+                    AddresseeIdentifierRef::Uid(&*data)
                 }
                 AddresseeIdentifierType::Vid => {
                     let data = self.data.add(2) as *const [u8; 2];
-                    AddresseeIdentifier::Vid(&*data)
+                    AddresseeIdentifierRef::Vid(&*data)
                 }
             }
         };
         (
-            Addressee {
+            AddresseeRef {
                 nls_method: self.nls_method(),
                 access_class: self.access_class(),
                 identifier,
             },
             2 + id_type.size(),
         )
+    }
+}
+
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+pub struct Addressee {
+    pub nls_method: NlsMethod,
+    pub access_class: AccessClass,
+    pub identifier: AddresseeIdentifier,
+}
+
+impl Addressee {
+    pub fn as_ref(&self) -> AddresseeRef {
+        AddresseeRef {
+            nls_method: self.nls_method,
+            access_class: self.access_class,
+            identifier: self.identifier.as_ref(),
+        }
     }
 }
 
@@ -404,7 +461,7 @@ mod test {
 
     #[test]
     fn known() {
-        fn test(op: Addressee, data: &[u8]) {
+        fn test(op: AddresseeRef, data: &[u8]) {
             // Test op.encode_in() == data
             let mut encoded = [0_u8; 64];
             let size = op.encode_in(&mut encoded).unwrap();
@@ -412,19 +469,19 @@ mod test {
             assert_eq!(&encoded[..size], data);
 
             // Test decode(data) == op
-            let (ret, size) = Addressee::decode(data).unwrap();
+            let (ret, size) = AddresseeRef::decode(data).unwrap();
             assert_eq!(size, data.len());
             assert_eq!(ret, op);
 
             // Test partial_decode == op
-            let (decoder, expected_size) = Addressee::start_decoding(data).unwrap();
+            let (decoder, expected_size) = AddresseeRef::start_decoding(data).unwrap();
             assert_eq!(ret.identifier.id_type(), decoder.id_type());
             assert_eq!(expected_size, size);
             assert_eq!(unsafe { decoder.expected_size() }, size);
             assert_eq!(decoder.smaller_than(data.len()).unwrap(), size);
             assert_eq!(
                 op,
-                Addressee {
+                AddresseeRef {
                     nls_method: decoder.nls_method(),
                     access_class: decoder.access_class(),
                     identifier: decoder.identifier(),
@@ -432,36 +489,36 @@ mod test {
             );
         }
         test(
-            Addressee {
+            AddresseeRef {
                 nls_method: NlsMethod::None,
                 access_class: AccessClass(0x01),
-                identifier: AddresseeIdentifier::Nbid(4),
+                identifier: AddresseeIdentifierRef::Nbid(4),
             },
             &[0x00, 0x01, 0x04],
         );
         test(
-            Addressee {
+            AddresseeRef {
                 nls_method: NlsMethod::AesCtr,
                 access_class: AccessClass(0x21),
-                identifier: AddresseeIdentifier::Noid,
+                identifier: AddresseeIdentifierRef::Noid,
             },
             &[0x11, 0x21],
         );
         test(
-            Addressee {
+            AddresseeRef {
                 nls_method: NlsMethod::AesCcm64,
                 access_class: AccessClass(0xE1),
-                identifier: AddresseeIdentifier::Uid(&[
+                identifier: AddresseeIdentifierRef::Uid(&[
                     0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
                 ]),
             },
             &[0x26, 0xE1, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77],
         );
         test(
-            Addressee {
+            AddresseeRef {
                 nls_method: NlsMethod::AesCbcMac64,
                 access_class: AccessClass(0x71),
-                identifier: AddresseeIdentifier::Vid(&[0xCA, 0xFE]),
+                identifier: AddresseeIdentifierRef::Vid(&[0xCA, 0xFE]),
             },
             &[0x33, 0x71, 0xCA, 0xFE],
         );
@@ -470,16 +527,18 @@ mod test {
     #[test]
     fn consistence() {
         const TOT_SIZE: usize = 2 + 8;
-        let op = Addressee {
+        let op = AddresseeRef {
             nls_method: NlsMethod::AesCcm64,
             access_class: AccessClass(0xE1),
-            identifier: AddresseeIdentifier::Uid(&[0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77]),
+            identifier: AddresseeIdentifierRef::Uid(&[
+                0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+            ]),
         };
 
         // Test decode(op.encode_in()) == op
         let mut encoded = [0_u8; TOT_SIZE];
         let size_encoded = op.encode_in(&mut encoded).unwrap();
-        let (ret, size_decoded) = Addressee::decode(&encoded).unwrap();
+        let (ret, size_decoded) = AddresseeRef::decode(&encoded).unwrap();
         assert_eq!(size_encoded, size_decoded);
         assert_eq!(ret, op);
 

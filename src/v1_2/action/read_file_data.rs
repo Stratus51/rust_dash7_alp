@@ -16,7 +16,7 @@ pub const MAX_SIZE: usize = 2 + 2 * varint::MAX_SIZE;
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct ReadFileData<'item> {
+pub struct ReadFileDataRef<'item> {
     /// Group with next action
     pub group: bool,
     /// Ask for a response (read data via ReturnFileData)
@@ -33,7 +33,7 @@ pub struct ReadFileData<'item> {
     pub phantom: core::marker::PhantomData<&'item ()>,
 }
 
-impl<'item> ReadFileData<'item> {
+impl<'item> ReadFileDataRef<'item> {
     /// Most common builder `ReadFileData` builder.
     ///
     /// group = false
@@ -208,6 +208,16 @@ impl<'item> ReadFileData<'item> {
             Err(e) => Err(e),
         }
     }
+
+    pub fn to_owned(&self) -> ReadFileData {
+        ReadFileData {
+            group: self.group,
+            response: self.response,
+            file_id: self.file_id,
+            offset: self.offset,
+            length: self.length,
+        }
+    }
 }
 
 pub struct DecodableReadFileData<'data> {
@@ -289,11 +299,11 @@ impl<'data> DecodableReadFileData<'data> {
     /// Fully decode the Item
     ///
     /// Returns the decoded data and the number of bytes consumed to produce it.
-    pub fn complete_decoding<'item>(&self) -> (ReadFileData<'item>, usize) {
+    pub fn complete_decoding<'item>(&self) -> (ReadFileDataRef<'item>, usize) {
         let (offset, offset_size) = self.offset().complete_decoding();
         let (length, length_size) = unsafe { Varint::decode_ptr(self.data.add(2 + offset_size)) };
         (
-            ReadFileData {
+            ReadFileDataRef {
                 group: self.group(),
                 response: self.response(),
                 file_id: self.file_id(),
@@ -306,6 +316,38 @@ impl<'data> DecodableReadFileData<'data> {
     }
 }
 
+/// Read data from a file.
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+pub struct ReadFileData {
+    /// Group with next action
+    pub group: bool,
+    /// Ask for a response (read data via ReturnFileData)
+    ///
+    /// Generally true unless you just want to trigger a read on the filesystem
+    pub response: bool,
+    /// File ID of the file to read
+    pub file_id: FileId,
+    /// Offset at which to start the reading
+    pub offset: Varint,
+    /// Number of bytes to read after offset
+    pub length: Varint,
+}
+
+impl ReadFileData {
+    pub fn as_ref(&self) -> ReadFileDataRef {
+        ReadFileDataRef {
+            group: self.group,
+            response: self.response,
+            file_id: self.file_id,
+            offset: self.offset,
+            length: self.length,
+            phantom: core::marker::PhantomData,
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     #![allow(clippy::unwrap_in_result, clippy::panic, clippy::expect_used)]
@@ -313,7 +355,7 @@ mod test {
 
     #[test]
     fn known() {
-        fn test(op: ReadFileData, data: &[u8]) {
+        fn test(op: ReadFileDataRef, data: &[u8]) {
             // Test op.encode_in() == data
             let mut encoded = [0_u8; 2 + 8];
             let size = op.encode_in(&mut encoded).unwrap();
@@ -321,18 +363,18 @@ mod test {
             assert_eq!(&encoded[..size], data);
 
             // Test decode(data) == op
-            let (ret, size) = ReadFileData::decode(data).unwrap();
+            let (ret, size) = ReadFileDataRef::decode(data).unwrap();
             assert_eq!(size, data.len());
             assert_eq!(ret, op);
 
             // Test partial_decode == op
-            let (decoder, expected_size) = ReadFileData::start_decoding(data).unwrap();
+            let (decoder, expected_size) = ReadFileDataRef::start_decoding(data).unwrap();
             assert_eq!(expected_size, size);
             assert_eq!(unsafe { decoder.expected_size() }, size);
             assert_eq!(decoder.smaller_than(data.len()).unwrap(), size);
             assert_eq!(
                 op,
-                ReadFileData {
+                ReadFileDataRef {
                     group: decoder.group(),
                     response: decoder.response(),
                     file_id: decoder.file_id(),
@@ -343,7 +385,7 @@ mod test {
             );
         }
         test(
-            ReadFileData {
+            ReadFileDataRef {
                 group: false,
                 response: true,
                 file_id: FileId::new(0),
@@ -354,7 +396,7 @@ mod test {
             &[0x41, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF],
         );
         test(
-            ReadFileData {
+            ReadFileDataRef {
                 group: true,
                 response: false,
                 file_id: FileId::new(1),
@@ -365,7 +407,7 @@ mod test {
             &[0x81, 0x01, 0x7F, 0xFF, 0xBF, 0xFF, 0xFF],
         );
         test(
-            ReadFileData {
+            ReadFileDataRef {
                 group: true,
                 response: true,
                 file_id: FileId::new(0x80),
@@ -376,7 +418,7 @@ mod test {
             &[0xC1, 0x80, 0x00, 0x00],
         );
         test(
-            ReadFileData {
+            ReadFileDataRef {
                 group: false,
                 response: false,
                 file_id: FileId::new(0xFF),
@@ -390,7 +432,7 @@ mod test {
 
     #[test]
     fn consistence() {
-        let op = ReadFileData {
+        let op = ReadFileDataRef {
             group: true,
             response: false,
             file_id: FileId::new(0x80),
@@ -402,7 +444,7 @@ mod test {
         // Test decode(op.encode_in()) == op
         let mut encoded = [0_u8; MAX_SIZE];
         let size_encoded = op.encode_in(&mut encoded).unwrap();
-        let (ret, size_decoded) = ReadFileData::decode(&encoded).unwrap();
+        let (ret, size_decoded) = ReadFileDataRef::decode(&encoded).unwrap();
         assert_eq!(size_encoded, size_decoded);
         assert_eq!(ret, op);
 

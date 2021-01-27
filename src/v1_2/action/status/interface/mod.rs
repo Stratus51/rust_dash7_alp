@@ -1,5 +1,7 @@
 use super::super::super::error::StatusInterfaceDecodeError;
-use crate::v1_2::dash7::interface_status::{Dash7InterfaceStatus, DecodableDash7InterfaceStatus};
+use crate::v1_2::dash7::interface_status::{
+    Dash7InterfaceStatus, Dash7InterfaceStatusRef, DecodableDash7InterfaceStatus,
+};
 use crate::varint::{DecodableVarint, Varint};
 
 pub mod define;
@@ -54,16 +56,16 @@ use define::InterfaceId;
 // operand, I hardly think it is useful to keep this feature, which might just encourage
 // using it for the wrong reasons.
 
-/// Writes data to a file.
+/// Details from the interface the command is coming from
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub enum StatusInterface<'item> {
+pub enum StatusInterfaceRef<'item> {
     Host,
-    Dash7(Dash7InterfaceStatus<'item>),
+    Dash7(Dash7InterfaceStatusRef<'item>),
 }
 
-impl<'item> StatusInterface<'item> {
+impl<'item> StatusInterfaceRef<'item> {
     /// Encodes the Item into a data pointer without checking the size of the
     /// receiving byte array.
     ///
@@ -249,6 +251,13 @@ impl<'item> StatusInterface<'item> {
     pub fn decode(data: &'item [u8]) -> Result<(Self, usize), StatusInterfaceDecodeError> {
         Self::start_decoding(data).map(|v| v.0.complete_decoding())
     }
+
+    pub fn to_owned(&self) -> StatusInterface {
+        match self {
+            Self::Host => StatusInterface::Host,
+            Self::Dash7(status) => StatusInterface::Dash7(status.to_owned()),
+        }
+    }
 }
 
 pub enum DecodableStatusInterfaceKind<'data> {
@@ -337,7 +346,7 @@ impl<'data> DecodableStatusInterface<'data> {
             match self.interface_id {
                 InterfaceId::Host => DecodableStatusInterfaceKind::Host,
                 InterfaceId::Dash7 => DecodableStatusInterfaceKind::Dash7(
-                    Dash7InterfaceStatus::start_decoding_ptr(self.data.add(offset)),
+                    Dash7InterfaceStatusRef::start_decoding_ptr(self.data.add(offset)),
                 ),
             }
         }
@@ -346,16 +355,34 @@ impl<'data> DecodableStatusInterface<'data> {
     /// Fully decode the Item
     ///
     /// Returns the decoded data and the number of bytes consumed to produce it.
-    pub fn complete_decoding(&self) -> (StatusInterface<'data>, usize) {
+    pub fn complete_decoding(&self) -> (StatusInterfaceRef<'data>, usize) {
         let offset = 1 + unsafe { self.len_field().expected_size() };
         unsafe {
             match self.interface_id {
-                InterfaceId::Host => (StatusInterface::Host, offset),
+                InterfaceId::Host => (StatusInterfaceRef::Host, offset),
                 InterfaceId::Dash7 => {
-                    let (status, size) = Dash7InterfaceStatus::decode_ptr(self.data.add(offset));
-                    (StatusInterface::Dash7(status), offset + size)
+                    let (status, size) = Dash7InterfaceStatusRef::decode_ptr(self.data.add(offset));
+                    (StatusInterfaceRef::Dash7(status), offset + size)
                 }
             }
+        }
+    }
+}
+
+/// Details from the interface the command is coming from
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+pub enum StatusInterface {
+    Host,
+    Dash7(Dash7InterfaceStatus),
+}
+
+impl StatusInterface {
+    pub fn as_ref(&self) -> StatusInterfaceRef {
+        match self {
+            Self::Host => StatusInterfaceRef::Host,
+            Self::Dash7(status) => StatusInterfaceRef::Dash7(status.as_ref()),
         }
     }
 }
@@ -365,13 +392,13 @@ mod test {
     #![allow(clippy::unwrap_in_result, clippy::panic, clippy::expect_used)]
     use super::*;
     use crate::v1_2::dash7::{
-        addressee::{AccessClass, Addressee, AddresseeIdentifier, NlsMethod},
-        interface_status::AddresseeWithNlsState,
+        addressee::{AccessClass, AddresseeIdentifierRef, AddresseeRef, NlsMethod},
+        interface_status::AddresseeWithNlsStateRef,
     };
 
     #[test]
     fn known() {
-        fn test(op: StatusInterface, data: &[u8]) {
+        fn test(op: StatusInterfaceRef, data: &[u8]) {
             // Test op.encode_in() == data
             let mut encoded = [0_u8; 64];
             let size = op.encode_in(&mut encoded).unwrap();
@@ -379,27 +406,27 @@ mod test {
             assert_eq!(&encoded[..size], data);
 
             // Test decode(data) == op
-            let (ret, size) = StatusInterface::decode(data).unwrap();
+            let (ret, size) = StatusInterfaceRef::decode(data).unwrap();
             assert_eq!(size, data.len());
             assert_eq!(ret, op);
 
             // Test partial_decode == op
-            let (decoder, expected_size) = StatusInterface::start_decoding(data).unwrap();
+            let (decoder, expected_size) = StatusInterfaceRef::start_decoding(data).unwrap();
             assert_eq!(expected_size, size);
             assert_eq!(unsafe { decoder.expected_size() }, size);
             assert_eq!(decoder.smaller_than(data.len()).unwrap(), size);
             assert_eq!(
                 op,
                 match decoder.status() {
-                    DecodableStatusInterfaceKind::Host => StatusInterface::Host,
+                    DecodableStatusInterfaceKind::Host => StatusInterfaceRef::Host,
                     DecodableStatusInterfaceKind::Dash7(status) =>
-                        StatusInterface::Dash7(status.complete_decoding().0),
+                        StatusInterfaceRef::Dash7(status.complete_decoding().0),
                 },
             );
         }
-        test(StatusInterface::Host, &[0x00, 0x00]);
+        test(StatusInterfaceRef::Host, &[0x00, 0x00]);
         test(
-            StatusInterface::Dash7(Dash7InterfaceStatus {
+            StatusInterfaceRef::Dash7(Dash7InterfaceStatusRef {
                 ch_header: 0x1,
                 ch_idx: 0x2,
                 rxlev: 0x3,
@@ -409,11 +436,11 @@ mod test {
                 token: 0x7,
                 seq: 0x8,
                 resp_to: 0x9,
-                addressee_with_nls_state: AddresseeWithNlsState::new(
-                    Addressee {
+                addressee_with_nls_state: AddresseeWithNlsStateRef::new(
+                    AddresseeRef {
                         nls_method: NlsMethod::None,
                         access_class: AccessClass(0xE1),
-                        identifier: AddresseeIdentifier::Uid(&[
+                        identifier: AddresseeIdentifierRef::Uid(&[
                             0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
                         ]),
                     },
@@ -431,7 +458,7 @@ mod test {
     #[test]
     fn consistence() {
         const TOT_SIZE: usize = 22;
-        let op = StatusInterface::Dash7(Dash7InterfaceStatus {
+        let op = StatusInterfaceRef::Dash7(Dash7InterfaceStatusRef {
             ch_header: 0x1,
             ch_idx: 0x2,
             rxlev: 0x3,
@@ -441,11 +468,11 @@ mod test {
             token: 0x7,
             seq: 0x8,
             resp_to: 0x9,
-            addressee_with_nls_state: AddresseeWithNlsState::new(
-                Addressee {
+            addressee_with_nls_state: AddresseeWithNlsStateRef::new(
+                AddresseeRef {
                     nls_method: NlsMethod::None,
                     access_class: AccessClass(0xE1),
-                    identifier: AddresseeIdentifier::Uid(&[
+                    identifier: AddresseeIdentifierRef::Uid(&[
                         0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
                     ]),
                 },
@@ -457,7 +484,7 @@ mod test {
         // Test decode(op.encode_in()) == op
         let mut encoded = [0_u8; TOT_SIZE];
         let size_encoded = op.encode_in(&mut encoded).unwrap();
-        let (ret, size_decoded) = StatusInterface::decode(&encoded).unwrap();
+        let (ret, size_decoded) = StatusInterfaceRef::decode(&encoded).unwrap();
         assert_eq!(size_encoded, size_decoded);
         assert_eq!(ret, op);
 

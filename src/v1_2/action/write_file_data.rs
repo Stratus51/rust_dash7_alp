@@ -1,14 +1,18 @@
 use super::super::define::flag;
 use super::super::define::op_code::OpCode;
 use super::super::error::BasicDecodeError;
-use crate::define::{EncodableData, FileId};
+#[cfg(feature = "alloc")]
+use crate::define::EncodableData;
+use crate::define::{EncodableDataRef, FileId};
 use crate::varint::{DecodableVarint, Varint};
 
+// TODO Is it the role of this library to teach the semantics of the protocol or should it just
+// focus on documenting its usage, based on the assumption that that semantic is already known?
 /// Writes data to a file.
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct WriteFileData<'item> {
+pub struct WriteFileDataRef<'item> {
     /// Group with next action
     pub group: bool,
     /// Ask for a response (a status)
@@ -18,15 +22,15 @@ pub struct WriteFileData<'item> {
     /// Offset at which to start the reading
     pub offset: Varint,
     /// Data to write
-    pub data: EncodableData<'item>,
+    pub data: EncodableDataRef<'item>,
 }
 
-impl<'item> WriteFileData<'item> {
+impl<'item> WriteFileDataRef<'item> {
     /// Most common builder `WriteFileData` builder.
     ///
     /// group = false
     /// response = true
-    pub fn new(file_id: FileId, offset: Varint, data: EncodableData<'item>) -> Self {
+    pub fn new(file_id: FileId, offset: Varint, data: EncodableDataRef<'item>) -> Self {
         Self {
             group: false,
             response: true,
@@ -204,6 +208,17 @@ impl<'item> WriteFileData<'item> {
             Err(e) => Err(e),
         }
     }
+
+    #[cfg(feature = "alloc")]
+    pub fn to_owned(&self) -> WriteFileData {
+        WriteFileData {
+            group: self.group,
+            response: self.response,
+            file_id: self.file_id,
+            offset: self.offset,
+            data: self.data.to_owned(),
+        }
+    }
 }
 
 pub struct DecodableWriteFileData<'data> {
@@ -281,7 +296,7 @@ impl<'data> DecodableWriteFileData<'data> {
         }
     }
 
-    pub fn data(&self) -> (EncodableData<'data>, usize) {
+    pub fn data(&self) -> (EncodableDataRef<'data>, usize) {
         unsafe {
             let offset_size = (((*self.data.add(2) & 0xC0) >> 6) + 1) as usize;
             let (length, length_size) = Varint::decode_ptr(self.data.add(2 + offset_size));
@@ -289,7 +304,7 @@ impl<'data> DecodableWriteFileData<'data> {
             let data =
                 core::slice::from_raw_parts(self.data.add(data_offset), length.u32() as usize);
             (
-                EncodableData::new_unchecked(data),
+                EncodableDataRef::new_unchecked(data),
                 length_size + length.u32() as usize,
             )
         }
@@ -298,7 +313,7 @@ impl<'data> DecodableWriteFileData<'data> {
     /// Fully decode the Item
     ///
     /// Returns the decoded data and the number of bytes consumed to produce it.
-    pub fn complete_decoding(&self) -> (WriteFileData<'data>, usize) {
+    pub fn complete_decoding(&self) -> (WriteFileDataRef<'data>, usize) {
         let (offset, offset_size) = self.offset().complete_decoding();
         let (data, length_size, length) = unsafe {
             let (length, length_size) = Varint::decode_ptr(self.data.add(2 + offset_size));
@@ -306,13 +321,13 @@ impl<'data> DecodableWriteFileData<'data> {
             let data =
                 core::slice::from_raw_parts(self.data.add(data_offset), length.u32() as usize);
             (
-                EncodableData::new_unchecked(data),
+                EncodableDataRef::new_unchecked(data),
                 length_size,
                 length.u32(),
             )
         };
         (
-            WriteFileData {
+            WriteFileDataRef {
                 group: self.group(),
                 response: self.response(),
                 file_id: self.file_id(),
@@ -324,6 +339,37 @@ impl<'data> DecodableWriteFileData<'data> {
     }
 }
 
+/// Writes data to a file.
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
+#[cfg(feature = "alloc")]
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+pub struct WriteFileData {
+    /// Group with next action
+    pub group: bool,
+    /// Ask for a response (a status)
+    pub response: bool,
+    /// File ID of the file to read
+    pub file_id: FileId,
+    /// Offset at which to start the reading
+    pub offset: Varint,
+    /// Data to write
+    pub data: EncodableData,
+}
+
+#[cfg(feature = "alloc")]
+impl WriteFileData {
+    pub fn as_ref(&self) -> WriteFileDataRef {
+        WriteFileDataRef {
+            group: self.group,
+            response: self.response,
+            file_id: self.file_id,
+            offset: self.offset,
+            data: self.data.as_ref(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     #![allow(clippy::unwrap_in_result, clippy::panic, clippy::expect_used)]
@@ -331,7 +377,7 @@ mod test {
 
     #[test]
     fn known() {
-        fn test(op: WriteFileData, data: &[u8]) {
+        fn test(op: WriteFileDataRef, data: &[u8]) {
             // Test op.encode_in() == data
             let mut encoded = [0_u8; 2 + 8];
             let size = op.encode_in(&mut encoded).unwrap();
@@ -339,12 +385,12 @@ mod test {
             assert_eq!(&encoded[..size], data);
 
             // Test decode(data) == op
-            let (ret, size) = WriteFileData::decode(data).unwrap();
+            let (ret, size) = WriteFileDataRef::decode(data).unwrap();
             assert_eq!(size, data.len());
             assert_eq!(ret, op);
 
             // Test partial_decode == op
-            let (decoder, expected_size) = WriteFileData::start_decoding(data).unwrap();
+            let (decoder, expected_size) = WriteFileDataRef::start_decoding(data).unwrap();
             assert_eq!(expected_size, size);
             assert_eq!(unsafe { decoder.expected_size() }, size);
             assert_eq!(decoder.smaller_than(data.len()).unwrap(), size);
@@ -354,7 +400,7 @@ mod test {
             );
             assert_eq!(
                 op,
-                WriteFileData {
+                WriteFileDataRef {
                     group: decoder.group(),
                     response: decoder.response(),
                     file_id: decoder.file_id(),
@@ -364,42 +410,42 @@ mod test {
             );
         }
         test(
-            WriteFileData {
+            WriteFileDataRef {
                 group: false,
                 response: true,
                 file_id: FileId::new(0),
                 offset: Varint::new(0).unwrap(),
-                data: EncodableData::new(&[0, 1, 2]).unwrap(),
+                data: EncodableDataRef::new(&[0, 1, 2]).unwrap(),
             },
             &[0x44, 0x00, 0x00, 0x03, 0x00, 0x01, 0x02],
         );
         test(
-            WriteFileData {
+            WriteFileDataRef {
                 group: true,
                 response: false,
                 file_id: FileId::new(1),
                 offset: Varint::new(0x3F_FF).unwrap(),
-                data: EncodableData::new(&[]).unwrap(),
+                data: EncodableDataRef::new(&[]).unwrap(),
             },
             &[0x84, 0x01, 0x7F, 0xFF, 0x00],
         );
         test(
-            WriteFileData {
+            WriteFileDataRef {
                 group: true,
                 response: true,
                 file_id: FileId::new(0x80),
                 offset: Varint::new(0).unwrap(),
-                data: EncodableData::new(&[0x44]).unwrap(),
+                data: EncodableDataRef::new(&[0x44]).unwrap(),
             },
             &[0xC4, 0x80, 0x00, 0x01, 0x44],
         );
         test(
-            WriteFileData {
+            WriteFileDataRef {
                 group: false,
                 response: false,
                 file_id: FileId::new(0xFF),
                 offset: Varint::new(0x3F_FF_FF_FF).unwrap(),
-                data: EncodableData::new(&[0xFF, 0xFE]).unwrap(),
+                data: EncodableDataRef::new(&[0xFF, 0xFE]).unwrap(),
             },
             &[0x04, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x02, 0xFF, 0xFE],
         );
@@ -408,18 +454,18 @@ mod test {
     #[test]
     fn consistence() {
         const TOT_SIZE: usize = 2 + 2 + 3;
-        let op = WriteFileData {
+        let op = WriteFileDataRef {
             group: true,
             response: false,
             file_id: FileId::new(0x80),
             offset: Varint::new(89).unwrap(),
-            data: EncodableData::new(&[0xFF, 0xFE]).unwrap(),
+            data: EncodableDataRef::new(&[0xFF, 0xFE]).unwrap(),
         };
 
         // Test decode(op.encode_in()) == op
         let mut encoded = [0_u8; TOT_SIZE];
         let size_encoded = op.encode_in(&mut encoded).unwrap();
-        let (ret, size_decoded) = WriteFileData::decode(&encoded).unwrap();
+        let (ret, size_decoded) = WriteFileDataRef::decode(&encoded).unwrap();
         assert_eq!(size_encoded, size_decoded);
         assert_eq!(ret, op);
 

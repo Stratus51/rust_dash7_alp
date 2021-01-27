@@ -1,22 +1,25 @@
 use super::super::super::define::flag;
 use super::super::super::define::op_code::OpCode;
 use super::super::super::error::{PtrUnknownQueryCode, QueryActionDecodeError, UnknownQueryCode};
-use super::{DecodableQuery, Query};
+use super::{DecodableQuery, QueryRef};
 
-/// Writes data to a file.
+#[cfg(feature = "alloc")]
+use super::Query;
+
+/// Executes next action group depending on a condition
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct ActionQuery<'item> {
+pub struct ActionQueryRef<'item> {
     /// Group with next action
     pub group: bool,
     /// Ask for a response (a status)
     pub response: bool,
     /// Action condition
-    pub query: Query<'item>,
+    pub query: QueryRef<'item>,
 }
 
-impl<'item> ActionQuery<'item> {
+impl<'item> ActionQueryRef<'item> {
     /// Encodes the Item into a data pointer without checking the size of the
     /// receiving byte array.
     ///
@@ -201,6 +204,15 @@ impl<'item> ActionQuery<'item> {
     pub fn decode(data: &'item [u8]) -> Result<(Self, usize), QueryActionDecodeError> {
         Ok(Self::start_decoding(data)?.0.complete_decoding())
     }
+
+    #[cfg(feature = "alloc")]
+    pub fn to_owned(&self) -> ActionQuery {
+        ActionQuery {
+            group: self.group,
+            response: self.response,
+            query: self.query.to_owned(),
+        }
+    }
 }
 
 pub struct DecodableActionQuery<'data> {
@@ -219,7 +231,7 @@ impl<'data> DecodableActionQuery<'data> {
     /// # Errors
     /// - Fails if the querycode is unknown
     fn from_ptr(data: *const u8) -> Result<Self, u8> {
-        let query = unsafe { Query::start_decoding_ptr(data.add(1))? };
+        let query = unsafe { QueryRef::start_decoding_ptr(data.add(1))? };
         Ok(Self {
             data,
             data_life: core::marker::PhantomData,
@@ -263,10 +275,10 @@ impl<'data> DecodableActionQuery<'data> {
     /// Fully decode the Item
     ///
     /// Returns the decoded data and the number of bytes consumed to produce it.
-    pub fn complete_decoding(&self) -> (ActionQuery<'data>, usize) {
+    pub fn complete_decoding(&self) -> (ActionQueryRef<'data>, usize) {
         let (query, query_size) = self.query.complete_decoding();
         (
-            ActionQuery {
+            ActionQueryRef {
                 group: self.group(),
                 response: self.response(),
                 query,
@@ -276,19 +288,44 @@ impl<'data> DecodableActionQuery<'data> {
     }
 }
 
+/// Executes next action group depending on a condition
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
+#[cfg(feature = "alloc")]
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+pub struct ActionQuery {
+    /// Group with next action
+    pub group: bool,
+    /// Ask for a response (a status)
+    pub response: bool,
+    /// Action condition
+    pub query: Query,
+}
+
+#[cfg(feature = "alloc")]
+impl ActionQuery {
+    pub fn as_ref(&self) -> ActionQueryRef {
+        ActionQueryRef {
+            group: self.group,
+            response: self.response,
+            query: self.query.as_ref(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     #![allow(clippy::unwrap_in_result, clippy::panic, clippy::expect_used)]
     use super::super::define::QueryComparisonType;
     use super::*;
     use crate::{
-        define::{EncodableData, FileId, MaskedValue},
+        define::{EncodableDataRef, FileId, MaskedValueRef},
         varint::Varint,
     };
 
     #[test]
     fn known() {
-        fn test(op: ActionQuery, data: &[u8]) {
+        fn test(op: ActionQueryRef, data: &[u8]) {
             // Test op.encode_in() == data
             let mut encoded = [0_u8; 2 + 8];
             let size = op.encode_in(&mut encoded).unwrap();
@@ -296,16 +333,16 @@ mod test {
             assert_eq!(&encoded[..size], data);
 
             // Test decode(data) == op
-            let (ret, size) = ActionQuery::decode(data).unwrap();
+            let (ret, size) = ActionQueryRef::decode(data).unwrap();
             assert_eq!(size, data.len());
             assert_eq!(ret, op);
 
             // Test partial_decode == op
-            let (decoder, expected_size) = ActionQuery::start_decoding(data).unwrap();
+            let (decoder, expected_size) = ActionQueryRef::start_decoding(data).unwrap();
             assert_eq!(expected_size, size);
             assert_eq!(
                 op,
-                ActionQuery {
+                ActionQueryRef {
                     group: decoder.group(),
                     response: decoder.response(),
                     query: decoder.query().complete_decoding().0,
@@ -313,15 +350,15 @@ mod test {
             );
         }
         test(
-            ActionQuery {
+            ActionQueryRef {
                 group: false,
                 response: true,
-                query: Query::ComparisonWithValue(
-                    super::super::comparison_with_value::ComparisonWithValue {
+                query: QueryRef::ComparisonWithValue(
+                    super::super::comparison_with_value::ComparisonWithValueRef {
                         signed_data: true,
                         comparison_type: QueryComparisonType::Equal,
-                        compare_value: MaskedValue::new(
-                            EncodableData::new(&[0x00, 0x01, 0x02]).unwrap(),
+                        compare_value: MaskedValueRef::new(
+                            EncodableDataRef::new(&[0x00, 0x01, 0x02]).unwrap(),
                             None,
                         )
                         .unwrap(),
@@ -348,15 +385,15 @@ mod test {
     #[test]
     fn consistence() {
         const TOT_SIZE: usize = 10;
-        let op = ActionQuery {
+        let op = ActionQueryRef {
             group: true,
             response: false,
-            query: Query::ComparisonWithValue(
-                super::super::comparison_with_value::ComparisonWithValue {
+            query: QueryRef::ComparisonWithValue(
+                super::super::comparison_with_value::ComparisonWithValueRef {
                     signed_data: true,
                     comparison_type: QueryComparisonType::Equal,
-                    compare_value: MaskedValue::new(
-                        EncodableData::new(&[0x00, 0x01, 0x02]).unwrap(),
+                    compare_value: MaskedValueRef::new(
+                        EncodableDataRef::new(&[0x00, 0x01, 0x02]).unwrap(),
                         None,
                     )
                     .unwrap(),
@@ -369,7 +406,7 @@ mod test {
         // Test decode(op.encode_in()) == op
         let mut encoded = [0_u8; TOT_SIZE];
         let size_encoded = op.encode_in(&mut encoded).unwrap();
-        let (ret, size_decoded) = ActionQuery::decode(&encoded).unwrap();
+        let (ret, size_decoded) = ActionQueryRef::decode(&encoded).unwrap();
         assert_eq!(size_encoded, size_decoded);
         assert_eq!(ret, op);
 

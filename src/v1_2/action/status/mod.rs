@@ -8,17 +8,17 @@ use crate::v1_2::error::{
     UncheckedStatusDecodeError, UnknownExtension, UnknownInterfaceId,
 };
 pub use define::StatusExtension;
-pub use interface::{DecodableStatusInterface, StatusInterface};
+pub use interface::{DecodableStatusInterface, StatusInterface, StatusInterfaceRef};
 
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub enum Status<'item> {
+pub enum StatusRef<'item> {
     // Action(),
-    Interface(StatusInterface<'item>),
+    Interface(StatusInterfaceRef<'item>),
 }
 
-impl<'item> Status<'item> {
+impl<'item> StatusRef<'item> {
     pub fn extension(&self) -> StatusExtension {
         match self {
             Self::Interface(_) => StatusExtension::Interface,
@@ -239,6 +239,12 @@ impl<'item> Status<'item> {
     pub fn decode(data: &'item [u8]) -> Result<(Self, usize), StatusDecodeError> {
         Ok(Self::start_decoding(data)?.0.complete_decoding())
     }
+
+    pub fn to_owned(&self) -> Status {
+        match self {
+            Self::Interface(status) => Status::Interface(status.to_owned()),
+        }
+    }
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
@@ -275,7 +281,7 @@ impl<'data> DecodableStatus<'data> {
         };
         Ok(match extension {
             StatusExtension::Interface => DecodableStatus::Interface(
-                StatusInterface::start_decoding_ptr(data.add(1))
+                StatusInterfaceRef::start_decoding_ptr(data.add(1))
                     .map_err(DecodableNewError::UnknownInterfaceId)?,
             ),
         })
@@ -312,14 +318,31 @@ impl<'data> DecodableStatus<'data> {
     /// # Errors
     /// Fails if the decoded status is an interface status and if the decoded
     /// interface_id is unknown.
-    pub fn complete_decoding(&self) -> (Status<'data>, usize) {
+    pub fn complete_decoding(&self) -> (StatusRef<'data>, usize) {
         let (status, size) = match &self {
             DecodableStatus::Interface(interface) => {
                 let (status, size) = interface.complete_decoding();
-                (Status::Interface(status), size)
+                (StatusRef::Interface(status), size)
             }
         };
         (status, 1 + size)
+    }
+}
+
+/// Details from the interface the command is coming from
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+pub enum Status {
+    // Action(),
+    Interface(StatusInterface),
+}
+
+impl Status {
+    pub fn as_ref(&self) -> StatusRef {
+        match self {
+            Self::Interface(status) => StatusRef::Interface(status.as_ref()),
+        }
     }
 }
 
@@ -328,13 +351,13 @@ mod test {
     #![allow(clippy::unwrap_in_result, clippy::panic, clippy::expect_used)]
     use super::*;
     use crate::v1_2::dash7::{
-        addressee::{AccessClass, Addressee, AddresseeIdentifier, NlsMethod},
-        interface_status::{AddresseeWithNlsState, Dash7InterfaceStatus},
+        addressee::{AccessClass, AddresseeIdentifierRef, AddresseeRef, NlsMethod},
+        interface_status::{AddresseeWithNlsStateRef, Dash7InterfaceStatusRef},
     };
 
     #[test]
     fn known() {
-        fn test(op: Status, data: &[u8]) {
+        fn test(op: StatusRef, data: &[u8]) {
             // Test op.encode_in() == data
             let mut encoded = [0_u8; 64];
             let size = op.encode_in(&mut encoded).unwrap();
@@ -342,12 +365,12 @@ mod test {
             assert_eq!(&encoded[..size], data);
 
             // Test decode(data) == op
-            let (ret, size) = Status::decode(data).unwrap();
+            let (ret, size) = StatusRef::decode(data).unwrap();
             assert_eq!(size, data.len());
             assert_eq!(ret, op);
         }
         test(
-            Status::Interface(StatusInterface::Dash7(Dash7InterfaceStatus {
+            StatusRef::Interface(StatusInterfaceRef::Dash7(Dash7InterfaceStatusRef {
                 ch_header: 0x1,
                 ch_idx: 0x2,
                 rxlev: 0x3,
@@ -357,11 +380,11 @@ mod test {
                 token: 0x7,
                 seq: 0x8,
                 resp_to: 0x9,
-                addressee_with_nls_state: AddresseeWithNlsState::new(
-                    Addressee {
+                addressee_with_nls_state: AddresseeWithNlsStateRef::new(
+                    AddresseeRef {
                         nls_method: NlsMethod::None,
                         access_class: AccessClass(0xE1),
-                        identifier: AddresseeIdentifier::Uid(&[
+                        identifier: AddresseeIdentifierRef::Uid(&[
                             0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
                         ]),
                     },
@@ -400,7 +423,7 @@ mod test {
     #[test]
     fn consistence() {
         const TOT_SIZE: usize = 23;
-        let op = Status::Interface(StatusInterface::Dash7(Dash7InterfaceStatus {
+        let op = StatusRef::Interface(StatusInterfaceRef::Dash7(Dash7InterfaceStatusRef {
             ch_header: 0x1,
             ch_idx: 0x2,
             rxlev: 0x3,
@@ -410,11 +433,11 @@ mod test {
             token: 0x7,
             seq: 0x8,
             resp_to: 0x9,
-            addressee_with_nls_state: AddresseeWithNlsState::new(
-                Addressee {
+            addressee_with_nls_state: AddresseeWithNlsStateRef::new(
+                AddresseeRef {
                     nls_method: NlsMethod::None,
                     access_class: AccessClass(0xE1),
-                    identifier: AddresseeIdentifier::Uid(&[
+                    identifier: AddresseeIdentifierRef::Uid(&[
                         0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
                     ]),
                 },
@@ -426,7 +449,7 @@ mod test {
         // Test decode(op.encode_in()) == op
         let mut encoded = [0_u8; TOT_SIZE];
         let size_encoded = op.encode_in(&mut encoded).unwrap();
-        let (ret, size_decoded) = Status::decode(&encoded).unwrap();
+        let (ret, size_decoded) = StatusRef::decode(&encoded).unwrap();
         assert_eq!(size_encoded, size_decoded);
         assert_eq!(ret, op);
 

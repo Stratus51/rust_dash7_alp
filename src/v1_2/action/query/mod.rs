@@ -4,9 +4,16 @@ pub mod comparison_with_range;
 pub mod comparison_with_value;
 pub mod define;
 
-pub use action_query::{ActionQuery, DecodableActionQuery};
-pub use comparison_with_range::{ComparisonWithRange, DecodableComparisonWithRange};
-pub use comparison_with_value::{ComparisonWithValue, DecodableComparisonWithValue};
+pub use action_query::{ActionQueryRef, DecodableActionQuery};
+pub use comparison_with_range::{ComparisonWithRangeRef, DecodableComparisonWithRange};
+pub use comparison_with_value::{ComparisonWithValueRef, DecodableComparisonWithValue};
+
+#[cfg(feature = "alloc")]
+pub use action_query::ActionQuery;
+#[cfg(feature = "alloc")]
+pub use comparison_with_range::ComparisonWithRange;
+#[cfg(feature = "alloc")]
+pub use comparison_with_value::ComparisonWithValue;
 
 use super::super::error::QueryDecodeError;
 use define::QueryCode;
@@ -14,16 +21,16 @@ use define::QueryCode;
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub enum Query<'item> {
+pub enum QueryRef<'item> {
     // NonVoid(non_void::NonVoid),
     // ComparisonWithZero(ComparisonWithZero),
-    ComparisonWithValue(ComparisonWithValue<'item>),
+    ComparisonWithValue(ComparisonWithValueRef<'item>),
     // ComparisonWithOtherFile(ComparisonWithOtherFile),
-    ComparisonWithRange(ComparisonWithRange<'item>),
+    ComparisonWithRange(ComparisonWithRangeRef<'item>),
     // StringTokenSearch(StringTokenSearch),
 }
 
-impl<'item> Query<'item> {
+impl<'item> QueryRef<'item> {
     /// Encodes the Item into a data pointer without checking the size of the
     /// receiving byte array.
     ///
@@ -193,6 +200,14 @@ impl<'item> Query<'item> {
     pub fn decode(data: &'item [u8]) -> Result<(Self, usize), QueryDecodeError> {
         Ok(Self::start_decoding(data)?.0.complete_decoding())
     }
+
+    #[cfg(feature = "alloc")]
+    pub fn to_owned(&self) -> Query {
+        match self {
+            Self::ComparisonWithValue(query) => Query::ComparisonWithValue(query.to_owned()),
+            Self::ComparisonWithRange(query) => Query::ComparisonWithRange(query.to_owned()),
+        }
+    }
 }
 
 pub enum DecodableQuery<'data> {
@@ -226,12 +241,12 @@ impl<'data> DecodableQuery<'data> {
             Err(_) => return Err(code),
         };
         Ok(match query_code {
-            QueryCode::ComparisonWithValue => {
-                DecodableQuery::ComparisonWithValue(ComparisonWithValue::start_decoding_ptr(data))
-            }
-            QueryCode::ComparisonWithRange => {
-                DecodableQuery::ComparisonWithRange(ComparisonWithRange::start_decoding_ptr(data))
-            }
+            QueryCode::ComparisonWithValue => DecodableQuery::ComparisonWithValue(
+                ComparisonWithValueRef::start_decoding_ptr(data),
+            ),
+            QueryCode::ComparisonWithRange => DecodableQuery::ComparisonWithRange(
+                ComparisonWithRangeRef::start_decoding_ptr(data),
+            ),
         })
     }
 
@@ -262,16 +277,41 @@ impl<'data> DecodableQuery<'data> {
     /// Fully decode the Item
     ///
     /// Returns the decoded data and the number of bytes consumed to produce it.
-    pub fn complete_decoding(&self) -> (Query<'data>, usize) {
+    pub fn complete_decoding(&self) -> (QueryRef<'data>, usize) {
         match self {
             Self::ComparisonWithValue(d) => {
                 let (op, size) = d.complete_decoding();
-                (Query::ComparisonWithValue(op), size)
+                (QueryRef::ComparisonWithValue(op), size)
             }
             Self::ComparisonWithRange(d) => {
                 let (op, size) = d.complete_decoding();
-                (Query::ComparisonWithRange(op), size)
+                (QueryRef::ComparisonWithRange(op), size)
             }
+        }
+    }
+}
+
+// TODO This alloc condition could be lighter and be required only for query variants that really
+// need allocation.
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
+#[cfg(feature = "alloc")]
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+pub enum Query {
+    // NonVoid(non_void::NonVoid),
+    // ComparisonWithZero(ComparisonWithZero),
+    ComparisonWithValue(ComparisonWithValue),
+    // ComparisonWithOtherFile(ComparisonWithOtherFile),
+    ComparisonWithRange(ComparisonWithRange),
+    // StringTokenSearch(StringTokenSearch),
+}
+
+#[cfg(feature = "alloc")]
+impl Query {
+    pub fn as_ref(&self) -> QueryRef {
+        match self {
+            Self::ComparisonWithValue(query) => QueryRef::ComparisonWithValue(query.as_ref()),
+            Self::ComparisonWithRange(query) => QueryRef::ComparisonWithRange(query.as_ref()),
         }
     }
 }
@@ -281,12 +321,12 @@ mod test {
     #![allow(clippy::unwrap_in_result, clippy::panic, clippy::expect_used)]
     use super::define::QueryComparisonType;
     use super::*;
-    use crate::define::{EncodableData, FileId, MaskedValue};
+    use crate::define::{EncodableDataRef, FileId, MaskedValueRef};
     use crate::varint::Varint;
 
     #[test]
     fn known() {
-        fn test(op: Query, data: &[u8]) {
+        fn test(op: QueryRef, data: &[u8]) {
             // Test op.encode_in() == data
             let mut encoded = [0_u8; 64];
             let size = op.encode_in(&mut encoded).unwrap();
@@ -294,22 +334,22 @@ mod test {
             assert_eq!(&encoded[..size], data);
 
             // Test decode(data) == op
-            let (ret, size) = Query::decode(data).unwrap();
+            let (ret, size) = QueryRef::decode(data).unwrap();
             assert_eq!(size, data.len());
             assert_eq!(ret, op);
 
             // Test partial_decode == op
-            let (decoder, expected_size) = Query::start_decoding(data).unwrap();
+            let (decoder, expected_size) = QueryRef::start_decoding(data).unwrap();
             assert_eq!(expected_size, size);
             assert_eq!(unsafe { decoder.expected_size() }, size);
             assert_eq!(decoder.smaller_than(data.len()).unwrap(), size);
         }
         test(
-            Query::ComparisonWithValue(ComparisonWithValue {
+            QueryRef::ComparisonWithValue(ComparisonWithValueRef {
                 signed_data: false,
                 comparison_type: QueryComparisonType::GreaterThan,
-                compare_value: MaskedValue::new(
-                    EncodableData::new(&[0x0A, 0x0B, 0x0C, 0x0D]).unwrap(),
+                compare_value: MaskedValueRef::new(
+                    EncodableDataRef::new(&[0x0A, 0x0B, 0x0C, 0x0D]).unwrap(),
                     Some(&[0x00, 0xFF, 0x0F, 0xFF]),
                 )
                 .unwrap(),
@@ -333,10 +373,10 @@ mod test {
             ],
         );
         test(
-            Query::ComparisonWithRange(ComparisonWithRange {
+            QueryRef::ComparisonWithRange(ComparisonWithRangeRef {
                 signed_data: false,
                 comparison_type: define::QueryRangeComparisonType::NotInRange,
-                range: crate::define::MaskedRange::new(50, 66, Some(&[0x33, 0x22])).unwrap(),
+                range: crate::define::MaskedRangeRef::new(50, 66, Some(&[0x33, 0x22])).unwrap(),
                 file_id: FileId::new(0x88),
                 offset: Varint::new(0xFF).unwrap(),
             }),
@@ -347,11 +387,11 @@ mod test {
     #[test]
     fn consistence() {
         const TOT_SIZE: usize = 1 + 1 + 3 + 3 + 1 + 3;
-        let op = Query::ComparisonWithValue(ComparisonWithValue {
+        let op = QueryRef::ComparisonWithValue(ComparisonWithValueRef {
             signed_data: true,
             comparison_type: QueryComparisonType::GreaterThanOrEqual,
-            compare_value: MaskedValue::new(
-                EncodableData::new(&[0x00, 0x43, 0x02]).unwrap(),
+            compare_value: MaskedValueRef::new(
+                EncodableDataRef::new(&[0x00, 0x43, 0x02]).unwrap(),
                 Some(&[0x44, 0x88, 0x11]),
             )
             .unwrap(),
@@ -362,7 +402,7 @@ mod test {
         // Test decode(op.encode_in()) == op
         let mut encoded = [0_u8; TOT_SIZE];
         let size_encoded = op.encode_in(&mut encoded).unwrap();
-        let (ret, size_decoded) = Query::decode(&encoded).unwrap();
+        let (ret, size_decoded) = QueryRef::decode(&encoded).unwrap();
         assert_eq!(size_encoded, size_decoded);
         assert_eq!(ret, op);
 

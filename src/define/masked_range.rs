@@ -1,3 +1,6 @@
+#[cfg(feature = "alloc")]
+use alloc::prelude::v1::Box;
+
 /// Represents a bitmap range.
 ///
 /// `start` and `end` both represent a bit offset in a virtually infinite bitmap.
@@ -19,13 +22,13 @@
 /// if your goal is to transmit this payload over the air in an IoT context, chances are,
 /// you will have trouble transmitting anything bigger than 256 bytes.
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct MaskedRange<'a> {
+pub struct MaskedRangeRef<'a> {
     start: usize,
     end: usize,
     bitmap: Option<&'a [u8]>,
 }
 
-impl<'a> MaskedRange<'a> {
+impl<'a> MaskedRangeRef<'a> {
     /// # Safety
     /// If bitmap is defined you are to warrant that bitmap.len() == `floor((end - start + 6)/8)`.
     pub const unsafe fn new_unchecked(start: usize, end: usize, bitmap: Option<&'a [u8]>) -> Self {
@@ -69,6 +72,34 @@ impl<'a> MaskedRange<'a> {
             2
         } else {
             1
+        }
+    }
+
+    #[cfg(feature = "alloc")]
+    pub fn to_owned(&self) -> MaskedRange {
+        MaskedRange {
+            start: self.start,
+            end: self.end,
+            bitmap: self.bitmap.map(|bitmap| bitmap.into()),
+        }
+    }
+}
+
+#[cfg(feature = "alloc")]
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+pub struct MaskedRange {
+    start: usize,
+    end: usize,
+    bitmap: Option<Box<[u8]>>,
+}
+
+#[cfg(feature = "alloc")]
+impl MaskedRange {
+    pub fn as_ref(&self) -> MaskedRangeRef {
+        MaskedRangeRef {
+            start: self.start,
+            end: self.end,
+            bitmap: self.bitmap.as_ref().map(|bitmap| bitmap.as_ref()),
         }
     }
 }

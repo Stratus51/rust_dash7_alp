@@ -2,9 +2,15 @@ pub mod encodable_data;
 pub mod masked_range;
 pub mod masked_value;
 
+#[cfg(feature = "alloc")]
 pub use encodable_data::EncodableData;
+pub use encodable_data::EncodableDataRef;
+#[cfg(feature = "alloc")]
 pub use masked_range::MaskedRange;
+pub use masked_range::MaskedRangeRef;
+#[cfg(feature = "alloc")]
 pub use masked_value::MaskedValue;
+pub use masked_value::MaskedValueRef;
 
 /// Wrapper struct representing a dash7 file id.
 ///

@@ -13,7 +13,7 @@ pub const SIZE: usize = 2;
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct ReadFileProperties<'item> {
+pub struct ReadFilePropertiesRef<'item> {
     /// Group with next action
     pub group: bool,
     /// Ask for a response (status)
@@ -21,18 +21,14 @@ pub struct ReadFileProperties<'item> {
     /// File ID of the file to read
     pub file_id: FileId,
     /// Empty data required for lifetime compilation.
-    pub phantom: core::marker::PhantomData<&'item ()>,
+    phantom: core::marker::PhantomData<&'item ()>,
 }
 
-impl<'item> ReadFileProperties<'item> {
-    /// Most common builder `ReadFileProperties` builder.
-    ///
-    /// group = false
-    /// response = true
-    pub const fn new(file_id: FileId) -> Self {
+impl<'item> ReadFilePropertiesRef<'item> {
+    pub const fn new(group: bool, response: bool, file_id: FileId) -> Self {
         Self {
-            group: false,
-            response: true,
+            group,
+            response,
             file_id,
             phantom: core::marker::PhantomData,
         }
@@ -198,6 +194,14 @@ impl<'item> ReadFileProperties<'item> {
             Err(e) => Err(e),
         }
     }
+
+    pub fn to_owned(&self) -> ReadFileProperties {
+        ReadFileProperties {
+            group: self.group,
+            response: self.response,
+            file_id: self.file_id,
+        }
+    }
 }
 
 pub struct DecodableReadFileProperties<'data> {
@@ -250,9 +254,9 @@ impl<'data> DecodableReadFileProperties<'data> {
     /// Fully decode the Item
     ///
     /// Returns the decoded data and the number of bytes consumed to produce it.
-    pub fn complete_decoding<'item>(&self) -> (ReadFileProperties<'item>, usize) {
+    pub fn complete_decoding<'item>(&self) -> (ReadFilePropertiesRef<'item>, usize) {
         (
-            ReadFileProperties {
+            ReadFilePropertiesRef {
                 group: self.group(),
                 response: self.response(),
                 file_id: self.file_id(),
@@ -263,6 +267,30 @@ impl<'data> DecodableReadFileProperties<'data> {
     }
 }
 
+/// Reads the properties of a file
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+pub struct ReadFileProperties {
+    /// Group with next action
+    pub group: bool,
+    /// Ask for a response (status)
+    pub response: bool,
+    /// File ID of the file to read
+    pub file_id: FileId,
+}
+
+impl ReadFileProperties {
+    pub fn as_ref(&self) -> ReadFilePropertiesRef {
+        ReadFilePropertiesRef {
+            group: self.group,
+            response: self.response,
+            file_id: self.file_id,
+            phantom: core::marker::PhantomData,
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     #![allow(clippy::unwrap_in_result, clippy::panic, clippy::expect_used)]
@@ -270,7 +298,7 @@ mod test {
 
     #[test]
     fn known() {
-        fn test(op: ReadFileProperties, data: &[u8]) {
+        fn test(op: ReadFilePropertiesRef, data: &[u8]) {
             // Test op.encode_in() == data
             let mut encoded = [0_u8; 2];
             let size = op.encode_in(&mut encoded).unwrap();
@@ -281,17 +309,17 @@ mod test {
             assert_eq!(&op.encode_to_array(), data);
 
             // Test decode(data) == op
-            let (ret, size) = ReadFileProperties::decode(data).unwrap();
+            let (ret, size) = ReadFilePropertiesRef::decode(data).unwrap();
             assert_eq!(size, data.len());
             assert_eq!(ret, op);
 
             // Test partial_decode == op
-            let decoder = ReadFileProperties::start_decoding(data).unwrap();
+            let decoder = ReadFilePropertiesRef::start_decoding(data).unwrap();
             assert_eq!(size, decoder.expected_size());
             assert_eq!(size, decoder.smaller_than(data.len()).unwrap());
             assert_eq!(
                 op,
-                ReadFileProperties {
+                ReadFilePropertiesRef {
                     group: decoder.group(),
                     response: decoder.response(),
                     file_id: decoder.file_id(),
@@ -300,7 +328,7 @@ mod test {
             );
         }
         test(
-            ReadFileProperties {
+            ReadFilePropertiesRef {
                 group: false,
                 response: true,
                 file_id: FileId::new(0),
@@ -309,7 +337,7 @@ mod test {
             &[0x42, 0x00],
         );
         test(
-            ReadFileProperties {
+            ReadFilePropertiesRef {
                 group: true,
                 response: false,
                 file_id: FileId::new(1),
@@ -318,7 +346,7 @@ mod test {
             &[0x82, 0x01],
         );
         test(
-            ReadFileProperties {
+            ReadFilePropertiesRef {
                 group: true,
                 response: true,
                 file_id: FileId::new(2),
@@ -327,7 +355,7 @@ mod test {
             &[0xC2, 0x02],
         );
         test(
-            ReadFileProperties {
+            ReadFilePropertiesRef {
                 group: false,
                 response: false,
                 file_id: FileId::new(0xFF),
@@ -339,7 +367,7 @@ mod test {
 
     #[test]
     fn consistence() {
-        let op = ReadFileProperties {
+        let op = ReadFilePropertiesRef {
             group: true,
             response: false,
             file_id: FileId::new(42),
@@ -348,12 +376,12 @@ mod test {
 
         // Test decode(op.encode_to_array()) == op
         let data = op.encode_to_array();
-        let (ret, size) = ReadFileProperties::decode(&op.encode_to_array()).unwrap();
+        let (ret, size) = ReadFilePropertiesRef::decode(&op.encode_to_array()).unwrap();
         assert_eq!(size, data.len());
         assert_eq!(ret, op);
 
         // Test decode(data).encode_to_array() == data
-        let (ret, size) = ReadFileProperties::decode(&data).unwrap();
+        let (ret, size) = ReadFilePropertiesRef::decode(&data).unwrap();
         assert_eq!(size, data.len());
         assert_eq!(ret.encode_to_array(), data);
     }

@@ -1,22 +1,25 @@
 use super::super::super::define::flag;
 use super::super::super::error::QueryOperandDecodeError;
 use super::define::{QueryCode, QueryComparisonType};
-use crate::define::{EncodableData, FileId, MaskedValue};
+use crate::define::{EncodableDataRef, FileId, MaskedValueRef};
 use crate::varint::{DecodableVarint, Varint};
 
-/// Writes data to a file.
+#[cfg(feature = "alloc")]
+use crate::define::MaskedValue;
+
+/// Compares data to a value.
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct ComparisonWithValue<'item> {
+pub struct ComparisonWithValueRef<'item> {
     pub signed_data: bool,
     pub comparison_type: QueryComparisonType,
-    pub compare_value: MaskedValue<'item>,
+    pub compare_value: MaskedValueRef<'item>,
     pub file_id: FileId,
     pub offset: Varint,
 }
 
-impl<'item> ComparisonWithValue<'item> {
+impl<'item> ComparisonWithValueRef<'item> {
     /// Encodes the Item into a data pointer without checking the size of the
     /// receiving byte array.
     ///
@@ -125,7 +128,7 @@ impl<'item> ComparisonWithValue<'item> {
     /// You are to check that:
     /// - The first byte contains this action's querycode.
     /// - The decodable object fits in the given data:
-    /// [`decodable.smaller_than(data.len())`](struct.DecodableComparisonWithValue.html#method.smaller_than)
+    /// [`decodable.smaller_than(data.len())`](struct.DecodableComparisonWithValueRef.html#method.smaller_than)
     ///
     /// Failing that might result in reading and interpreting data outside the given
     /// array (depending on what is done with the resulting object).
@@ -141,7 +144,7 @@ impl<'item> ComparisonWithValue<'item> {
     /// You are to check that:
     /// - The first byte contains this action's querycode.
     /// - The decodable object fits in the given data:
-    /// [`decodable.smaller_than(data.len())`](struct.DecodableComparisonWithValue.html#method.smaller_than)
+    /// [`decodable.smaller_than(data.len())`](struct.DecodableComparisonWithValueRef.html#method.smaller_than)
     ///
     /// Failing that might result in reading and interpreting data outside the given
     /// array (depending on what is done with the resulting object).
@@ -225,6 +228,17 @@ impl<'item> ComparisonWithValue<'item> {
         match Self::start_decoding(data) {
             Ok(v) => Ok(v.0.complete_decoding()),
             Err(e) => Err(e),
+        }
+    }
+
+    #[cfg(feature = "alloc")]
+    pub fn to_owned(&self) -> ComparisonWithValue {
+        ComparisonWithValue {
+            signed_data: self.signed_data,
+            comparison_type: self.comparison_type,
+            compare_value: self.compare_value.to_owned(),
+            file_id: self.file_id,
+            offset: self.offset,
         }
     }
 }
@@ -331,21 +345,21 @@ impl<'data> DecodableComparisonWithValue<'data> {
         }
     }
 
-    pub fn value(&self) -> EncodableData<'data> {
+    pub fn value(&self) -> EncodableDataRef<'data> {
         let (compare_length, compare_length_size) = self.compare_length().complete_decoding();
         let mut offset = 1 + compare_length_size;
         if self.mask_flag() {
             offset += compare_length.u32() as usize;
         }
         unsafe {
-            EncodableData::new_unchecked(core::slice::from_raw_parts(
+            EncodableDataRef::new_unchecked(core::slice::from_raw_parts(
                 self.data.add(offset),
                 compare_length.u32() as usize,
             ))
         }
     }
 
-    pub fn compare_value(&self) -> MaskedValue<'data> {
+    pub fn compare_value(&self) -> MaskedValueRef<'data> {
         let (compare_length, compare_length_size) = self.compare_length().complete_decoding();
         let compare_length = compare_length.u32() as usize;
         let mut offset = 1 + compare_length_size;
@@ -357,11 +371,11 @@ impl<'data> DecodableComparisonWithValue<'data> {
             } else {
                 None
             };
-            let value = EncodableData::new_unchecked(core::slice::from_raw_parts(
+            let value = EncodableDataRef::new_unchecked(core::slice::from_raw_parts(
                 self.data.add(offset),
                 compare_length,
             ));
-            MaskedValue::new_unchecked(value, mask)
+            MaskedValueRef::new_unchecked(value, mask)
         }
     }
 
@@ -390,7 +404,7 @@ impl<'data> DecodableComparisonWithValue<'data> {
     /// Fully decode the Item
     ///
     /// Returns the decoded data and the number of bytes consumed to produce it.
-    pub fn complete_decoding(&self) -> (ComparisonWithValue<'data>, usize) {
+    pub fn complete_decoding(&self) -> (ComparisonWithValueRef<'data>, usize) {
         unsafe {
             let (compare_length, compare_length_size) = self.compare_length().complete_decoding();
             let compare_length = compare_length.u32() as usize;
@@ -402,7 +416,7 @@ impl<'data> DecodableComparisonWithValue<'data> {
             } else {
                 None
             };
-            let value = EncodableData::new_unchecked(core::slice::from_raw_parts(
+            let value = EncodableDataRef::new_unchecked(core::slice::from_raw_parts(
                 self.data.add(size),
                 compare_length,
             ));
@@ -413,15 +427,41 @@ impl<'data> DecodableComparisonWithValue<'data> {
             size += offset_size;
 
             (
-                ComparisonWithValue {
+                ComparisonWithValueRef {
                     signed_data: self.signed_data(),
                     comparison_type: self.comparison_type(),
-                    compare_value: MaskedValue::new_unchecked(value, mask),
+                    compare_value: MaskedValueRef::new_unchecked(value, mask),
                     file_id,
                     offset,
                 },
                 size,
             )
+        }
+    }
+}
+
+/// Compares data to a value.
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
+#[cfg(feature = "alloc")]
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+pub struct ComparisonWithValue {
+    pub signed_data: bool,
+    pub comparison_type: QueryComparisonType,
+    pub compare_value: MaskedValue,
+    pub file_id: FileId,
+    pub offset: Varint,
+}
+
+#[cfg(feature = "alloc")]
+impl ComparisonWithValue {
+    pub fn as_ref(&self) -> ComparisonWithValueRef {
+        ComparisonWithValueRef {
+            signed_data: self.signed_data,
+            comparison_type: self.comparison_type,
+            compare_value: self.compare_value.as_ref(),
+            file_id: self.file_id,
+            offset: self.offset,
         }
     }
 }
@@ -433,7 +473,7 @@ mod test {
 
     #[test]
     fn known() {
-        fn test(op: ComparisonWithValue, data: &[u8]) {
+        fn test(op: ComparisonWithValueRef, data: &[u8]) {
             // Test op.encode_in() == data
             let mut encoded = [0_u8; 64];
             let size = op.encode_in(&mut encoded).unwrap();
@@ -441,12 +481,12 @@ mod test {
             assert_eq!(&encoded[..size], data);
 
             // Test decode(data) == op
-            let (ret, size) = ComparisonWithValue::decode(data).unwrap();
+            let (ret, size) = ComparisonWithValueRef::decode(data).unwrap();
             assert_eq!(size, data.len());
             assert_eq!(ret, op);
 
             // Test partial_decode == op
-            let (decoder, expected_size) = ComparisonWithValue::start_decoding(data).unwrap();
+            let (decoder, expected_size) = ComparisonWithValueRef::start_decoding(data).unwrap();
             assert_eq!(ret.compare_value.mask().is_some(), decoder.mask_flag());
             assert_eq!(
                 ret.compare_value.len(),
@@ -459,7 +499,7 @@ mod test {
             assert_eq!(decoder.smaller_than(data.len()).unwrap(), size);
             assert_eq!(
                 op,
-                ComparisonWithValue {
+                ComparisonWithValueRef {
                     signed_data: decoder.signed_data(),
                     comparison_type: decoder.comparison_type(),
                     compare_value: decoder.compare_value(),
@@ -469,11 +509,11 @@ mod test {
             );
         }
         test(
-            ComparisonWithValue {
+            ComparisonWithValueRef {
                 signed_data: true,
                 comparison_type: QueryComparisonType::Equal,
-                compare_value: MaskedValue::new(
-                    EncodableData::new(&[0x00, 0x01, 0x02]).unwrap(),
+                compare_value: MaskedValueRef::new(
+                    EncodableDataRef::new(&[0x00, 0x01, 0x02]).unwrap(),
                     None,
                 )
                 .unwrap(),
@@ -493,11 +533,11 @@ mod test {
             ],
         );
         test(
-            ComparisonWithValue {
+            ComparisonWithValueRef {
                 signed_data: false,
                 comparison_type: QueryComparisonType::GreaterThan,
-                compare_value: MaskedValue::new(
-                    EncodableData::new(&[0x0A, 0x0B, 0x0C, 0x0D]).unwrap(),
+                compare_value: MaskedValueRef::new(
+                    EncodableDataRef::new(&[0x0A, 0x0B, 0x0C, 0x0D]).unwrap(),
                     Some(&[0x00, 0xFF, 0x0F, 0xFF]),
                 )
                 .unwrap(),
@@ -525,11 +565,11 @@ mod test {
     #[test]
     fn consistence() {
         const TOT_SIZE: usize = 1 + 1 + 3 + 3 + 1 + 3;
-        let op = ComparisonWithValue {
+        let op = ComparisonWithValueRef {
             signed_data: true,
             comparison_type: QueryComparisonType::GreaterThanOrEqual,
-            compare_value: MaskedValue::new(
-                EncodableData::new(&[0x00, 0x43, 0x02]).unwrap(),
+            compare_value: MaskedValueRef::new(
+                EncodableDataRef::new(&[0x00, 0x43, 0x02]).unwrap(),
                 Some(&[0x44, 0x88, 0x11]),
             )
             .unwrap(),
@@ -540,7 +580,7 @@ mod test {
         // Test decode(op.encode_in()) == op
         let mut encoded = [0_u8; TOT_SIZE];
         let size_encoded = op.encode_in(&mut encoded).unwrap();
-        let (ret, size_decoded) = ComparisonWithValue::decode(&encoded).unwrap();
+        let (ret, size_decoded) = ComparisonWithValueRef::decode(&encoded).unwrap();
         assert_eq!(size_encoded, size_decoded);
         assert_eq!(ret, op);
 

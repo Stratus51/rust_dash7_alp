@@ -51,6 +51,9 @@
 // Should be deactivated in commited code
 // #![warn(clippy::integer_arithmetic, clippy::indexing_slicing)]
 
+#[cfg(feature = "alloc")]
+extern crate alloc;
+
 pub mod define;
 pub mod v1_2;
 pub mod varint;
@@ -69,3 +72,10 @@ pub mod varint;
 // TODO Turn into cargo multi-project
 // TODO Add cross language wrapper embryo to check compatibility
 // TODO Optimize struct fields order for repr(C) alignment?
+
+// TODO Maybe the pointer decode/encode methods are totally irrelevant:
+// It may force a C FFI to give a length to build a slice, but that length will be unused if
+// the _unchecked variant is called. So there's a chance the compiler will just remove
+// the useless passed parameter?
+
+// TODO Add tests to verify the impact of the feature flags on binary size

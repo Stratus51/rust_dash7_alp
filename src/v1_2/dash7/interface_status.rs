@@ -1,4 +1,4 @@
-use super::addressee::{self, Addressee, DecodableAddressee, NlsMethod};
+use super::addressee::{self, Addressee, AddresseeRef, DecodableAddressee, NlsMethod};
 
 /// Maximum byte size of an encoded `ReadFileData`
 pub const MAX_SIZE: usize = 10 + addressee::MAX_SIZE + 5;
@@ -6,16 +6,16 @@ pub const MAX_SIZE: usize = 10 + addressee::MAX_SIZE + 5;
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct AddresseeWithNlsState<'item> {
-    addressee: Addressee<'item>,
+pub struct AddresseeWithNlsStateRef<'item> {
+    addressee: AddresseeRef<'item>,
     nls_state: Option<&'item [u8; 5]>,
 }
 
-impl<'item> AddresseeWithNlsState<'item> {
+impl<'item> AddresseeWithNlsStateRef<'item> {
     /// # Safety
     /// You are to make sure the nls_state exists if and only if the addressee nls_method is None.
     pub unsafe fn new_unchecked(
-        addressee: Addressee<'item>,
+        addressee: AddresseeRef<'item>,
         nls_state: Option<&'item [u8; 5]>,
     ) -> Self {
         Self {
@@ -27,7 +27,10 @@ impl<'item> AddresseeWithNlsState<'item> {
     /// # Errors
     /// Fails if the nls_method is None and the nls_state is defined or if the nls_method is
     /// not None and the nls_state is None.
-    pub fn new(addressee: Addressee<'item>, nls_state: Option<&'item [u8; 5]>) -> Result<Self, ()> {
+    pub fn new(
+        addressee: AddresseeRef<'item>,
+        nls_state: Option<&'item [u8; 5]>,
+    ) -> Result<Self, ()> {
         let security = addressee.nls_method != NlsMethod::None;
         if security == nls_state.is_some() {
             Ok(unsafe { Self::new_unchecked(addressee, nls_state) })
@@ -36,7 +39,7 @@ impl<'item> AddresseeWithNlsState<'item> {
         }
     }
 
-    pub fn addressee(&self) -> &Addressee {
+    pub fn addressee(&self) -> &AddresseeRef {
         &self.addressee
     }
 
@@ -52,6 +55,30 @@ impl<'item> AddresseeWithNlsState<'item> {
             addressee_size
         }
     }
+
+    pub fn to_owned(&self) -> AddresseeWithNlsState {
+        AddresseeWithNlsState {
+            addressee: self.addressee.to_owned(),
+            nls_state: self.nls_state.copied(),
+        }
+    }
+}
+
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+pub struct AddresseeWithNlsState {
+    addressee: Addressee,
+    nls_state: Option<[u8; 5]>,
+}
+
+impl AddresseeWithNlsState {
+    pub fn as_ref(&self) -> AddresseeWithNlsStateRef {
+        AddresseeWithNlsStateRef {
+            addressee: self.addressee.as_ref(),
+            nls_state: self.nls_state.as_ref(),
+        }
+    }
 }
 
 pub struct DecodableAddresseeWithNlsState<'data> {
@@ -63,7 +90,7 @@ impl<'data> DecodableAddresseeWithNlsState<'data> {
     const unsafe fn from_ptr(data: *const u8) -> Self {
         Self {
             data,
-            addressee: Addressee::start_decoding_ptr(data),
+            addressee: AddresseeRef::start_decoding_ptr(data),
             data_life: core::marker::PhantomData,
         }
     }
@@ -118,7 +145,7 @@ impl<'data> DecodableAddresseeWithNlsState<'data> {
     /// Fully decode the Item
     ///
     /// Returns the decoded data and the number of bytes consumed to produce it.
-    pub fn complete_decoding(&self) -> (AddresseeWithNlsState<'data>, usize) {
+    pub fn complete_decoding(&self) -> (AddresseeWithNlsStateRef<'data>, usize) {
         let (addressee, addressee_size) = self.addressee.complete_decoding();
         let (nls_state, nls_state_size) = unsafe {
             if addressee.nls_method == NlsMethod::None {
@@ -129,7 +156,7 @@ impl<'data> DecodableAddresseeWithNlsState<'data> {
             }
         };
         (
-            unsafe { AddresseeWithNlsState::new_unchecked(addressee, nls_state) },
+            unsafe { AddresseeWithNlsStateRef::new_unchecked(addressee, nls_state) },
             addressee_size + nls_state_size,
         )
     }
@@ -139,7 +166,7 @@ impl<'data> DecodableAddresseeWithNlsState<'data> {
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct Dash7InterfaceStatus<'item> {
+pub struct Dash7InterfaceStatusRef<'item> {
     pub ch_header: u8,
     pub ch_idx: u16,
     pub rxlev: u8,
@@ -149,10 +176,10 @@ pub struct Dash7InterfaceStatus<'item> {
     pub token: u8,
     pub seq: u8,
     pub resp_to: u8,
-    pub addressee_with_nls_state: AddresseeWithNlsState<'item>,
+    pub addressee_with_nls_state: AddresseeWithNlsStateRef<'item>,
 }
 
-impl<'item> Dash7InterfaceStatus<'item> {
+impl<'item> Dash7InterfaceStatusRef<'item> {
     /// Encodes the Item into a data pointer without checking the size of the
     /// receiving byte array.
     ///
@@ -324,6 +351,21 @@ impl<'item> Dash7InterfaceStatus<'item> {
             Err(e) => Err(e),
         }
     }
+
+    pub fn to_owned(&self) -> Dash7InterfaceStatus {
+        Dash7InterfaceStatus {
+            ch_header: self.ch_header,
+            ch_idx: self.ch_idx,
+            rxlev: self.rxlev,
+            lb: self.lb,
+            snr: self.snr,
+            status: self.status,
+            token: self.token,
+            seq: self.seq,
+            resp_to: self.resp_to,
+            addressee_with_nls_state: self.addressee_with_nls_state.to_owned(),
+        }
+    }
 }
 
 pub struct DecodableDash7InterfaceStatus<'data> {
@@ -404,7 +446,7 @@ impl<'data> DecodableDash7InterfaceStatus<'data> {
         unsafe { *self.data.add(9) }
     }
     pub fn addressee(&self) -> DecodableAddressee<'data> {
-        unsafe { Addressee::start_decoding_ptr(self.data.add(10)) }
+        unsafe { AddresseeRef::start_decoding_ptr(self.data.add(10)) }
     }
 
     pub fn addressee_with_nls_state(&self) -> DecodableAddresseeWithNlsState<'data> {
@@ -414,11 +456,11 @@ impl<'data> DecodableDash7InterfaceStatus<'data> {
     /// Fully decode the Item
     ///
     /// Returns the decoded data and the number of bytes consumed to produce it.
-    pub fn complete_decoding(&self) -> (Dash7InterfaceStatus<'data>, usize) {
+    pub fn complete_decoding(&self) -> (Dash7InterfaceStatusRef<'data>, usize) {
         let (addressee_with_nls_state, end_size) =
             self.addressee_with_nls_state().complete_decoding();
         (
-            Dash7InterfaceStatus {
+            Dash7InterfaceStatusRef {
                 ch_header: self.ch_header(),
                 ch_idx: self.ch_idx(),
                 rxlev: self.rxlev(),
@@ -435,15 +477,48 @@ impl<'data> DecodableDash7InterfaceStatus<'data> {
     }
 }
 
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+pub struct Dash7InterfaceStatus {
+    ch_header: u8,
+    ch_idx: u16,
+    rxlev: u8,
+    lb: u8,
+    snr: u8,
+    status: u8,
+    token: u8,
+    seq: u8,
+    resp_to: u8,
+    addressee_with_nls_state: AddresseeWithNlsState,
+}
+
+impl Dash7InterfaceStatus {
+    pub fn as_ref(&self) -> Dash7InterfaceStatusRef {
+        Dash7InterfaceStatusRef {
+            ch_header: self.ch_header,
+            ch_idx: self.ch_idx,
+            rxlev: self.rxlev,
+            lb: self.lb,
+            snr: self.snr,
+            status: self.status,
+            token: self.token,
+            seq: self.seq,
+            resp_to: self.resp_to,
+            addressee_with_nls_state: self.addressee_with_nls_state.as_ref(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     #![allow(clippy::unwrap_in_result, clippy::panic, clippy::expect_used)]
-    use super::addressee::{AccessClass, AddresseeIdentifier};
+    use super::addressee::{AccessClass, AddresseeIdentifierRef};
     use super::*;
 
     #[test]
     fn known() {
-        fn test(op: Dash7InterfaceStatus, data: &[u8]) {
+        fn test(op: Dash7InterfaceStatusRef, data: &[u8]) {
             // Test op.encode_in() == data
             let mut encoded = [0_u8; 64];
             let size = op.encode_in(&mut encoded).unwrap();
@@ -451,12 +526,12 @@ mod test {
             assert_eq!(&encoded[..size], data);
 
             // Test decode(data) == op
-            let (ret, size) = Dash7InterfaceStatus::decode(data).unwrap();
+            let (ret, size) = Dash7InterfaceStatusRef::decode(data).unwrap();
             assert_eq!(size, data.len());
             assert_eq!(ret, op);
 
             // Test partial_decode == op
-            let (decoder, expected_size) = Dash7InterfaceStatus::start_decoding(data).unwrap();
+            let (decoder, expected_size) = Dash7InterfaceStatusRef::start_decoding(data).unwrap();
             assert_eq!(
                 ret.addressee_with_nls_state.addressee(),
                 &decoder.addressee().complete_decoding().0
@@ -466,7 +541,7 @@ mod test {
             assert_eq!(decoder.smaller_than(data.len()).unwrap(), size);
             assert_eq!(
                 op,
-                Dash7InterfaceStatus {
+                Dash7InterfaceStatusRef {
                     ch_header: decoder.ch_header(),
                     ch_idx: decoder.ch_idx(),
                     rxlev: decoder.rxlev(),
@@ -484,7 +559,7 @@ mod test {
             );
         }
         test(
-            Dash7InterfaceStatus {
+            Dash7InterfaceStatusRef {
                 ch_header: 0x1,
                 ch_idx: 0x2,
                 rxlev: 0x3,
@@ -494,11 +569,11 @@ mod test {
                 token: 0x7,
                 seq: 0x8,
                 resp_to: 0x9,
-                addressee_with_nls_state: AddresseeWithNlsState::new(
-                    Addressee {
+                addressee_with_nls_state: AddresseeWithNlsStateRef::new(
+                    AddresseeRef {
                         nls_method: NlsMethod::AesCcm64,
                         access_class: AccessClass(0xE1),
-                        identifier: AddresseeIdentifier::Uid(&[
+                        identifier: AddresseeIdentifierRef::Uid(&[
                             0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
                         ]),
                     },
@@ -512,7 +587,7 @@ mod test {
             ],
         );
         test(
-            Dash7InterfaceStatus {
+            Dash7InterfaceStatusRef {
                 ch_header: 0x1,
                 ch_idx: 0x2,
                 rxlev: 0x3,
@@ -522,11 +597,11 @@ mod test {
                 token: 0x7,
                 seq: 0x8,
                 resp_to: 0x9,
-                addressee_with_nls_state: AddresseeWithNlsState::new(
-                    Addressee {
+                addressee_with_nls_state: AddresseeWithNlsStateRef::new(
+                    AddresseeRef {
                         nls_method: NlsMethod::None,
                         access_class: AccessClass(0xE1),
-                        identifier: AddresseeIdentifier::Uid(&[
+                        identifier: AddresseeIdentifierRef::Uid(&[
                             0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
                         ]),
                     },
@@ -544,7 +619,7 @@ mod test {
     #[test]
     fn consistence() {
         const TOT_SIZE: usize = 10 + 10 + 5;
-        let op = Dash7InterfaceStatus {
+        let op = Dash7InterfaceStatusRef {
             ch_header: 0x1,
             ch_idx: 0x2,
             rxlev: 0x3,
@@ -554,11 +629,11 @@ mod test {
             token: 0x7,
             seq: 0x8,
             resp_to: 0x9,
-            addressee_with_nls_state: AddresseeWithNlsState::new(
-                Addressee {
+            addressee_with_nls_state: AddresseeWithNlsStateRef::new(
+                AddresseeRef {
                     nls_method: NlsMethod::AesCcm64,
                     access_class: AccessClass(0xE1),
-                    identifier: AddresseeIdentifier::Uid(&[
+                    identifier: AddresseeIdentifierRef::Uid(&[
                         0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
                     ]),
                 },
@@ -570,7 +645,7 @@ mod test {
         // Test decode(op.encode_in()) == op
         let mut encoded = [0_u8; TOT_SIZE];
         let size_encoded = op.encode_in(&mut encoded).unwrap();
-        let (ret, size_decoded) = Dash7InterfaceStatus::decode(&encoded).unwrap();
+        let (ret, size_decoded) = Dash7InterfaceStatusRef::decode(&encoded).unwrap();
         assert_eq!(size_encoded, size_decoded);
         assert_eq!(ret, op);
 

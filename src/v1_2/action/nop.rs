@@ -12,16 +12,16 @@ pub const SIZE: usize = 1;
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct Nop<'item> {
+pub struct NopRef<'item> {
     /// Group with next action
     pub group: bool,
     /// Ask for a response (status)
     pub response: bool,
     /// Empty data required for lifetime compilation.
-    pub phantom: core::marker::PhantomData<&'item ()>,
+    phantom: core::marker::PhantomData<&'item ()>,
 }
 
-impl<'item> Default for Nop<'item> {
+impl<'item> Default for NopRef<'item> {
     /// Default Nop with group = false and response = true.
     ///
     /// Because that would be the most common use case: a ping command.
@@ -34,7 +34,7 @@ impl<'item> Default for Nop<'item> {
     }
 }
 
-impl<'item> Nop<'item> {
+impl<'item> NopRef<'item> {
     pub const fn new(group: bool, response: bool) -> Self {
         Self {
             group,
@@ -197,6 +197,13 @@ impl<'item> Nop<'item> {
             Err(e) => Err(e),
         }
     }
+
+    pub fn to_owned(&self) -> Nop {
+        Nop {
+            group: self.group,
+            response: self.response,
+        }
+    }
 }
 
 pub struct DecodableNop<'data> {
@@ -245,15 +252,36 @@ impl<'data> DecodableNop<'data> {
     /// Fully decode the Item
     ///
     /// Returns the decoded data and the number of bytes consumed to produce it.
-    pub fn complete_decoding<'item>(&self) -> (Nop<'item>, usize) {
+    pub fn complete_decoding<'item>(&self) -> (NopRef<'item>, usize) {
         (
-            Nop {
+            NopRef {
                 group: self.group(),
                 response: self.response(),
                 phantom: core::marker::PhantomData,
             },
             1,
         )
+    }
+}
+
+/// Does nothing.
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+pub struct Nop {
+    /// Group with next action
+    pub group: bool,
+    /// Ask for a response (status)
+    pub response: bool,
+}
+
+impl Nop {
+    pub fn as_ref(&self) -> NopRef {
+        NopRef {
+            group: self.group,
+            response: self.response,
+            phantom: core::marker::PhantomData,
+        }
     }
 }
 
@@ -264,7 +292,7 @@ mod test {
 
     #[test]
     fn known() {
-        fn test(op: Nop, data: &[u8]) {
+        fn test(op: NopRef, data: &[u8]) {
             // Test op.encode_in() == data
             let mut encoded = [0_u8; 1];
             let size = op.encode_in(&mut encoded).unwrap();
@@ -275,17 +303,17 @@ mod test {
             assert_eq!(&op.encode_to_array(), data);
 
             // Test decode(data) == op
-            let (ret, size) = Nop::decode(data).unwrap();
+            let (ret, size) = NopRef::decode(data).unwrap();
             assert_eq!(size, data.len());
             assert_eq!(ret, op);
 
             // Test partial_decode == op
-            let decoder = Nop::start_decoding(data).unwrap();
+            let decoder = NopRef::start_decoding(data).unwrap();
             assert_eq!(decoder.expected_size(), size);
             assert_eq!(decoder.smaller_than(data.len()).unwrap(), size);
             assert_eq!(
                 op,
-                Nop {
+                NopRef {
                     group: decoder.group(),
                     response: decoder.response(),
                     phantom: core::marker::PhantomData,
@@ -293,7 +321,7 @@ mod test {
             );
         }
         test(
-            Nop {
+            NopRef {
                 group: false,
                 response: true,
                 phantom: core::marker::PhantomData,
@@ -301,7 +329,7 @@ mod test {
             &[0x40],
         );
         test(
-            Nop {
+            NopRef {
                 group: true,
                 response: false,
                 phantom: core::marker::PhantomData,
@@ -309,7 +337,7 @@ mod test {
             &[0x80],
         );
         test(
-            Nop {
+            NopRef {
                 group: true,
                 response: true,
                 phantom: core::marker::PhantomData,
@@ -317,7 +345,7 @@ mod test {
             &[0xC0],
         );
         test(
-            Nop {
+            NopRef {
                 group: false,
                 response: false,
                 phantom: core::marker::PhantomData,
@@ -328,7 +356,7 @@ mod test {
 
     #[test]
     fn consistence() {
-        let op = Nop {
+        let op = NopRef {
             group: true,
             response: false,
             phantom: core::marker::PhantomData,
@@ -336,12 +364,12 @@ mod test {
 
         // Test decode(op.encode_to_array()) == op
         let data = op.encode_to_array();
-        let (ret, size) = Nop::decode(&op.encode_to_array()).unwrap();
+        let (ret, size) = NopRef::decode(&op.encode_to_array()).unwrap();
         assert_eq!(size, data.len());
         assert_eq!(ret, op);
 
         // Test decode(data).encode_to_array() == data
-        let (ret, size) = Nop::decode(&data).unwrap();
+        let (ret, size) = NopRef::decode(&data).unwrap();
         assert_eq!(size, data.len());
         assert_eq!(ret.encode_to_array(), data);
     }
