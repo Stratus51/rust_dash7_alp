@@ -339,6 +339,7 @@ impl<'item> ActionRef<'item> {
             Self::ActionQuery(action) => Action::ActionQuery(action.to_owned()),
             #[cfg(feature = "decode_status")]
             Self::Status(action) => Action::Status(action.to_owned()),
+            #[allow(unreachable_patterns)]
             _ => return Err(()),
         })
     }
