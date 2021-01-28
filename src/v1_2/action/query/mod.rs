@@ -24,8 +24,10 @@ use define::QueryCode;
 pub enum QueryRef<'item> {
     // NonVoid(non_void::NonVoid),
     // ComparisonWithZero(ComparisonWithZero),
+    #[cfg(feature = "decode_query_compare_with_value")]
     ComparisonWithValue(ComparisonWithValueRef<'item>),
     // ComparisonWithOtherFile(ComparisonWithOtherFile),
+    #[cfg(feature = "decode_query_compare_with_range")]
     ComparisonWithRange(ComparisonWithRangeRef<'item>),
     // StringTokenSearch(StringTokenSearch),
 }
@@ -47,7 +49,9 @@ impl<'item> QueryRef<'item> {
     /// random parts of your memory.
     pub unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
         match self {
+            #[cfg(feature = "decode_query_compare_with_value")]
             Self::ComparisonWithValue(query) => query.encode_in_ptr(out),
+            #[cfg(feature = "decode_query_compare_with_range")]
             Self::ComparisonWithRange(query) => query.encode_in_ptr(out),
         }
     }
@@ -81,7 +85,9 @@ impl<'item> QueryRef<'item> {
     /// Size in bytes of the encoded equivalent of the item.
     pub fn size(&self) -> usize {
         match self {
+            #[cfg(feature = "decode_query_compare_with_value")]
             Self::ComparisonWithValue(query) => query.size(),
+            #[cfg(feature = "decode_query_compare_with_range")]
             Self::ComparisonWithRange(query) => query.size(),
         }
     }
@@ -204,7 +210,9 @@ impl<'item> QueryRef<'item> {
     #[cfg(feature = "alloc")]
     pub fn to_owned(&self) -> Query {
         match self {
+            #[cfg(feature = "decode_query_compare_with_value")]
             Self::ComparisonWithValue(query) => Query::ComparisonWithValue(query.to_owned()),
+            #[cfg(feature = "decode_query_compare_with_range")]
             Self::ComparisonWithRange(query) => Query::ComparisonWithRange(query.to_owned()),
         }
     }
@@ -213,8 +221,10 @@ impl<'item> QueryRef<'item> {
 pub enum DecodableQuery<'data> {
     // NonVoid(non_void::NonVoid),
     // ComparisonWithZero(ComparisonWithZero),
+    #[cfg(feature = "decode_query_compare_with_value")]
     ComparisonWithValue(DecodableComparisonWithValue<'data>),
     // ComparisonWithOtherFile(ComparisonWithOtherFile),
+    #[cfg(feature = "decode_query_compare_with_range")]
     ComparisonWithRange(DecodableComparisonWithRange<'data>),
     // StringTokenSearch(StringTokenSearch),
 }
@@ -241,12 +251,19 @@ impl<'data> DecodableQuery<'data> {
             Err(_) => return Err(code),
         };
         Ok(match query_code {
+            #[cfg(feature = "decode_query_compare_with_value")]
             QueryCode::ComparisonWithValue => DecodableQuery::ComparisonWithValue(
                 ComparisonWithValueRef::start_decoding_ptr(data),
             ),
+            #[cfg(feature = "decode_query_compare_with_range")]
             QueryCode::ComparisonWithRange => DecodableQuery::ComparisonWithRange(
                 ComparisonWithRangeRef::start_decoding_ptr(data),
             ),
+            #[cfg(not(all(
+                feature = "decode_query_compare_with_range",
+                feature = "decode_query_compare_with_value"
+            )))]
+            _ => return Err(code),
         })
     }
 
@@ -256,7 +273,9 @@ impl<'data> DecodableQuery<'data> {
     /// This requires reading the data bytes that may be out of bound to be calculate.
     pub unsafe fn expected_size(&self) -> usize {
         match self {
+            #[cfg(feature = "decode_query_compare_with_value")]
             Self::ComparisonWithValue(d) => d.expected_size(),
+            #[cfg(feature = "decode_query_compare_with_range")]
             Self::ComparisonWithRange(d) => d.expected_size(),
         }
     }
@@ -269,7 +288,9 @@ impl<'data> DecodableQuery<'data> {
     /// Fails if the data_size is smaller than the required data size to decode the object.
     pub fn smaller_than(&self, data_size: usize) -> Result<usize, usize> {
         match self {
+            #[cfg(feature = "decode_query_compare_with_value")]
             Self::ComparisonWithValue(d) => d.smaller_than(data_size),
+            #[cfg(feature = "decode_query_compare_with_range")]
             Self::ComparisonWithRange(d) => d.smaller_than(data_size),
         }
     }
@@ -279,10 +300,12 @@ impl<'data> DecodableQuery<'data> {
     /// Returns the decoded data and the number of bytes consumed to produce it.
     pub fn complete_decoding(&self) -> (QueryRef<'data>, usize) {
         match self {
+            #[cfg(feature = "decode_query_compare_with_value")]
             Self::ComparisonWithValue(d) => {
                 let (op, size) = d.complete_decoding();
                 (QueryRef::ComparisonWithValue(op), size)
             }
+            #[cfg(feature = "decode_query_compare_with_range")]
             Self::ComparisonWithRange(d) => {
                 let (op, size) = d.complete_decoding();
                 (QueryRef::ComparisonWithRange(op), size)
@@ -300,8 +323,10 @@ impl<'data> DecodableQuery<'data> {
 pub enum Query {
     // NonVoid(non_void::NonVoid),
     // ComparisonWithZero(ComparisonWithZero),
+    #[cfg(feature = "decode_query_compare_with_value")]
     ComparisonWithValue(ComparisonWithValue),
     // ComparisonWithOtherFile(ComparisonWithOtherFile),
+    #[cfg(feature = "decode_query_compare_with_range")]
     ComparisonWithRange(ComparisonWithRange),
     // StringTokenSearch(StringTokenSearch),
 }
@@ -310,7 +335,9 @@ pub enum Query {
 impl Query {
     pub fn as_ref(&self) -> QueryRef {
         match self {
+            #[cfg(feature = "decode_query_compare_with_value")]
             Self::ComparisonWithValue(query) => QueryRef::ComparisonWithValue(query.as_ref()),
+            #[cfg(feature = "decode_query_compare_with_range")]
             Self::ComparisonWithRange(query) => QueryRef::ComparisonWithRange(query.as_ref()),
         }
     }
@@ -344,6 +371,7 @@ mod test {
             assert_eq!(unsafe { decoder.expected_size() }, size);
             assert_eq!(decoder.smaller_than(data.len()).unwrap(), size);
         }
+        #[cfg(feature = "decode_query_compare_with_value")]
         test(
             QueryRef::ComparisonWithValue(ComparisonWithValueRef {
                 signed_data: false,
@@ -372,6 +400,7 @@ mod test {
                 0xFF,
             ],
         );
+        #[cfg(feature = "decode_query_compare_with_range")]
         test(
             QueryRef::ComparisonWithRange(ComparisonWithRangeRef {
                 signed_data: false,

@@ -114,8 +114,10 @@ impl QueryCode {
         Ok(match n {
             // 0 => QueryCode::NonVoid,
             // 1 => QueryCode::ComparisonWithZero,
+            #[cfg(feature = "decode_query_compare_with_value")]
             2 => QueryCode::ComparisonWithValue,
             // 3 => QueryCode::ComparisonWithOtherFile,
+            #[cfg(feature = "decode_query_compare_with_range")]
             4 => QueryCode::ComparisonWithRange,
             // 7 => QueryCode::StringTokenSearch,
             _ => return Err(()),
