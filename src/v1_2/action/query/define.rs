@@ -111,6 +111,7 @@ impl QueryCode {
     /// # Errors
     /// Returns an error if the query code is unknown
     pub const fn from(n: u8) -> Result<Self, ()> {
+        #[cfg_attr(not(feature = "decode_query"), allow(unreachable_code))]
         Ok(match n {
             // 0 => QueryCode::NonVoid,
             // 1 => QueryCode::ComparisonWithZero,
@@ -120,6 +121,9 @@ impl QueryCode {
             #[cfg(feature = "decode_query_compare_with_range")]
             4 => QueryCode::ComparisonWithRange,
             // 7 => QueryCode::StringTokenSearch,
+            // TODO This should be an enumeration of the queries instead of all_queries, in case
+            // they are selected manually.
+            #[cfg_attr(not(feature = "all_queries"), allow(unreachable_patterns))]
             _ => return Err(()),
         })
     }

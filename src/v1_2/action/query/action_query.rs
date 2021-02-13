@@ -1,12 +1,21 @@
+#[cfg(feature = "query")]
 use super::super::super::define::flag;
+#[cfg(feature = "query")]
 use super::super::super::define::op_code::OpCode;
+#[cfg(feature = "decode_query")]
 use super::super::super::error::{PtrUnknownQueryCode, QueryActionDecodeError, UnknownQueryCode};
-use super::{DecodableQuery, QueryRef};
 
+#[cfg(feature = "query")]
+use super::QueryRef;
+#[cfg(feature = "decode_query")]
+use super::{DecodableQuery, DecodedQueryRef};
+
+#[cfg(feature = "query")]
 #[cfg(feature = "alloc")]
 use super::Query;
 
 /// Executes next action group depending on a condition
+#[cfg(feature = "query")]
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
@@ -19,6 +28,7 @@ pub struct ActionQueryRef<'item> {
     pub query: QueryRef<'item>,
 }
 
+#[cfg(feature = "query")]
 impl<'item> ActionQueryRef<'item> {
     /// Encodes the Item into a data pointer without checking the size of the
     /// receiving byte array.
@@ -75,6 +85,32 @@ impl<'item> ActionQueryRef<'item> {
         1 + self.query.size()
     }
 
+    // TODO This is not always required once non alloc query are implemented
+    #[cfg(feature = "alloc")]
+    pub fn to_owned(&self) -> ActionQuery {
+        ActionQuery {
+            group: self.group,
+            response: self.response,
+            query: self.query.to_owned(),
+        }
+    }
+}
+
+#[cfg(feature = "decode_query")]
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+pub struct DecodedActionQueryRef<'item> {
+    /// Group with next action
+    pub group: bool,
+    /// Ask for a response (a status)
+    pub response: bool,
+    /// Action condition
+    pub query: DecodedQueryRef<'item>,
+}
+
+#[cfg(feature = "decode_query")]
+impl<'item> DecodedActionQueryRef<'item> {
     /// Creates a decodable item from a data pointer without checking the data size.
     ///
     /// This method is meant to allow unchecked cross language wrapper libraries
@@ -205,22 +241,30 @@ impl<'item> ActionQueryRef<'item> {
         Ok(Self::start_decoding(data)?.0.complete_decoding())
     }
 
-    #[cfg(feature = "alloc")]
-    pub fn to_owned(&self) -> ActionQuery {
-        ActionQuery {
-            group: self.group,
-            response: self.response,
-            query: self.query.to_owned(),
+    pub fn as_action_query(self) -> ActionQueryRef<'item> {
+        self.into()
+    }
+}
+
+#[cfg(feature = "decode_query")]
+impl<'item> From<DecodedActionQueryRef<'item>> for ActionQueryRef<'item> {
+    fn from(decoded: DecodedActionQueryRef<'item>) -> Self {
+        Self {
+            group: decoded.group,
+            response: decoded.response,
+            query: decoded.query.into(),
         }
     }
 }
 
+#[cfg(feature = "decode_query")]
 pub struct DecodableActionQuery<'data> {
     data: *const u8,
     data_life: core::marker::PhantomData<&'data ()>,
     query: DecodableQuery<'data>,
 }
 
+#[cfg(feature = "decode_query")]
 impl<'data> DecodableActionQuery<'data> {
     /// # Errors
     /// - Fails if the querycode is unknown
@@ -231,7 +275,7 @@ impl<'data> DecodableActionQuery<'data> {
     /// # Errors
     /// - Fails if the querycode is unknown
     fn from_ptr(data: *const u8) -> Result<Self, u8> {
-        let query = unsafe { QueryRef::start_decoding_ptr(data.add(1))? };
+        let query = unsafe { DecodedQueryRef::start_decoding_ptr(data.add(1))? };
         Ok(Self {
             data,
             data_life: core::marker::PhantomData,
@@ -275,10 +319,10 @@ impl<'data> DecodableActionQuery<'data> {
     /// Fully decode the Item
     ///
     /// Returns the decoded data and the number of bytes consumed to produce it.
-    pub fn complete_decoding(&self) -> (ActionQueryRef<'data>, usize) {
+    pub fn complete_decoding(&self) -> (DecodedActionQueryRef<'data>, usize) {
         let (query, query_size) = self.query.complete_decoding();
         (
-            ActionQueryRef {
+            DecodedActionQueryRef {
                 group: self.group(),
                 response: self.response(),
                 query,
@@ -289,6 +333,7 @@ impl<'data> DecodableActionQuery<'data> {
 }
 
 /// Executes next action group depending on a condition
+#[cfg(feature = "query")]
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[cfg(feature = "alloc")]
@@ -302,6 +347,7 @@ pub struct ActionQuery {
     pub query: Query,
 }
 
+#[cfg(feature = "query")]
 #[cfg(feature = "alloc")]
 impl ActionQuery {
     pub fn as_ref(&self) -> ActionQueryRef {
@@ -313,6 +359,8 @@ impl ActionQuery {
     }
 }
 
+#[cfg(feature = "decode_action_query")]
+#[cfg(feature = "decode_query_compare_with_value")]
 #[cfg(test)]
 mod test {
     #![allow(clippy::unwrap_in_result, clippy::panic, clippy::expect_used)]
@@ -333,19 +381,19 @@ mod test {
             assert_eq!(&encoded[..size], data);
 
             // Test decode(data) == op
-            let (ret, size) = ActionQueryRef::decode(data).unwrap();
+            let (ret, size) = DecodedActionQueryRef::decode(data).unwrap();
             assert_eq!(size, data.len());
-            assert_eq!(ret, op);
+            assert_eq!(ret.as_action_query(), op);
 
             // Test partial_decode == op
-            let (decoder, expected_size) = ActionQueryRef::start_decoding(data).unwrap();
+            let (decoder, expected_size) = DecodedActionQueryRef::start_decoding(data).unwrap();
             assert_eq!(expected_size, size);
             assert_eq!(
                 op,
                 ActionQueryRef {
                     group: decoder.group(),
                     response: decoder.response(),
-                    query: decoder.query().complete_decoding().0,
+                    query: decoder.query().complete_decoding().0.as_query(),
                 }
             );
         }
@@ -406,9 +454,9 @@ mod test {
         // Test decode(op.encode_in()) == op
         let mut encoded = [0_u8; TOT_SIZE];
         let size_encoded = op.encode_in(&mut encoded).unwrap();
-        let (ret, size_decoded) = ActionQueryRef::decode(&encoded).unwrap();
+        let (ret, size_decoded) = DecodedActionQueryRef::decode(&encoded).unwrap();
         assert_eq!(size_encoded, size_decoded);
-        assert_eq!(ret, op);
+        assert_eq!(ret.as_action_query(), op);
 
         // Test decode(data).encode_in() == data
         let mut encoded2 = [0_u8; TOT_SIZE];

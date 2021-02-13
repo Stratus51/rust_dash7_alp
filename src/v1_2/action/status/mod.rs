@@ -10,6 +10,8 @@ use crate::v1_2::error::{
 pub use define::StatusExtension;
 pub use interface::{DecodableStatusInterface, StatusInterface, StatusInterfaceRef};
 
+// TODO Add feature based sub types support (also in status_interface)
+
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
