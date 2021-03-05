@@ -1,5 +1,6 @@
 // TODO ALP_SPEC: The encoding of the value is not specified!
 // Big endian at bit and byte level probably, but it has to be specified!
+use crate::decodable::{Decodable, EncodedData, WithByteSize};
 
 /// Maximum value writable in a Varint encodable on 1 byte
 pub const U8_MAX: u8 = 0x3F;
@@ -152,105 +153,6 @@ impl Varint {
         }
     }
 
-    /// Creates a decodable item from a data pointer without checking the data size.
-    ///
-    /// This method is meant to allow unchecked cross language wrapper libraries
-    /// to implement an unchecked call without having to build a fake slice with
-    /// a fake size.
-    ///
-    /// It is not meant to be used inside a Rust library/binary.
-    ///
-    /// # Safety
-    /// You are to check that:
-    /// - The decodable object fits in the given data:
-    /// [`decodable.smaller_than(data.len())`](struct.DecodableVarint.html#method.smaller_than)
-    ///
-    /// Failing that might result in reading and interpreting data outside the given
-    /// array (depending on what is done with the resulting object).
-    pub const unsafe fn start_decoding_ptr<'item>(data: *const u8) -> DecodableVarint<'item> {
-        DecodableVarint::from_ptr(data)
-    }
-
-    /// Creates a decodable item without checking the data size.
-    ///
-    /// # Safety
-    /// You are to check that:
-    /// - The decodable object fits in the given data:
-    /// [`decodable.smaller_than(data.len())`](struct.DecodableVarint.html#method.smaller_than)
-    ///
-    /// Failing that might result in reading and interpreting data outside the given
-    /// array (depending on what is done with the resulting object).
-    pub const unsafe fn start_decoding_unchecked(data: &[u8]) -> DecodableVarint {
-        DecodableVarint::new(data)
-    }
-
-    /// Returns a Decodable object and its expected byte size.
-    ///
-    /// This decodable item allows each parts of the item to be decoded independently.
-    ///
-    /// # Errors
-    /// - Fails if data is smaller then the decoded expected size.
-    pub fn start_decoding(data: &[u8]) -> Result<(DecodableVarint, usize), usize> {
-        let ret = unsafe { Self::start_decoding_unchecked(data) };
-        let size = ret.smaller_than(data.len())?;
-        Ok((ret, size))
-    }
-
-    /// Decodes the Item from a data pointer.
-    ///
-    /// Returns the decoded data and the number of bytes consumed to produce it.
-    ///
-    /// This method is meant to allow unchecked cross language wrapper libraries
-    /// to implement an unchecked call without having to build a fake slice with
-    /// a fake size.
-    ///
-    /// It is not meant to be used inside a Rust library/binary.
-    ///
-    /// # Safety
-    /// May attempt to read bytes after the end of the array.
-    ///
-    /// You are to check that:
-    /// - The decodable object fits in the given data:
-    /// [`decodable.smaller_than(data.len())`](struct.DecodableVarint.html#method.smaller_than)
-    ///
-    /// Failing that will result in reading and interpreting data outside the given
-    /// array.
-    pub unsafe fn decode_ptr(data: *const u8) -> (Self, usize) {
-        Self::start_decoding_ptr(data).complete_decoding()
-    }
-
-    /// Decodes the Item from bytes.
-    ///
-    /// Returns the decoded data and the number of bytes consumed to produce it.
-    ///
-    /// # Safety
-    /// May attempt to read bytes after the end of the array.
-    ///
-    /// You are to check that:
-    /// - The decodable object fits in the given data:
-    /// [`decodable.smaller_than(data.len())`](struct.DecodableVarint.html#method.smaller_than)
-    ///
-    /// Failing that will result in reading and interpreting data outside the given
-    /// array.
-    pub unsafe fn decode_unchecked(data: &[u8]) -> (Self, usize) {
-        Self::start_decoding_unchecked(data).complete_decoding()
-    }
-
-    /// Decodes the item from bytes.
-    ///
-    /// On success, returns the decoded data and the number of bytes consumed
-    /// to produce it.
-    ///
-    /// # Errors
-    /// Fails if the input data is too small to decode and requires the minimum
-    /// number of bytes required to continue decoding.
-    pub fn decode(data: &[u8]) -> Result<(Self, usize), usize> {
-        match Self::start_decoding(data) {
-            Ok(v) => Ok(v.0.complete_decoding()),
-            Err(e) => Err(e),
-        }
-    }
-
     /// Encode the value into a single byte array.
     ///
     /// # Safety
@@ -302,38 +204,29 @@ impl Varint {
     }
 }
 
-pub struct DecodableVarint<'data> {
+pub struct EncodedVarint<'data> {
     data: *const u8,
     data_life: core::marker::PhantomData<&'data ()>,
 }
 
-impl<'data> DecodableVarint<'data> {
-    const fn new(data: &'data [u8]) -> Self {
-        Self::from_ptr(data.as_ptr())
+impl<'data> EncodedData<'data> for EncodedVarint<'data> {
+    type DecodedData = Varint;
+    unsafe fn from_data_ref(data: &'data [u8]) -> Self {
+        Self::from_data_ptr(data.as_ptr())
     }
 
-    const fn from_ptr(data: *const u8) -> Self {
+    unsafe fn from_data_ptr(data: *const u8) -> Self {
         Self {
             data,
             data_life: core::marker::PhantomData,
         }
     }
 
-    /// Decodes the expected size of the Item in bytes
-    ///
-    /// # Safety
-    /// This requires reading the data bytes that may be out of bound to be calculate.
-    pub unsafe fn expected_size(&self) -> usize {
+    unsafe fn expected_size(&self) -> usize {
         ((*self.data.add(0) & 0xC0) >> 6) as usize + 1
     }
 
-    /// Checks whether the given data_size is bigger than the decoded object expected size.
-    ///
-    /// On success, returns the size of the decoded object.
-    ///
-    /// # Errors
-    /// Fails if the data_size is smaller than the required data size to decode the object.
-    pub fn smaller_than(&self, data_size: usize) -> Result<usize, usize> {
+    fn smaller_than(&self, data_size: usize) -> Result<usize, usize> {
         let mut size = 1;
         if data_size < size {
             return Err(size);
@@ -345,10 +238,7 @@ impl<'data> DecodableVarint<'data> {
         Ok(size)
     }
 
-    /// Fully decode the Item
-    ///
-    /// Returns the decoded data and the number of bytes consumed to produce it.
-    pub fn complete_decoding(&self) -> (Varint, usize) {
+    fn complete_decoding(&self) -> WithByteSize<Varint> {
         unsafe {
             let size = self.expected_size();
             let data = &self.data;
@@ -370,9 +260,16 @@ impl<'data> DecodableVarint<'data> {
                 // case. Let's just hope the size method is not broken.
                 _ => 0,
             });
-            (ret, size)
+            WithByteSize {
+                item: ret,
+                byte_size: size,
+            }
         }
     }
+}
+
+impl<'data> Decodable<'data> for Varint {
+    type Data = EncodedVarint<'data>;
 }
 
 #[cfg(test)]
@@ -380,6 +277,7 @@ mod test {
     #![allow(clippy::unwrap_in_result, clippy::panic, clippy::expect_used)]
 
     use super::*;
+    use crate::decodable::{Decodable, EncodedData};
     use hex_literal::hex;
 
     #[test]
@@ -416,12 +314,18 @@ mod test {
     fn test_decode() {
         fn test_ok(data: &[u8], value: u32, size: usize) {
             // Check full decode
-            let (ret, decode_size) = Varint::decode(data).unwrap();
+            let WithByteSize {
+                item: ret,
+                byte_size: decode_size,
+            } = Varint::decode(data).unwrap();
             assert_eq!(decode_size, size);
             assert_eq!(ret, Varint::new(value).unwrap());
 
             // Check partial decoding
-            let (decoder, expected_size) = Varint::start_decoding(data).unwrap();
+            let WithByteSize {
+                item: decoder,
+                byte_size: expected_size,
+            } = Varint::start_decoding(data).unwrap();
             let part_size = decoder.smaller_than(data.len()).unwrap();
             assert_eq!(expected_size, size);
             assert_eq!(part_size, size);

@@ -1,4 +1,5 @@
-use super::addressee::{self, Addressee, AddresseeRef, DecodableAddressee, NlsMethod};
+use super::addressee::{self, Addressee, AddresseeRef, EncodedAddressee, NlsMethod};
+use crate::decodable::{Decodable, EncodedData, WithByteSize};
 
 /// Maximum byte size of an encoded `ReadFileData`
 pub const MAX_SIZE: usize = 10 + addressee::MAX_SIZE + 5;
@@ -81,52 +82,18 @@ impl AddresseeWithNlsState {
     }
 }
 
-pub struct DecodableAddresseeWithNlsState<'data> {
+pub struct EncodedAddresseeWithNlsState<'data> {
     data: *const u8,
-    addressee: DecodableAddressee<'data>,
+    addressee: EncodedAddressee<'data>,
     data_life: core::marker::PhantomData<&'data ()>,
 }
-impl<'data> DecodableAddresseeWithNlsState<'data> {
-    const unsafe fn from_ptr(data: *const u8) -> Self {
-        Self {
-            data,
-            addressee: AddresseeRef::start_decoding_ptr(data),
-            data_life: core::marker::PhantomData,
-        }
-    }
 
-    /// Decodes the size of the Item in bytes
-    ///
-    /// # Safety
-    /// This requires reading the data bytes that may be out of bound to be calculate.
-    pub unsafe fn expected_size(&self) -> usize {
-        let nls_state_size = if self.has_auth() { 5 } else { 0 };
-        self.addressee.expected_size() + nls_state_size
-    }
-
-    /// Checks whether the given data_size is bigger than the decoded object expected size.
-    ///
-    /// On success, returns the size of the decoded object.
-    ///
-    /// # Errors
-    /// Fails if the data_size is smaller than the required data size to decode the object.
-    pub fn smaller_than(&self, data_size: usize) -> Result<usize, usize> {
-        let mut size = 1;
-        if data_size < size {
-            return Err(size);
-        }
-        size = unsafe { self.addressee.expected_size() };
-        if data_size < size {
-            return Err(size);
-        }
-        Ok(size)
-    }
-
+impl<'data> EncodedAddresseeWithNlsState<'data> {
     pub fn has_auth(&self) -> bool {
         self.addressee.nls_method() != NlsMethod::None
     }
 
-    pub fn addressee(&self) -> &DecodableAddressee<'data> {
+    pub fn addressee(&self) -> &EncodedAddressee<'data> {
         &self.addressee
     }
 
@@ -141,12 +108,44 @@ impl<'data> DecodableAddresseeWithNlsState<'data> {
             }
         }
     }
+}
 
-    /// Fully decode the Item
-    ///
-    /// Returns the decoded data and the number of bytes consumed to produce it.
-    pub fn complete_decoding(&self) -> (AddresseeWithNlsStateRef<'data>, usize) {
-        let (addressee, addressee_size) = self.addressee.complete_decoding();
+impl<'data> EncodedData<'data> for EncodedAddresseeWithNlsState<'data> {
+    type DecodedData = AddresseeWithNlsStateRef<'data>;
+    unsafe fn from_data_ref(data: &'data [u8]) -> Self {
+        Self::from_data_ptr(data.as_ptr())
+    }
+
+    unsafe fn from_data_ptr(data: *const u8) -> Self {
+        Self {
+            data,
+            addressee: AddresseeRef::start_decoding_ptr(data),
+            data_life: core::marker::PhantomData,
+        }
+    }
+
+    unsafe fn expected_size(&self) -> usize {
+        let nls_state_size = if self.has_auth() { 5 } else { 0 };
+        self.addressee.expected_size() + nls_state_size
+    }
+
+    fn smaller_than(&self, data_size: usize) -> Result<usize, usize> {
+        let mut size = 1;
+        if data_size < size {
+            return Err(size);
+        }
+        size = unsafe { self.addressee.expected_size() };
+        if data_size < size {
+            return Err(size);
+        }
+        Ok(size)
+    }
+
+    fn complete_decoding(&self) -> WithByteSize<AddresseeWithNlsStateRef<'data>> {
+        let WithByteSize {
+            item: addressee,
+            byte_size: addressee_size,
+        } = self.addressee.complete_decoding();
         let (nls_state, nls_state_size) = unsafe {
             if addressee.nls_method == NlsMethod::None {
                 (None, 0)
@@ -155,11 +154,15 @@ impl<'data> DecodableAddresseeWithNlsState<'data> {
                 (Some(&*data), 5)
             }
         };
-        (
-            unsafe { AddresseeWithNlsStateRef::new_unchecked(addressee, nls_state) },
-            addressee_size + nls_state_size,
-        )
+        WithByteSize {
+            item: unsafe { AddresseeWithNlsStateRef::new_unchecked(addressee, nls_state) },
+            byte_size: addressee_size + nls_state_size,
+        }
     }
+}
+
+impl<'data> Decodable<'data> for AddresseeWithNlsStateRef<'data> {
+    type Data = EncodedAddresseeWithNlsState<'data>;
 }
 
 /// Writes data to a file.
@@ -252,106 +255,6 @@ impl<'item> Dash7InterfaceStatusRef<'item> {
         10 + self.addressee_with_nls_state.size()
     }
 
-    /// Creates a decodable item from a data pointer without checking the data size.
-    ///
-    /// This method is meant to allow unchecked cross language wrapper libraries
-    /// to implement an unchecked call without having to build a fake slice with
-    /// a fake size.
-    ///
-    /// It is not meant to be used inside a Rust library/binary.
-    ///
-    /// # Safety
-    /// You are to check that:
-    /// - The decodable object fits in the given data:
-    /// [`decodable.smaller_than(data.len())`](struct.DecodableDash7InterfaceStatus.html#method.smaller_than)
-    ///
-    /// Failing that might result in reading and interpreting data outside the given
-    /// array (depending on what is done with the resulting object).
-    pub const unsafe fn start_decoding_ptr<'data>(
-        data: *const u8,
-    ) -> DecodableDash7InterfaceStatus<'data> {
-        DecodableDash7InterfaceStatus::from_ptr(data)
-    }
-
-    /// Creates a decodable item without checking the data size.
-    ///
-    /// # Safety
-    /// You are to check that:
-    /// - The decodable object fits in the given data:
-    /// [`decodable.smaller_than(data.len())`](struct.DecodableDash7InterfaceStatus.html#method.smaller_than)
-    ///
-    /// Failing that might result in reading and interpreting data outside the given
-    /// array (depending on what is done with the resulting object).
-    pub const unsafe fn start_decoding_unchecked(data: &[u8]) -> DecodableDash7InterfaceStatus {
-        DecodableDash7InterfaceStatus::new(data)
-    }
-
-    /// Returns a Decodable object and its expected byte size.
-    ///
-    /// This decodable item allows each parts of the item to be decoded independently.
-    ///
-    /// # Errors
-    /// - Fails if data is smaller then the decoded expected size.
-    ///
-    /// Returns the number of bytes required to continue decoding.
-    pub fn start_decoding(data: &[u8]) -> Result<(DecodableDash7InterfaceStatus, usize), usize> {
-        let ret = unsafe { Self::start_decoding_unchecked(data) };
-        let size = ret.smaller_than(data.len())?;
-        Ok((ret, size))
-    }
-
-    /// Decodes the Item from a data pointer.
-    ///
-    /// Returns the decoded data and the number of bytes consumed to produce it.
-    ///
-    /// This method is meant to allow unchecked cross language wrapper libraries
-    /// to implement an unchecked call without having to build a fake slice with
-    /// a fake size.
-    ///
-    /// It is not meant to be used inside a Rust library/binary.
-    ///
-    /// # Safety
-    /// You are to check that:
-    /// - The resulting size of the data consumed is smaller than the size of the
-    /// decoded data.
-    ///
-    /// Failing that might result in reading and interpreting data outside the given
-    /// array (depending on what is done with the resulting object).
-    pub unsafe fn decode_ptr(data: *const u8) -> (Self, usize) {
-        Self::start_decoding_ptr(data).complete_decoding()
-    }
-
-    /// Decodes the Item from bytes.
-    ///
-    /// Returns the decoded data and the number of bytes consumed to produce it.
-    ///
-    /// # Safety
-    /// You are to check that:
-    /// - The resulting size of the data consumed is smaller than the size of the
-    /// decoded data.
-    ///
-    /// Failing that might result in reading and interpreting data outside the given
-    /// array (depending on what is done with the resulting object).
-    pub unsafe fn decode_unchecked(data: &'item [u8]) -> (Self, usize) {
-        Self::start_decoding_unchecked(data).complete_decoding()
-    }
-
-    /// Decodes the item from bytes.
-    ///
-    /// On success, returns the decoded data and the number of bytes consumed
-    /// to produce it.
-    ///
-    /// # Errors
-    /// - Fails if data is smaller then the decoded expected size.
-    ///
-    /// Returns the number of bytes required to continue decoding.
-    pub fn decode(data: &'item [u8]) -> Result<(Self, usize), usize> {
-        match Self::start_decoding(data) {
-            Ok(v) => Ok(v.0.complete_decoding()),
-            Err(e) => Err(e),
-        }
-    }
-
     pub fn to_owned(&self) -> Dash7InterfaceStatus {
         Dash7InterfaceStatus {
             ch_header: self.ch_header,
@@ -368,50 +271,12 @@ impl<'item> Dash7InterfaceStatusRef<'item> {
     }
 }
 
-pub struct DecodableDash7InterfaceStatus<'data> {
+pub struct EncodedDash7InterfaceStatus<'data> {
     data: *const u8,
     data_life: core::marker::PhantomData<&'data ()>,
 }
 
-impl<'data> DecodableDash7InterfaceStatus<'data> {
-    const fn new(data: &'data [u8]) -> Self {
-        Self::from_ptr(data.as_ptr())
-    }
-
-    const fn from_ptr(data: *const u8) -> Self {
-        Self {
-            data,
-            data_life: core::marker::PhantomData,
-        }
-    }
-
-    /// Decodes the size of the Item in bytes
-    ///
-    /// # Safety
-    /// This requires reading the data bytes that may be out of bound to be calculate.
-    pub unsafe fn expected_size(&self) -> usize {
-        10 + self.addressee_with_nls_state().expected_size()
-    }
-
-    /// Checks whether the given data_size is bigger than the decoded object expected size.
-    ///
-    /// On success, returns the size of the decoded object.
-    ///
-    /// # Errors
-    /// Fails if the data_size is smaller than the required data size to decode the object.
-    pub fn smaller_than(&self, data_size: usize) -> Result<usize, usize> {
-        let mut size = 11;
-        if data_size < size {
-            return Err(size);
-        }
-        size += unsafe { self.addressee_with_nls_state().expected_size() };
-        size -= 1;
-        if data_size < size {
-            return Err(size);
-        }
-        Ok(size)
-    }
-
+impl<'data> EncodedDash7InterfaceStatus<'data> {
     pub fn ch_header(&self) -> u8 {
         unsafe { *self.data.add(0) }
     }
@@ -445,22 +310,53 @@ impl<'data> DecodableDash7InterfaceStatus<'data> {
     pub fn resp_to(&self) -> u8 {
         unsafe { *self.data.add(9) }
     }
-    pub fn addressee(&self) -> DecodableAddressee<'data> {
+    pub fn addressee(&self) -> EncodedAddressee<'data> {
         unsafe { AddresseeRef::start_decoding_ptr(self.data.add(10)) }
     }
 
-    pub fn addressee_with_nls_state(&self) -> DecodableAddresseeWithNlsState<'data> {
-        unsafe { DecodableAddresseeWithNlsState::from_ptr(self.data.add(10)) }
+    pub fn addressee_with_nls_state(&self) -> EncodedAddresseeWithNlsState<'data> {
+        unsafe { EncodedAddresseeWithNlsState::from_data_ptr(self.data.add(10)) }
+    }
+}
+
+impl<'data> EncodedData<'data> for EncodedDash7InterfaceStatus<'data> {
+    type DecodedData = Dash7InterfaceStatusRef<'data>;
+
+    unsafe fn from_data_ref(data: &'data [u8]) -> Self {
+        Self::from_data_ptr(data.as_ptr())
     }
 
-    /// Fully decode the Item
-    ///
-    /// Returns the decoded data and the number of bytes consumed to produce it.
-    pub fn complete_decoding(&self) -> (Dash7InterfaceStatusRef<'data>, usize) {
-        let (addressee_with_nls_state, end_size) =
-            self.addressee_with_nls_state().complete_decoding();
-        (
-            Dash7InterfaceStatusRef {
+    unsafe fn from_data_ptr(data: *const u8) -> Self {
+        Self {
+            data,
+            data_life: core::marker::PhantomData,
+        }
+    }
+
+    unsafe fn expected_size(&self) -> usize {
+        10 + self.addressee_with_nls_state().expected_size()
+    }
+
+    fn smaller_than(&self, data_size: usize) -> Result<usize, usize> {
+        let mut size = 11;
+        if data_size < size {
+            return Err(size);
+        }
+        size += unsafe { self.addressee_with_nls_state().expected_size() };
+        size -= 1;
+        if data_size < size {
+            return Err(size);
+        }
+        Ok(size)
+    }
+
+    fn complete_decoding(&self) -> WithByteSize<Dash7InterfaceStatusRef<'data>> {
+        let WithByteSize {
+            item: addressee_with_nls_state,
+            byte_size: end_size,
+        } = self.addressee_with_nls_state().complete_decoding();
+        WithByteSize {
+            item: Dash7InterfaceStatusRef {
                 ch_header: self.ch_header(),
                 ch_idx: self.ch_idx(),
                 rxlev: self.rxlev(),
@@ -472,9 +368,13 @@ impl<'data> DecodableDash7InterfaceStatus<'data> {
                 resp_to: self.resp_to(),
                 addressee_with_nls_state,
             },
-            10 + end_size,
-        )
+            byte_size: 10 + end_size,
+        }
     }
+}
+
+impl<'data> Decodable<'data> for Dash7InterfaceStatusRef<'data> {
+    type Data = EncodedDash7InterfaceStatus<'data>;
 }
 
 #[cfg_attr(feature = "repr_c", repr(C))]
@@ -526,15 +426,21 @@ mod test {
             assert_eq!(&encoded[..size], data);
 
             // Test decode(data) == op
-            let (ret, size) = Dash7InterfaceStatusRef::decode(data).unwrap();
+            let WithByteSize {
+                item: ret,
+                byte_size: size,
+            } = Dash7InterfaceStatusRef::decode(data).unwrap();
             assert_eq!(size, data.len());
             assert_eq!(ret, op);
 
             // Test partial_decode == op
-            let (decoder, expected_size) = Dash7InterfaceStatusRef::start_decoding(data).unwrap();
+            let WithByteSize {
+                item: decoder,
+                byte_size: expected_size,
+            } = Dash7InterfaceStatusRef::start_decoding(data).unwrap();
             assert_eq!(
                 ret.addressee_with_nls_state.addressee(),
-                &decoder.addressee().complete_decoding().0
+                &decoder.addressee().complete_decoding().item
             );
             assert_eq!(expected_size, size);
             assert_eq!(unsafe { decoder.expected_size() }, size);
@@ -554,7 +460,7 @@ mod test {
                     addressee_with_nls_state: decoder
                         .addressee_with_nls_state()
                         .complete_decoding()
-                        .0,
+                        .item,
                 }
             );
         }
@@ -645,7 +551,10 @@ mod test {
         // Test decode(op.encode_in()) == op
         let mut encoded = [0_u8; TOT_SIZE];
         let size_encoded = op.encode_in(&mut encoded).unwrap();
-        let (ret, size_decoded) = Dash7InterfaceStatusRef::decode(&encoded).unwrap();
+        let WithByteSize {
+            item: ret,
+            byte_size: size_decoded,
+        } = Dash7InterfaceStatusRef::decode(&encoded).unwrap();
         assert_eq!(size_encoded, size_decoded);
         assert_eq!(ret, op);
 

@@ -1,8 +1,8 @@
 use super::super::super::define::flag;
-use super::super::super::error::QueryOperandDecodeError;
 use super::define::{QueryCode, QueryComparisonType};
+use crate::decodable::{Decodable, EncodedData, WithByteSize};
 use crate::define::{EncodableDataRef, FileId, MaskedValueRef};
-use crate::varint::{DecodableVarint, Varint};
+use crate::varint::{EncodedVarint, Varint};
 
 #[cfg(feature = "alloc")]
 use crate::define::MaskedValue;
@@ -116,121 +116,6 @@ impl<'item> ComparisonWithValueRef<'item> {
         }
     }
 
-    /// Creates a decodable item from a data pointer without checking the data size.
-    ///
-    /// This method is meant to allow unchecked cross language wrapper libraries
-    /// to implement an unchecked call without having to build a fake slice with
-    /// a fake size.
-    ///
-    /// It is not meant to be used inside a Rust library/binary.
-    ///
-    /// # Safety
-    /// You are to check that:
-    /// - The first byte contains this action's querycode.
-    /// - The decodable object fits in the given data:
-    /// [`decodable.smaller_than(data.len())`](struct.DecodableComparisonWithValueRef.html#method.smaller_than)
-    ///
-    /// Failing that might result in reading and interpreting data outside the given
-    /// array (depending on what is done with the resulting object).
-    pub const unsafe fn start_decoding_ptr<'data>(
-        data: *const u8,
-    ) -> DecodableComparisonWithValue<'data> {
-        DecodableComparisonWithValue::from_ptr(data)
-    }
-
-    /// Creates a decodable item without checking the data size.
-    ///
-    /// # Safety
-    /// You are to check that:
-    /// - The first byte contains this action's querycode.
-    /// - The decodable object fits in the given data:
-    /// [`decodable.smaller_than(data.len())`](struct.DecodableComparisonWithValueRef.html#method.smaller_than)
-    ///
-    /// Failing that might result in reading and interpreting data outside the given
-    /// array (depending on what is done with the resulting object).
-    pub const unsafe fn start_decoding_unchecked(data: &[u8]) -> DecodableComparisonWithValue {
-        DecodableComparisonWithValue::new(data)
-    }
-
-    /// Returns a Decodable object and its expected byte size.
-    ///
-    /// This decodable item allows each parts of the item to be decoded independently.
-    ///
-    /// # Errors
-    /// - Fails if first byte of the data contains the wrong querycode.
-    /// - Fails if data is smaller then the decoded expected size.
-    pub fn start_decoding(
-        data: &[u8],
-    ) -> Result<(DecodableComparisonWithValue, usize), QueryOperandDecodeError> {
-        match data.get(0) {
-            None => return Err(QueryOperandDecodeError::MissingBytes(1)),
-            Some(byte) => {
-                let code = *byte >> 5;
-                if code != QueryCode::ComparisonWithValue as u8 {
-                    return Err(QueryOperandDecodeError::UnknownQueryCode(code));
-                }
-            }
-        }
-        let ret = unsafe { Self::start_decoding_unchecked(data) };
-        let size = ret
-            .smaller_than(data.len())
-            .map_err(QueryOperandDecodeError::MissingBytes)?;
-        Ok((ret, size))
-    }
-
-    /// Decodes the Item from a data pointer.
-    ///
-    /// Returns the decoded data and the number of bytes consumed to produce it.
-    ///
-    /// This method is meant to allow unchecked cross language wrapper libraries
-    /// to implement an unchecked call without having to build a fake slice with
-    /// a fake size.
-    ///
-    /// It is not meant to be used inside a Rust library/binary.
-    ///
-    /// # Safety
-    /// You are to check that:
-    /// - The first byte contains this action's querycode.
-    /// - The resulting size of the data consumed is smaller than the size of the
-    /// decoded data.
-    ///
-    /// Failing that might result in reading and interpreting data outside the given
-    /// array (depending on what is done with the resulting object).
-    pub unsafe fn decode_ptr(data: *const u8) -> (Self, usize) {
-        Self::start_decoding_ptr(data).complete_decoding()
-    }
-
-    /// Decodes the Item from bytes.
-    ///
-    /// Returns the decoded data and the number of bytes consumed to produce it.
-    ///
-    /// # Safety
-    /// You are to check that:
-    /// - The first byte contains this action's querycode.
-    /// - The resulting size of the data consumed is smaller than the size of the
-    /// decoded data.
-    ///
-    /// Failing that might result in reading and interpreting data outside the given
-    /// array (depending on what is done with the resulting object).
-    pub unsafe fn decode_unchecked(data: &'item [u8]) -> (Self, usize) {
-        Self::start_decoding_unchecked(data).complete_decoding()
-    }
-
-    /// Decodes the item from bytes.
-    ///
-    /// On success, returns the decoded data and the number of bytes consumed
-    /// to produce it.
-    ///
-    /// # Errors
-    /// - Fails if first byte of the data contains the wrong querycode.
-    /// - Fails if data is smaller then the decoded expected size.
-    pub fn decode(data: &'item [u8]) -> Result<(Self, usize), QueryOperandDecodeError> {
-        match Self::start_decoding(data) {
-            Ok(v) => Ok(v.0.complete_decoding()),
-            Err(e) => Err(e),
-        }
-    }
-
     #[cfg(feature = "alloc")]
     pub fn to_owned(&self) -> ComparisonWithValue {
         ComparisonWithValue {
@@ -243,75 +128,12 @@ impl<'item> ComparisonWithValueRef<'item> {
     }
 }
 
-pub struct DecodableComparisonWithValue<'data> {
+pub struct EncodedComparisonWithValue<'data> {
     data: *const u8,
     data_life: core::marker::PhantomData<&'data ()>,
 }
 
-impl<'data> DecodableComparisonWithValue<'data> {
-    const fn new(data: &'data [u8]) -> Self {
-        Self::from_ptr(data.as_ptr())
-    }
-
-    const fn from_ptr(data: *const u8) -> Self {
-        Self {
-            data,
-            data_life: core::marker::PhantomData,
-        }
-    }
-
-    /// Decodes the size of the Item in bytes
-    ///
-    /// # Safety
-    /// This requires reading the data bytes that may be out of bound to be calculate.
-    pub unsafe fn expected_size(&self) -> usize {
-        let (compare_length, compare_length_size) = self.compare_length().complete_decoding();
-        let compare_length = compare_length.u32() as usize;
-        let value_offset = if self.mask_flag() {
-            1 + compare_length_size + 2 * compare_length
-        } else {
-            1 + compare_length_size + compare_length
-        };
-        let decodable_offset = Varint::start_decoding_ptr(self.data.add(value_offset + 1));
-        value_offset + 1 + decodable_offset.expected_size()
-    }
-
-    /// Checks whether the given data_size is bigger than the decoded object expected size.
-    ///
-    /// On success, returns the size of the decoded object.
-    ///
-    /// # Errors
-    /// Fails if the data_size is smaller than the required data size to decode the object.
-    pub fn smaller_than(&self, data_size: usize) -> Result<usize, usize> {
-        unsafe {
-            let mut size = 2;
-            if data_size < size {
-                return Err(size);
-            }
-            let compare_length = self.compare_length();
-            size += compare_length.expected_size();
-            if data_size < size {
-                return Err(size);
-            }
-            let compare_length = compare_length.complete_decoding().0.usize();
-            if self.mask_flag() {
-                size += compare_length;
-            }
-            size += compare_length;
-            size += 1;
-            if data_size < size {
-                return Err(size);
-            }
-            let decodable_offset = Varint::start_decoding_ptr(self.data.add(size - 1));
-            size += decodable_offset.expected_size();
-            size -= 1;
-            if data_size < size {
-                return Err(size);
-            }
-            Ok(size)
-        }
-    }
-
+impl<'data> EncodedComparisonWithValue<'data> {
     pub fn mask_flag(&self) -> bool {
         unsafe { *self.data.add(0) & flag::QUERY_MASK == flag::QUERY_MASK }
     }
@@ -326,13 +148,16 @@ impl<'data> DecodableComparisonWithValue<'data> {
         }
     }
 
-    pub fn compare_length(&self) -> DecodableVarint {
+    pub fn compare_length(&self) -> EncodedVarint {
         unsafe { Varint::start_decoding_ptr(self.data.add(1)) }
     }
 
     pub fn mask(&self) -> Option<&'data [u8]> {
         if self.mask_flag() {
-            let (compare_length, compare_length_size) = self.compare_length().complete_decoding();
+            let WithByteSize {
+                item: compare_length,
+                byte_size: compare_length_size,
+            } = self.compare_length().complete_decoding();
             let mask = unsafe {
                 core::slice::from_raw_parts(
                     self.data.add(1 + compare_length_size),
@@ -346,7 +171,10 @@ impl<'data> DecodableComparisonWithValue<'data> {
     }
 
     pub fn value(&self) -> EncodableDataRef<'data> {
-        let (compare_length, compare_length_size) = self.compare_length().complete_decoding();
+        let WithByteSize {
+            item: compare_length,
+            byte_size: compare_length_size,
+        } = self.compare_length().complete_decoding();
         let mut offset = 1 + compare_length_size;
         if self.mask_flag() {
             offset += compare_length.u32() as usize;
@@ -360,7 +188,10 @@ impl<'data> DecodableComparisonWithValue<'data> {
     }
 
     pub fn compare_value(&self) -> MaskedValueRef<'data> {
-        let (compare_length, compare_length_size) = self.compare_length().complete_decoding();
+        let WithByteSize {
+            item: compare_length,
+            byte_size: compare_length_size,
+        } = self.compare_length().complete_decoding();
         let compare_length = compare_length.u32() as usize;
         let mut offset = 1 + compare_length_size;
         unsafe {
@@ -380,7 +211,10 @@ impl<'data> DecodableComparisonWithValue<'data> {
     }
 
     pub fn file_id(&self) -> FileId {
-        let (compare_length, compare_length_size) = self.compare_length().complete_decoding();
+        let WithByteSize {
+            item: compare_length,
+            byte_size: compare_length_size,
+        } = self.compare_length().complete_decoding();
         let compare_length = compare_length.u32() as usize;
         let value_offset = if self.mask_flag() {
             1 + compare_length_size + 2 * compare_length
@@ -390,8 +224,11 @@ impl<'data> DecodableComparisonWithValue<'data> {
         unsafe { FileId(*self.data.add(value_offset)) }
     }
 
-    pub fn offset(&self) -> DecodableVarint {
-        let (compare_length, compare_length_size) = self.compare_length().complete_decoding();
+    pub fn offset(&self) -> EncodedVarint {
+        let WithByteSize {
+            item: compare_length,
+            byte_size: compare_length_size,
+        } = self.compare_length().complete_decoding();
         let compare_length = compare_length.u32() as usize;
         let value_offset = if self.mask_flag() {
             1 + compare_length_size + 2 * compare_length
@@ -400,13 +237,72 @@ impl<'data> DecodableComparisonWithValue<'data> {
         };
         unsafe { Varint::start_decoding_ptr(self.data.add(value_offset + 1)) }
     }
+}
 
-    /// Fully decode the Item
-    ///
-    /// Returns the decoded data and the number of bytes consumed to produce it.
-    pub fn complete_decoding(&self) -> (ComparisonWithValueRef<'data>, usize) {
+impl<'data> EncodedData<'data> for EncodedComparisonWithValue<'data> {
+    type DecodedData = ComparisonWithValueRef<'data>;
+    unsafe fn from_data_ref(data: &'data [u8]) -> Self {
+        Self::from_data_ptr(data.as_ptr())
+    }
+
+    unsafe fn from_data_ptr(data: *const u8) -> Self {
+        Self {
+            data,
+            data_life: core::marker::PhantomData,
+        }
+    }
+
+    unsafe fn expected_size(&self) -> usize {
+        let WithByteSize {
+            item: compare_length,
+            byte_size: compare_length_size,
+        } = self.compare_length().complete_decoding();
+        let compare_length = compare_length.u32() as usize;
+        let value_offset = if self.mask_flag() {
+            1 + compare_length_size + 2 * compare_length
+        } else {
+            1 + compare_length_size + compare_length
+        };
+        let decodable_offset = Varint::start_decoding_ptr(self.data.add(value_offset + 1));
+        value_offset + 1 + decodable_offset.expected_size()
+    }
+
+    fn smaller_than(&self, data_size: usize) -> Result<usize, usize> {
         unsafe {
-            let (compare_length, compare_length_size) = self.compare_length().complete_decoding();
+            let mut size = 2;
+            if data_size < size {
+                return Err(size);
+            }
+            let compare_length = self.compare_length();
+            size += compare_length.expected_size();
+            if data_size < size {
+                return Err(size);
+            }
+            let compare_length = compare_length.complete_decoding().item.usize();
+            if self.mask_flag() {
+                size += compare_length;
+            }
+            size += compare_length;
+            size += 1;
+            if data_size < size {
+                return Err(size);
+            }
+            let decodable_offset = Varint::start_decoding_ptr(self.data.add(size - 1));
+            size += decodable_offset.expected_size();
+            size -= 1;
+            if data_size < size {
+                return Err(size);
+            }
+            Ok(size)
+        }
+    }
+
+    fn complete_decoding(&self) -> WithByteSize<ComparisonWithValueRef<'data>> {
+        unsafe {
+            let WithByteSize {
+                item: compare_length,
+                byte_size: compare_length_size,
+            } = self.compare_length().complete_decoding();
             let compare_length = compare_length.u32() as usize;
             let mut size = 1 + compare_length_size;
             let mask = if self.mask_flag() {
@@ -423,21 +319,28 @@ impl<'data> DecodableComparisonWithValue<'data> {
             size += compare_length;
             let file_id = FileId(*self.data.add(size));
             size += 1;
-            let (offset, offset_size) = Varint::decode_ptr(self.data.add(size));
+            let WithByteSize {
+                item: offset,
+                byte_size: offset_size,
+            } = Varint::decode_ptr(self.data.add(size));
             size += offset_size;
 
-            (
-                ComparisonWithValueRef {
+            WithByteSize {
+                item: ComparisonWithValueRef {
                     signed_data: self.signed_data(),
                     comparison_type: self.comparison_type(),
                     compare_value: MaskedValueRef::new_unchecked(value, mask),
                     file_id,
                     offset,
                 },
-                size,
-            )
+                byte_size: size,
+            }
         }
     }
+}
+
+impl<'data> Decodable<'data> for ComparisonWithValueRef<'data> {
+    type Data = EncodedComparisonWithValue<'data>;
 }
 
 /// Compares data to a value.
@@ -481,16 +384,22 @@ mod test {
             assert_eq!(&encoded[..size], data);
 
             // Test decode(data) == op
-            let (ret, size) = ComparisonWithValueRef::decode(data).unwrap();
+            let WithByteSize {
+                item: ret,
+                byte_size: size,
+            } = ComparisonWithValueRef::decode(data).unwrap();
             assert_eq!(size, data.len());
             assert_eq!(ret, op);
 
             // Test partial_decode == op
-            let (decoder, expected_size) = ComparisonWithValueRef::start_decoding(data).unwrap();
+            let WithByteSize {
+                item: decoder,
+                byte_size: expected_size,
+            } = ComparisonWithValueRef::start_decoding(data).unwrap();
             assert_eq!(ret.compare_value.mask().is_some(), decoder.mask_flag());
             assert_eq!(
                 ret.compare_value.len(),
-                decoder.compare_length().complete_decoding().0.u32() as usize
+                decoder.compare_length().complete_decoding().item.u32() as usize
             );
             assert_eq!(ret.compare_value.mask(), decoder.mask());
             assert_eq!(ret.compare_value.value(), decoder.value().data());
@@ -504,7 +413,7 @@ mod test {
                     comparison_type: decoder.comparison_type(),
                     compare_value: decoder.compare_value(),
                     file_id: decoder.file_id(),
-                    offset: decoder.offset().complete_decoding().0,
+                    offset: decoder.offset().complete_decoding().item,
                 }
             );
         }
@@ -580,7 +489,10 @@ mod test {
         // Test decode(op.encode_in()) == op
         let mut encoded = [0_u8; TOT_SIZE];
         let size_encoded = op.encode_in(&mut encoded).unwrap();
-        let (ret, size_decoded) = ComparisonWithValueRef::decode(&encoded).unwrap();
+        let WithByteSize {
+            item: ret,
+            byte_size: size_decoded,
+        } = ComparisonWithValueRef::decode(&encoded).unwrap();
         assert_eq!(size_encoded, size_decoded);
         assert_eq!(ret, op);
 

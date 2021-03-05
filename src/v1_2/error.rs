@@ -61,16 +61,6 @@ pub struct PtrUnknownQueryCode<'data> {
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub enum QueryActionDecodeError<'data> {
-    /// The decoded query contains an unknown query code.
-    UnknownQueryCode(UnknownQueryCode<'data>),
-    /// The input data is missing bytes to be decoded into the wanted item.
-    MissingBytes(usize),
-}
-
-#[cfg_attr(feature = "repr_c", repr(C))]
-#[cfg_attr(feature = "packed", repr(packed))]
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct UnknownExtension<'data> {
     /// Parsed status extension field
     pub extension: u8,
@@ -118,8 +108,6 @@ pub struct PtrUnknownInterfaceId<'data> {
 pub enum StatusDecodeError<'data> {
     /// The decoded query contains an unknown query code.
     UnknownExtension(UnknownExtension<'data>),
-    /// The input data is missing bytes to be decoded into the wanted item.
-    MissingBytes(usize),
     /// The input data contains an unknown interface ID
     UnknownInterfaceId(UnknownInterfaceId<'data>),
 }
@@ -127,17 +115,7 @@ pub enum StatusDecodeError<'data> {
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub enum UncheckedStatusDecodeError<'data> {
-    /// The decoded query contains an unknown query code.
-    UnknownExtension(UnknownExtension<'data>),
-    /// The input data contains an unknown interface ID
-    UnknownInterfaceId(UnknownInterfaceId<'data>),
-}
-
-#[cfg_attr(feature = "repr_c", repr(C))]
-#[cfg_attr(feature = "packed", repr(packed))]
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub enum PtrUncheckedStatusDecodeError<'data> {
+pub enum PtrStatusDecodeError<'data> {
     /// The decoded query contains an unknown query code.
     UnknownExtension(PtrUnknownExtension<'data>),
     /// The input data contains an unknown interface ID
@@ -165,11 +143,11 @@ pub enum ActionDecodeError<'data> {
     UnknownStatusInterfaceId(UnknownInterfaceId<'data>),
 }
 
-impl<'data> From<UncheckedStatusDecodeError<'data>> for ActionDecodeError<'data> {
-    fn from(e: UncheckedStatusDecodeError<'data>) -> Self {
+impl<'data> From<StatusDecodeError<'data>> for ActionDecodeError<'data> {
+    fn from(e: StatusDecodeError<'data>) -> Self {
         match e {
-            UncheckedStatusDecodeError::UnknownExtension(e) => Self::UnknownStatusExtension(e),
-            UncheckedStatusDecodeError::UnknownInterfaceId(e) => Self::UnknownStatusInterfaceId(e),
+            StatusDecodeError::UnknownExtension(e) => Self::UnknownStatusExtension(e),
+            StatusDecodeError::UnknownInterfaceId(e) => Self::UnknownStatusInterfaceId(e),
         }
     }
 }
@@ -190,13 +168,11 @@ pub enum PtrActionDecodeError<'data> {
     UnknownStatusInterfaceId(PtrUnknownInterfaceId<'data>),
 }
 
-impl<'data> From<PtrUncheckedStatusDecodeError<'data>> for PtrActionDecodeError<'data> {
-    fn from(e: PtrUncheckedStatusDecodeError<'data>) -> Self {
+impl<'data> From<PtrStatusDecodeError<'data>> for PtrActionDecodeError<'data> {
+    fn from(e: PtrStatusDecodeError<'data>) -> Self {
         match e {
-            PtrUncheckedStatusDecodeError::UnknownExtension(e) => Self::UnknownStatusExtension(e),
-            PtrUncheckedStatusDecodeError::UnknownInterfaceId(e) => {
-                Self::UnknownStatusInterfaceId(e)
-            }
+            PtrStatusDecodeError::UnknownExtension(e) => Self::UnknownStatusExtension(e),
+            PtrStatusDecodeError::UnknownInterfaceId(e) => Self::UnknownStatusInterfaceId(e),
         }
     }
 }

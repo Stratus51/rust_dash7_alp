@@ -1,8 +1,8 @@
 use super::super::define::flag;
 use super::super::define::op_code::OpCode;
-use super::super::error::BasicDecodeError;
+use crate::decodable::{Decodable, EncodedData, WithByteSize};
 use crate::define::FileId;
-use crate::varint::{self, DecodableVarint, Varint};
+use crate::varint::{self, EncodedVarint, Varint};
 
 // TODO SPEC: Verify if the new ReadFileData successfull length overflow
 // is described in the specification, because it is not intuitive.
@@ -106,109 +106,6 @@ impl<'item> ReadFileDataRef<'item> {
         1 + 1 + self.offset.size() + self.length.size()
     }
 
-    /// Creates a decodable item from a data pointer without checking the data size.
-    ///
-    /// This method is meant to allow unchecked cross language wrapper libraries
-    /// to implement an unchecked call without having to build a fake slice with
-    /// a fake size.
-    ///
-    /// It is not meant to be used inside a Rust library/binary.
-    ///
-    /// # Safety
-    /// You are to check that:
-    /// - The decodable object fits in the given data:
-    /// [`decodable.smaller_than(data.len())`](struct.DecodableReadFileData.html#method.smaller_than)
-    ///
-    /// Failing that might result in reading and interpreting data outside the given
-    /// array (depending on what is done with the resulting object).
-    pub const unsafe fn start_decoding_ptr<'data>(data: *const u8) -> DecodableReadFileData<'data> {
-        DecodableReadFileData::from_ptr(data)
-    }
-
-    /// Creates a decodable item without checking the data size.
-    ///
-    /// # Safety
-    /// You are to check that:
-    /// - The decodable object fits in the given data:
-    /// [`decodable.smaller_than(data.len())`](struct.DecodableReadFileData.html#method.smaller_than)
-    ///
-    /// Failing that might result in reading and interpreting data outside the given
-    /// array (depending on what is done with the resulting object).
-    pub const unsafe fn start_decoding_unchecked(data: &[u8]) -> DecodableReadFileData {
-        DecodableReadFileData::new(data)
-    }
-
-    /// Returns a Decodable object and its expected byte size.
-    ///
-    /// This decodable item allows each parts of the item to be decoded independently.
-    ///
-    /// # Errors
-    /// - Fails if data is smaller then the decoded expected size.
-    pub fn start_decoding(data: &[u8]) -> Result<(DecodableReadFileData, usize), BasicDecodeError> {
-        if data.is_empty() {
-            return Err(BasicDecodeError::MissingBytes(1));
-        }
-        let ret = unsafe { Self::start_decoding_unchecked(data) };
-        let size = ret
-            .smaller_than(data.len())
-            .map_err(BasicDecodeError::MissingBytes)?;
-        Ok((ret, size))
-    }
-
-    /// Decodes the Item from a data pointer.
-    ///
-    /// Returns the decoded data and the number of bytes consumed to produce it.
-    ///
-    /// This method is meant to allow unchecked cross language wrapper libraries
-    /// to implement an unchecked call without having to build a fake slice with
-    /// a fake size.
-    ///
-    /// It is not meant to be used inside a Rust library/binary.
-    ///
-    /// # Safety
-    /// May attempt to read bytes after the end of the array.
-    ///
-    /// You are to check that:
-    /// - The resulting size of the data consumed is smaller than the size of the
-    /// decoded data.
-    ///
-    /// Failing that will result in reading and interpreting data outside the given
-    /// array.
-    pub unsafe fn decode_ptr(data: *const u8) -> (Self, usize) {
-        Self::start_decoding_ptr(data).complete_decoding()
-    }
-
-    /// Decodes the Item from bytes.
-    ///
-    /// Returns the decoded data and the number of bytes consumed to produce it.
-    ///
-    /// # Safety
-    /// May attempt to read bytes after the end of the array.
-    ///
-    /// You are to check that:
-    /// - The resulting size of the data consumed is smaller than the size of the
-    /// decoded data.
-    ///
-    /// Failing that will result in reading and interpreting data outside the given
-    /// array.
-    pub unsafe fn decode_unchecked(data: &[u8]) -> (Self, usize) {
-        Self::start_decoding_unchecked(data).complete_decoding()
-    }
-
-    /// Decodes the item from bytes.
-    ///
-    /// On success, returns the decoded data and the number of bytes consumed
-    /// to produce it.
-    ///
-    /// # Errors
-    /// - Fails if data is smaller then the decoded expected size.
-    pub fn decode(data: &[u8]) -> Result<(Self, usize), BasicDecodeError> {
-        match Self::start_decoding(data) {
-            Ok(v) => Ok(v.0.complete_decoding()),
-            Err(e) => Err(e),
-        }
-    }
-
     pub fn to_owned(&self) -> ReadFileData {
         ReadFileData {
             group: self.group,
@@ -220,41 +117,57 @@ impl<'item> ReadFileDataRef<'item> {
     }
 }
 
-pub struct DecodableReadFileData<'data> {
+pub struct EncodedReadFileData<'data> {
     data: *const u8,
     data_life: core::marker::PhantomData<&'data ()>,
 }
 
-impl<'data> DecodableReadFileData<'data> {
-    const fn new(data: &'data [u8]) -> Self {
-        Self::from_ptr(data.as_ptr())
+impl<'data> EncodedReadFileData<'data> {
+    pub fn group(&self) -> bool {
+        unsafe { *self.data.add(0) & flag::GROUP != 0 }
     }
 
-    const fn from_ptr(data: *const u8) -> Self {
+    pub fn response(&self) -> bool {
+        unsafe { *self.data.add(0) & flag::RESPONSE != 0 }
+    }
+
+    pub fn file_id(&self) -> FileId {
+        unsafe { FileId(*self.data.add(1)) }
+    }
+
+    pub fn offset(&self) -> EncodedVarint {
+        unsafe { Varint::start_decoding_ptr(self.data.add(2)) }
+    }
+
+    pub fn length(&self) -> EncodedVarint {
+        unsafe {
+            let offset_size = (((*self.data.add(2) & 0xC0) >> 6) + 1) as usize;
+            Varint::start_decoding_ptr(self.data.add(2 + offset_size))
+        }
+    }
+}
+
+impl<'data> EncodedData<'data> for EncodedReadFileData<'data> {
+    type DecodedData = ReadFileDataRef<'data>;
+    unsafe fn from_data_ref(data: &'data [u8]) -> Self {
+        Self::from_data_ptr(data.as_ptr())
+    }
+
+    unsafe fn from_data_ptr(data: *const u8) -> Self {
         Self {
             data,
             data_life: core::marker::PhantomData,
         }
     }
 
-    /// Decodes the size of the Item in bytes
-    ///
-    /// # Safety
-    /// This requires reading the data bytes that may be out of bound to be calculate.
-    pub unsafe fn expected_size(&self) -> usize {
+    unsafe fn expected_size(&self) -> usize {
         let offset_size = self.offset().expected_size();
         let length_size =
             Varint::start_decoding_ptr(self.data.add(2 + offset_size)).expected_size();
         2 + offset_size + length_size
     }
 
-    /// Checks whether the given data_size is bigger than the decoded object expected size.
-    ///
-    /// On success, returns the size of the decoded object.
-    ///
-    /// # Errors
-    /// Fails if the data_size is smaller than the required data size to decode the object.
-    pub fn smaller_than(&self, data_size: usize) -> Result<usize, usize> {
+    fn smaller_than(&self, data_size: usize) -> Result<usize, usize> {
         unsafe {
             let mut size = 3;
             if data_size < size {
@@ -273,37 +186,17 @@ impl<'data> DecodableReadFileData<'data> {
         }
     }
 
-    pub fn group(&self) -> bool {
-        unsafe { *self.data.add(0) & flag::GROUP != 0 }
-    }
-
-    pub fn response(&self) -> bool {
-        unsafe { *self.data.add(0) & flag::RESPONSE != 0 }
-    }
-
-    pub fn file_id(&self) -> FileId {
-        unsafe { FileId(*self.data.add(1)) }
-    }
-
-    pub fn offset(&self) -> DecodableVarint {
-        unsafe { Varint::start_decoding_ptr(self.data.add(2)) }
-    }
-
-    pub fn length(&self) -> DecodableVarint {
-        unsafe {
-            let offset_size = (((*self.data.add(2) & 0xC0) >> 6) + 1) as usize;
-            Varint::start_decoding_ptr(self.data.add(2 + offset_size))
-        }
-    }
-
-    /// Fully decode the Item
-    ///
-    /// Returns the decoded data and the number of bytes consumed to produce it.
-    pub fn complete_decoding<'item>(&self) -> (ReadFileDataRef<'item>, usize) {
-        let (offset, offset_size) = self.offset().complete_decoding();
-        let (length, length_size) = unsafe { Varint::decode_ptr(self.data.add(2 + offset_size)) };
-        (
-            ReadFileDataRef {
+    fn complete_decoding(&self) -> WithByteSize<ReadFileDataRef<'data>> {
+        let WithByteSize {
+            item: offset,
+            byte_size: offset_size,
+        } = self.offset().complete_decoding();
+        let WithByteSize {
+            item: length,
+            byte_size: length_size,
+        } = unsafe { Varint::decode_ptr(self.data.add(2 + offset_size)) };
+        WithByteSize {
+            item: ReadFileDataRef {
                 group: self.group(),
                 response: self.response(),
                 file_id: self.file_id(),
@@ -311,9 +204,13 @@ impl<'data> DecodableReadFileData<'data> {
                 length,
                 phantom: core::marker::PhantomData,
             },
-            2 + offset_size + length_size,
-        )
+            byte_size: 2 + offset_size + length_size,
+        }
     }
+}
+
+impl<'data> Decodable<'data> for ReadFileDataRef<'data> {
+    type Data = EncodedReadFileData<'data>;
 }
 
 /// Read data from a file.
@@ -352,6 +249,7 @@ impl ReadFileData {
 mod test {
     #![allow(clippy::unwrap_in_result, clippy::panic, clippy::expect_used)]
     use super::*;
+    use crate::decodable::{Decodable, EncodedData};
 
     #[test]
     fn known() {
@@ -363,12 +261,18 @@ mod test {
             assert_eq!(&encoded[..size], data);
 
             // Test decode(data) == op
-            let (ret, size) = ReadFileDataRef::decode(data).unwrap();
+            let WithByteSize {
+                item: ret,
+                byte_size: size,
+            } = ReadFileDataRef::decode(data).unwrap();
             assert_eq!(size, data.len());
             assert_eq!(ret, op);
 
             // Test partial_decode == op
-            let (decoder, expected_size) = ReadFileDataRef::start_decoding(data).unwrap();
+            let WithByteSize {
+                item: decoder,
+                byte_size: expected_size,
+            } = ReadFileDataRef::start_decoding(data).unwrap();
             assert_eq!(expected_size, size);
             assert_eq!(unsafe { decoder.expected_size() }, size);
             assert_eq!(decoder.smaller_than(data.len()).unwrap(), size);
@@ -378,8 +282,8 @@ mod test {
                     group: decoder.group(),
                     response: decoder.response(),
                     file_id: decoder.file_id(),
-                    offset: decoder.offset().complete_decoding().0,
-                    length: decoder.length().complete_decoding().0,
+                    offset: decoder.offset().complete_decoding().item,
+                    length: decoder.length().complete_decoding().item,
                     phantom: core::marker::PhantomData,
                 }
             );
@@ -444,7 +348,10 @@ mod test {
         // Test decode(op.encode_in()) == op
         let mut encoded = [0_u8; MAX_SIZE];
         let size_encoded = op.encode_in(&mut encoded).unwrap();
-        let (ret, size_decoded) = ReadFileDataRef::decode(&encoded).unwrap();
+        let WithByteSize {
+            item: ret,
+            byte_size: size_decoded,
+        } = ReadFileDataRef::decode(&encoded).unwrap();
         assert_eq!(size_encoded, size_decoded);
         assert_eq!(ret, op);
 

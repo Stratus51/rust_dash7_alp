@@ -1,4 +1,6 @@
-/// Maximum byte size of an encoded `ReadFileData`
+use crate::decodable::{Decodable, EncodedData, WithByteSize};
+
+/// Maximum byte size of an encoded `an Addressee`
 pub const MAX_SIZE: usize = 2 + 8;
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
@@ -222,108 +224,6 @@ impl<'item> AddresseeRef<'item> {
         2 + self.identifier.id_type().size()
     }
 
-    /// Creates a decodable item from a data pointer without checking the data size.
-    ///
-    /// This method is meant to allow unchecked cross language wrapper libraries
-    /// to implement an unchecked call without having to build a fake slice with
-    /// a fake size.
-    ///
-    /// It is not meant to be used inside a Rust library/binary.
-    ///
-    /// # Safety
-    /// You are to check that:
-    /// - The first byte contains this action's querycode.
-    /// - The decodable object fits in the given data:
-    /// [`decodable.smaller_than(data.len())`](struct.DecodableAddressee.html#method.smaller_than)
-    ///
-    /// Failing that might result in reading and interpreting data outside the given
-    /// array (depending on what is done with the resulting object).
-    pub const unsafe fn start_decoding_ptr<'data>(data: *const u8) -> DecodableAddressee<'data> {
-        DecodableAddressee::from_ptr(data)
-    }
-
-    /// Creates a decodable item without checking the data size.
-    ///
-    /// # Safety
-    /// You are to check that:
-    /// - The first byte contains this action's querycode.
-    /// - The decodable object fits in the given data:
-    /// [`decodable.smaller_than(data.len())`](struct.DecodableAddressee.html#method.smaller_than)
-    ///
-    /// Failing that might result in reading and interpreting data outside the given
-    /// array (depending on what is done with the resulting object).
-    pub const unsafe fn start_decoding_unchecked(data: &[u8]) -> DecodableAddressee {
-        DecodableAddressee::new(data)
-    }
-
-    /// Returns a Decodable object and its expected byte size.
-    ///
-    /// This decodable item allows each parts of the item to be decoded independently.
-    ///
-    /// Returns the number of bytes required to continue decoding.
-    ///
-    /// # Errors
-    /// - Fails if data is smaller then the decoded expected size.
-    pub fn start_decoding(data: &[u8]) -> Result<(DecodableAddressee, usize), usize> {
-        let ret = unsafe { Self::start_decoding_unchecked(data) };
-        let size = ret.smaller_than(data.len())?;
-        Ok((ret, size))
-    }
-
-    /// Decodes the Item from a data pointer.
-    ///
-    /// Returns the decoded data and the number of bytes consumed to produce it.
-    ///
-    /// This method is meant to allow unchecked cross language wrapper libraries
-    /// to implement an unchecked call without having to build a fake slice with
-    /// a fake size.
-    ///
-    /// It is not meant to be used inside a Rust library/binary.
-    ///
-    /// # Safety
-    /// You are to check that:
-    /// - The first byte contains this action's querycode.
-    /// - The resulting size of the data consumed is smaller than the size of the
-    /// decoded data.
-    ///
-    /// Failing that might result in reading and interpreting data outside the given
-    /// array (depending on what is done with the resulting object).
-    pub unsafe fn decode_ptr(data: *const u8) -> (Self, usize) {
-        Self::start_decoding_ptr(data).complete_decoding()
-    }
-
-    /// Decodes the Item from bytes.
-    ///
-    /// Returns the decoded data and the number of bytes consumed to produce it.
-    ///
-    /// # Safety
-    /// You are to check that:
-    /// - The first byte contains this action's querycode.
-    /// - The resulting size of the data consumed is smaller than the size of the
-    /// decoded data.
-    ///
-    /// Failing that might result in reading and interpreting data outside the given
-    /// array (depending on what is done with the resulting object).
-    pub unsafe fn decode_unchecked(data: &'item [u8]) -> (Self, usize) {
-        Self::start_decoding_unchecked(data).complete_decoding()
-    }
-
-    /// Decodes the item from bytes.
-    ///
-    /// On success, returns the decoded data and the number of bytes consumed
-    /// to produce it.
-    ///
-    /// # Errors
-    /// - Fails if data is smaller then the decoded expected size.
-    ///
-    /// Returns the number of bytes required to continue decoding.
-    pub fn decode(data: &'item [u8]) -> Result<(Self, usize), usize> {
-        match Self::start_decoding(data) {
-            Ok(v) => Ok(v.0.complete_decoding()),
-            Err(e) => Err(e),
-        }
-    }
-
     pub fn to_owned(&self) -> Addressee {
         Addressee {
             nls_method: self.nls_method,
@@ -333,49 +233,12 @@ impl<'item> AddresseeRef<'item> {
     }
 }
 
-pub struct DecodableAddressee<'data> {
+pub struct EncodedAddressee<'data> {
     data: *const u8,
     data_life: core::marker::PhantomData<&'data ()>,
 }
 
-impl<'data> DecodableAddressee<'data> {
-    const fn new(data: &'data [u8]) -> Self {
-        Self::from_ptr(data.as_ptr())
-    }
-
-    const fn from_ptr(data: *const u8) -> Self {
-        Self {
-            data,
-            data_life: core::marker::PhantomData,
-        }
-    }
-
-    /// Decodes the size of the Item in bytes
-    ///
-    /// # Safety
-    /// This requires reading the data bytes that may be out of bound to be calculate.
-    pub unsafe fn expected_size(&self) -> usize {
-        2 + self.id_type().size()
-    }
-
-    /// Checks whether the given data_size is bigger than the decoded object expected size.
-    ///
-    /// On success, returns the size of the decoded object.
-    ///
-    /// # Errors
-    /// Fails if the data_size is smaller than the required data size to decode the object.
-    pub fn smaller_than(&self, data_size: usize) -> Result<usize, usize> {
-        let mut size = 1;
-        if data_size < size {
-            return Err(size);
-        }
-        size = unsafe { self.expected_size() };
-        if data_size < size {
-            return Err(size);
-        }
-        Ok(size)
-    }
-
+impl<'data> EncodedAddressee<'data> {
     pub fn id_type(&self) -> AddresseeIdentifierType {
         unsafe { AddresseeIdentifierType::from_unchecked(*self.data.add(0) >> 4 & 0x07) }
     }
@@ -404,11 +267,38 @@ impl<'data> DecodableAddressee<'data> {
             }
         }
     }
+}
 
-    /// Fully decode the Item
-    ///
-    /// Returns the decoded data and the number of bytes consumed to produce it.
-    pub fn complete_decoding(&self) -> (AddresseeRef<'data>, usize) {
+impl<'data> EncodedData<'data> for EncodedAddressee<'data> {
+    type DecodedData = AddresseeRef<'data>;
+    unsafe fn from_data_ref(data: &'data [u8]) -> Self {
+        Self::from_data_ptr(data.as_ptr())
+    }
+
+    unsafe fn from_data_ptr(data: *const u8) -> Self {
+        Self {
+            data,
+            data_life: core::marker::PhantomData,
+        }
+    }
+
+    unsafe fn expected_size(&self) -> usize {
+        2 + self.id_type().size()
+    }
+
+    fn smaller_than(&self, data_size: usize) -> Result<usize, usize> {
+        let mut size = 1;
+        if data_size < size {
+            return Err(size);
+        }
+        size = unsafe { self.expected_size() };
+        if data_size < size {
+            return Err(size);
+        }
+        Ok(size)
+    }
+
+    fn complete_decoding(&self) -> WithByteSize<AddresseeRef<'data>> {
         let id_type = self.id_type();
         let identifier = unsafe {
             match id_type {
@@ -424,15 +314,19 @@ impl<'data> DecodableAddressee<'data> {
                 }
             }
         };
-        (
-            AddresseeRef {
+        WithByteSize {
+            item: AddresseeRef {
                 nls_method: self.nls_method(),
                 access_class: self.access_class(),
                 identifier,
             },
-            2 + id_type.size(),
-        )
+            byte_size: 2 + id_type.size(),
+        }
     }
+}
+
+impl<'data> Decodable<'data> for AddresseeRef<'data> {
+    type Data = EncodedAddressee<'data>;
 }
 
 #[cfg_attr(feature = "repr_c", repr(C))]
@@ -469,12 +363,18 @@ mod test {
             assert_eq!(&encoded[..size], data);
 
             // Test decode(data) == op
-            let (ret, size) = AddresseeRef::decode(data).unwrap();
+            let WithByteSize {
+                item: ret,
+                byte_size: size,
+            } = AddresseeRef::decode(data).unwrap();
             assert_eq!(size, data.len());
             assert_eq!(ret, op);
 
             // Test partial_decode == op
-            let (decoder, expected_size) = AddresseeRef::start_decoding(data).unwrap();
+            let WithByteSize {
+                item: decoder,
+                byte_size: expected_size,
+            } = AddresseeRef::start_decoding(data).unwrap();
             assert_eq!(ret.identifier.id_type(), decoder.id_type());
             assert_eq!(expected_size, size);
             assert_eq!(unsafe { decoder.expected_size() }, size);
@@ -538,7 +438,10 @@ mod test {
         // Test decode(op.encode_in()) == op
         let mut encoded = [0_u8; TOT_SIZE];
         let size_encoded = op.encode_in(&mut encoded).unwrap();
-        let (ret, size_decoded) = AddresseeRef::decode(&encoded).unwrap();
+        let WithByteSize {
+            item: ret,
+            byte_size: size_decoded,
+        } = AddresseeRef::decode(&encoded).unwrap();
         assert_eq!(size_encoded, size_decoded);
         assert_eq!(ret, op);
 
