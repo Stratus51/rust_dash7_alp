@@ -28,7 +28,7 @@ use crate::decodable::{
     Decodable, EncodedData, FailableDecodable, FailableEncodedData, WithByteSize,
 };
 #[cfg(feature = "decode_query")]
-use crate::v1_2::error::{PtrUnknownQueryCode, UnknownQueryCode};
+use crate::v1_2::error::UnknownQueryCode;
 
 #[cfg(feature = "query")]
 #[cfg_attr(feature = "repr_c", repr(C))]
@@ -166,47 +166,37 @@ pub enum EncodedQuery<'data> {
 
 #[cfg(feature = "decode_query")]
 impl<'data> FailableEncodedData<'data> for EncodedQuery<'data> {
-    type RefError = UnknownQueryCode<'data>;
-    type PtrError = PtrUnknownQueryCode<'data>;
+    type Error = UnknownQueryCode<'data>;
     type DecodedData = DecodedQueryRef<'data>;
 
-    unsafe fn from_data_ref(data: &'data [u8]) -> Result<Self, Self::RefError> {
-        Self::from_data_ptr(data.as_ptr()).map_err(|e| UnknownQueryCode {
-            code: e.code,
-            remaining_data: &data[1..],
-        })
-    }
-
-    unsafe fn from_data_ptr(data: *const u8) -> Result<Self, Self::PtrError> {
-        let code = (*data.offset(0) >> 5) & 0x07;
+    unsafe fn new(data: &'data [u8]) -> Result<Self, Self::Error> {
+        let code = (*data.get_unchecked(0) >> 5) & 0x07;
         let query_code = match QueryCode::from(code) {
             Ok(code) => code,
             Err(_) => {
-                return Err(PtrUnknownQueryCode {
+                return Err(UnknownQueryCode {
                     code,
-                    remaining_data: data.offset(1),
-                    phantom: core::marker::PhantomData,
+                    remaining_data: &data[1..],
                 })
             }
         };
         Ok(match query_code {
             #[cfg(feature = "decode_query_compare_with_value")]
-            QueryCode::ComparisonWithValue => {
-                EncodedQuery::ComparisonWithValue(ComparisonWithValueRef::start_decoding_ptr(data))
-            }
+            QueryCode::ComparisonWithValue => EncodedQuery::ComparisonWithValue(
+                ComparisonWithValueRef::start_decoding_unchecked(data),
+            ),
             #[cfg(feature = "decode_query_compare_with_range")]
-            QueryCode::ComparisonWithRange => {
-                EncodedQuery::ComparisonWithRange(ComparisonWithRangeRef::start_decoding_ptr(data))
-            }
+            QueryCode::ComparisonWithRange => EncodedQuery::ComparisonWithRange(
+                ComparisonWithRangeRef::start_decoding_unchecked(data),
+            ),
             #[cfg(not(all(
                 feature = "decode_query_compare_with_range",
                 feature = "decode_query_compare_with_value"
             )))]
             _ => {
-                return Err(PtrUnknownQueryCode {
+                return Err(UnknownQueryCode {
                     code,
-                    remaining_data: data.offset(1),
-                    phantom: core::marker::PhantomData,
+                    remaining_data: &data[1..],
                 })
             }
         })

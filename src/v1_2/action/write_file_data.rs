@@ -115,44 +115,45 @@ impl<'item> WriteFileDataRef<'item> {
 }
 
 pub struct EncodedWriteFileData<'data> {
-    data: *const u8,
-    data_life: core::marker::PhantomData<&'data ()>,
+    data: &'data [u8],
 }
 
 impl<'data> EncodedWriteFileData<'data> {
     pub fn group(&self) -> bool {
-        unsafe { *self.data.add(0) & flag::GROUP != 0 }
+        unsafe { *self.data.get_unchecked(0) & flag::GROUP != 0 }
     }
 
     pub fn response(&self) -> bool {
-        unsafe { *self.data.add(0) & flag::RESPONSE != 0 }
+        unsafe { *self.data.get_unchecked(0) & flag::RESPONSE != 0 }
     }
 
     pub fn file_id(&self) -> FileId {
-        unsafe { FileId(*self.data.add(1)) }
+        unsafe { FileId(*self.data.get_unchecked(1)) }
     }
 
     pub fn offset(&self) -> EncodedVarint {
-        unsafe { Varint::start_decoding_ptr(self.data.add(2)) }
+        unsafe { Varint::start_decoding_unchecked(self.data.get_unchecked(2..)) }
     }
 
     pub fn length(&self) -> EncodedVarint {
         unsafe {
-            let offset_size = (((*self.data.add(2) & 0xC0) >> 6) + 1) as usize;
-            Varint::start_decoding_ptr(self.data.add(2 + offset_size))
+            let offset_size = (((*self.data.get_unchecked(2) & 0xC0) >> 6) + 1) as usize;
+            Varint::start_decoding_unchecked(self.data.get_unchecked(2 + offset_size..))
         }
     }
 
     pub fn data(&self) -> WithByteSize<EncodableDataRef<'data>> {
         unsafe {
-            let offset_size = (((*self.data.add(2) & 0xC0) >> 6) + 1) as usize;
+            let offset_size = (((*self.data.get_unchecked(2) & 0xC0) >> 6) + 1) as usize;
             let WithByteSize {
                 item: length,
                 byte_size: length_size,
-            } = Varint::decode_ptr(self.data.add(2 + offset_size));
+            } = Varint::decode_unchecked(self.data.get_unchecked(2 + offset_size..));
             let data_offset = 2 + offset_size + length_size;
-            let data =
-                core::slice::from_raw_parts(self.data.add(data_offset), length.u32() as usize);
+            let data = core::slice::from_raw_parts(
+                self.data.get_unchecked(data_offset),
+                length.u32() as usize,
+            );
             WithByteSize {
                 item: EncodableDataRef::new_unchecked(data),
                 byte_size: length_size + length.u32() as usize,
@@ -163,15 +164,8 @@ impl<'data> EncodedWriteFileData<'data> {
 
 impl<'data> EncodedData<'data> for EncodedWriteFileData<'data> {
     type DecodedData = WriteFileDataRef<'data>;
-    unsafe fn from_data_ref(data: &'data [u8]) -> Self {
-        Self::from_data_ptr(data.as_ptr())
-    }
-
-    unsafe fn from_data_ptr(data: *const u8) -> Self {
-        Self {
-            data,
-            data_life: core::marker::PhantomData,
-        }
+    unsafe fn new(data: &'data [u8]) -> Self {
+        Self { data }
     }
 
     unsafe fn expected_size(&self) -> usize {
@@ -179,7 +173,7 @@ impl<'data> EncodedData<'data> for EncodedWriteFileData<'data> {
         let WithByteSize {
             item: length,
             byte_size: length_size,
-        } = Varint::decode_ptr(self.data.add(2 + offset_size));
+        } = Varint::decode_unchecked(self.data.get_unchecked(2 + offset_size..));
         2 + offset_size + length_size + length.usize()
     }
 
@@ -196,7 +190,7 @@ impl<'data> EncodedData<'data> for EncodedWriteFileData<'data> {
             let WithByteSize {
                 item: length,
                 byte_size: length_size,
-            } = Varint::decode_ptr(self.data.add(size - 1));
+            } = Varint::decode_unchecked(self.data.get_unchecked(size - 1..));
             size += length.usize() + length_size - 1;
             if data_size < size {
                 return Err(size);
@@ -214,10 +208,12 @@ impl<'data> EncodedData<'data> for EncodedWriteFileData<'data> {
             let WithByteSize {
                 item: length,
                 byte_size: length_size,
-            } = Varint::decode_ptr(self.data.add(2 + offset_size));
+            } = Varint::decode_unchecked(self.data.get_unchecked(2 + offset_size..));
             let data_offset = 2 + offset_size + length_size;
-            let data =
-                core::slice::from_raw_parts(self.data.add(data_offset), length.u32() as usize);
+            let data = core::slice::from_raw_parts(
+                self.data.get_unchecked(data_offset),
+                length.u32() as usize,
+            );
             (
                 EncodableDataRef::new_unchecked(data),
                 length_size,

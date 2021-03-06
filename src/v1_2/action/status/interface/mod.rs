@@ -1,4 +1,4 @@
-use super::super::super::error::{PtrUnknownInterfaceId, UnknownInterfaceId};
+use super::super::super::error::UnknownInterfaceId;
 use crate::decodable::{
     Decodable, EncodedData, FailableDecodable, FailableEncodedData, WithByteSize,
 };
@@ -152,8 +152,7 @@ pub enum EncodedStatusInterfaceKind<'data> {
 }
 
 pub struct EncodedStatusInterface<'data> {
-    data: *const u8,
-    data_life: core::marker::PhantomData<&'data ()>,
+    data: &'data [u8],
     interface_id: InterfaceId,
 }
 
@@ -163,7 +162,7 @@ impl<'data> EncodedStatusInterface<'data> {
     }
 
     pub fn len_field(&self) -> EncodedVarint<'data> {
-        unsafe { Varint::start_decoding_ptr(self.data.add(1)) }
+        unsafe { Varint::start_decoding_unchecked(self.data.get_unchecked(1..)) }
     }
 
     pub fn status(&self) -> EncodedStatusInterfaceKind<'data> {
@@ -172,7 +171,9 @@ impl<'data> EncodedStatusInterface<'data> {
             match self.interface_id {
                 InterfaceId::Host => EncodedStatusInterfaceKind::Host,
                 InterfaceId::Dash7 => EncodedStatusInterfaceKind::Dash7(
-                    Dash7InterfaceStatusRef::start_decoding_ptr(self.data.add(offset)),
+                    Dash7InterfaceStatusRef::start_decoding_unchecked(
+                        self.data.get_unchecked(offset..),
+                    ),
                 ),
             }
         }
@@ -180,35 +181,16 @@ impl<'data> EncodedStatusInterface<'data> {
 }
 
 impl<'data> FailableEncodedData<'data> for EncodedStatusInterface<'data> {
-    type RefError = UnknownInterfaceId<'data>;
-    type PtrError = PtrUnknownInterfaceId<'data>;
+    type Error = UnknownInterfaceId<'data>;
     type DecodedData = StatusInterfaceRef<'data>;
 
-    unsafe fn from_data_ref(data: &'data [u8]) -> Result<Self, Self::RefError> {
+    unsafe fn new(data: &'data [u8]) -> Result<Self, Self::Error> {
         let byte = data.get_unchecked(0);
         let interface_id = InterfaceId::from(*byte).map_err(|_| UnknownInterfaceId {
             id: *byte,
-            remaining_data: &data[1..],
+            remaining_data: &data.get_unchecked(1..),
         })?;
-        Ok(Self {
-            data: data.as_ptr(),
-            data_life: core::marker::PhantomData,
-            interface_id,
-        })
-    }
-
-    unsafe fn from_data_ptr(data: *const u8) -> Result<Self, Self::PtrError> {
-        let byte = *data.add(0);
-        let interface_id = InterfaceId::from(byte).map_err(|_| PtrUnknownInterfaceId {
-            id: byte,
-            remaining_data: data.add(1),
-            phantom: core::marker::PhantomData,
-        })?;
-        Ok(Self {
-            data,
-            data_life: core::marker::PhantomData,
-            interface_id,
-        })
+        Ok(Self { data, interface_id })
     }
 
     unsafe fn expected_size(&self) -> usize {
@@ -255,7 +237,9 @@ impl<'data> FailableEncodedData<'data> for EncodedStatusInterface<'data> {
                     let WithByteSize {
                         item: status,
                         byte_size: size,
-                    } = Dash7InterfaceStatusRef::decode_ptr(self.data.add(offset));
+                    } = Dash7InterfaceStatusRef::decode_unchecked(
+                        self.data.get_unchecked(offset..),
+                    );
                     WithByteSize {
                         item: StatusInterfaceRef::Dash7(status),
                         byte_size: offset + size,

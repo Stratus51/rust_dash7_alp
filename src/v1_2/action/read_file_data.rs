@@ -118,52 +118,45 @@ impl<'item> ReadFileDataRef<'item> {
 }
 
 pub struct EncodedReadFileData<'data> {
-    data: *const u8,
-    data_life: core::marker::PhantomData<&'data ()>,
+    data: &'data [u8],
 }
 
 impl<'data> EncodedReadFileData<'data> {
     pub fn group(&self) -> bool {
-        unsafe { *self.data.add(0) & flag::GROUP != 0 }
+        unsafe { *self.data.get_unchecked(0) & flag::GROUP != 0 }
     }
 
     pub fn response(&self) -> bool {
-        unsafe { *self.data.add(0) & flag::RESPONSE != 0 }
+        unsafe { *self.data.get_unchecked(0) & flag::RESPONSE != 0 }
     }
 
     pub fn file_id(&self) -> FileId {
-        unsafe { FileId(*self.data.add(1)) }
+        unsafe { FileId(*self.data.get_unchecked(1)) }
     }
 
     pub fn offset(&self) -> EncodedVarint {
-        unsafe { Varint::start_decoding_ptr(self.data.add(2)) }
+        unsafe { Varint::start_decoding_unchecked(self.data.get_unchecked(2..)) }
     }
 
     pub fn length(&self) -> EncodedVarint {
         unsafe {
-            let offset_size = (((*self.data.add(2) & 0xC0) >> 6) + 1) as usize;
-            Varint::start_decoding_ptr(self.data.add(2 + offset_size))
+            let offset_size = (((*self.data.get_unchecked(2) & 0xC0) >> 6) + 1) as usize;
+            Varint::start_decoding_unchecked(self.data.get_unchecked(2 + offset_size..))
         }
     }
 }
 
 impl<'data> EncodedData<'data> for EncodedReadFileData<'data> {
     type DecodedData = ReadFileDataRef<'data>;
-    unsafe fn from_data_ref(data: &'data [u8]) -> Self {
-        Self::from_data_ptr(data.as_ptr())
-    }
-
-    unsafe fn from_data_ptr(data: *const u8) -> Self {
-        Self {
-            data,
-            data_life: core::marker::PhantomData,
-        }
+    unsafe fn new(data: &'data [u8]) -> Self {
+        Self { data }
     }
 
     unsafe fn expected_size(&self) -> usize {
         let offset_size = self.offset().expected_size();
         let length_size =
-            Varint::start_decoding_ptr(self.data.add(2 + offset_size)).expected_size();
+            Varint::start_decoding_unchecked(self.data.get_unchecked(2 + offset_size..))
+                .expected_size();
         2 + offset_size + length_size
     }
 
@@ -177,7 +170,8 @@ impl<'data> EncodedData<'data> for EncodedReadFileData<'data> {
             if data_size < size {
                 return Err(size);
             }
-            size += Varint::start_decoding_ptr(self.data.add(size - 1)).expected_size();
+            size += Varint::start_decoding_unchecked(self.data.get_unchecked(size - 1..))
+                .expected_size();
             size -= 1;
             if data_size < size {
                 return Err(size);
@@ -194,7 +188,7 @@ impl<'data> EncodedData<'data> for EncodedReadFileData<'data> {
         let WithByteSize {
             item: length,
             byte_size: length_size,
-        } = unsafe { Varint::decode_ptr(self.data.add(2 + offset_size)) };
+        } = unsafe { Varint::decode_unchecked(self.data.get_unchecked(2 + offset_size..)) };
         WithByteSize {
             item: ReadFileDataRef {
                 group: self.group(),

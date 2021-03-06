@@ -4,9 +4,7 @@ pub mod interface;
 
 use super::super::define::op_code::OpCode;
 use crate::decodable::{FailableDecodable, FailableEncodedData, WithByteSize};
-use crate::v1_2::error::{
-    PtrStatusDecodeError, PtrUnknownExtension, StatusDecodeError, UnknownExtension,
-};
+use crate::v1_2::error::{StatusDecodeError, UnknownExtension};
 pub use define::StatusExtension;
 pub use interface::{EncodedStatusInterface, StatusInterface, StatusInterfaceRef};
 
@@ -93,11 +91,10 @@ pub enum EncodedStatus<'data> {
 }
 
 impl<'data> FailableEncodedData<'data> for EncodedStatus<'data> {
-    type RefError = StatusDecodeError<'data>;
-    type PtrError = PtrStatusDecodeError<'data>;
+    type Error = StatusDecodeError<'data>;
     type DecodedData = StatusRef<'data>;
 
-    unsafe fn from_data_ref(data: &'data [u8]) -> Result<Self, Self::RefError> {
+    unsafe fn new(data: &'data [u8]) -> Result<Self, Self::Error> {
         let byte = data.get_unchecked(0);
         let code = byte >> 6;
         let extension = match StatusExtension::from(code) {
@@ -105,7 +102,7 @@ impl<'data> FailableEncodedData<'data> for EncodedStatus<'data> {
             Err(ext) => {
                 return Err(StatusDecodeError::UnknownExtension(UnknownExtension {
                     extension: ext,
-                    remaining_data: &data[1..],
+                    remaining_data: data.get_unchecked(1..),
                 }))
             }
         };
@@ -113,33 +110,6 @@ impl<'data> FailableEncodedData<'data> for EncodedStatus<'data> {
             StatusExtension::Interface => EncodedStatus::Interface(
                 StatusInterfaceRef::start_decoding_unchecked(&data[1..])
                     .map_err(StatusDecodeError::UnknownInterfaceId)?,
-            ),
-        })
-    }
-
-    /// # Safety
-    /// You have to warrant that the data has at least:
-    /// - 1 byte if you expect an action status
-    /// - 2 bytes if you expect an interface status
-    unsafe fn from_data_ptr(data: *const u8) -> Result<Self, Self::PtrError> {
-        let byte = *data.add(0);
-        let code = byte >> 6;
-        let extension = match StatusExtension::from(code) {
-            Ok(ext) => ext,
-            Err(ext) => {
-                return Err(PtrStatusDecodeError::UnknownExtension(
-                    PtrUnknownExtension {
-                        extension: ext,
-                        remaining_data: data.add(1),
-                        phantom: core::marker::PhantomData,
-                    },
-                ))
-            }
-        };
-        Ok(match extension {
-            StatusExtension::Interface => EncodedStatus::Interface(
-                StatusInterfaceRef::start_decoding_ptr(data.add(1))
-                    .map_err(PtrStatusDecodeError::UnknownInterfaceId)?,
             ),
         })
     }
@@ -178,16 +148,6 @@ impl<'data> FailableEncodedData<'data> for EncodedStatus<'data> {
 
 impl<'data> FailableDecodable<'data> for StatusRef<'data> {
     type Data = EncodedStatus<'data>;
-
-    /// # Safety
-    /// You have to warrant that the data has at least:
-    /// - 1 byte if you expect an action status
-    /// - 2 bytes if you expect an interface status
-    unsafe fn start_decoding_ptr(
-        data: *const u8,
-    ) -> Result<Self::Data, PtrStatusDecodeError<'data>> {
-        Self::Data::from_data_ptr(data)
-    }
 }
 
 /// Details from the interface the command is coming from

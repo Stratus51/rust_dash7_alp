@@ -124,6 +124,15 @@ impl<'item> AddresseeIdentifierRef<'item> {
         }
     }
 
+    pub fn size(&self) -> usize {
+        match self {
+            Self::Nbid(_) => 1,
+            Self::Noid => 0,
+            Self::Uid(_) => 8,
+            Self::Vid(_) => 2,
+        }
+    }
+
     pub fn to_owned(&self) -> AddresseeIdentifier {
         match self {
             Self::Nbid(n) => AddresseeIdentifier::Nbid(*n),
@@ -234,35 +243,36 @@ impl<'item> AddresseeRef<'item> {
 }
 
 pub struct EncodedAddressee<'data> {
-    data: *const u8,
-    data_life: core::marker::PhantomData<&'data ()>,
+    data: &'data [u8],
 }
 
 impl<'data> EncodedAddressee<'data> {
     pub fn id_type(&self) -> AddresseeIdentifierType {
-        unsafe { AddresseeIdentifierType::from_unchecked(*self.data.add(0) >> 4 & 0x07) }
+        unsafe { AddresseeIdentifierType::from_unchecked(*self.data.get_unchecked(0) >> 4 & 0x07) }
     }
 
     pub fn nls_method(&self) -> NlsMethod {
-        unsafe { NlsMethod::from_unchecked(*self.data.add(0) & 0x0F) }
+        unsafe { NlsMethod::from_unchecked(*self.data.get_unchecked(0) & 0x0F) }
     }
 
     pub fn access_class(&self) -> AccessClass {
-        unsafe { AccessClass(*self.data.add(1)) }
+        unsafe { AccessClass(*self.data.get_unchecked(1)) }
     }
 
-    pub fn identifier(&self) -> AddresseeIdentifierRef {
+    pub fn identifier(&self) -> AddresseeIdentifierRef<'data> {
         unsafe {
             match self.id_type() {
-                AddresseeIdentifierType::Nbid => AddresseeIdentifierRef::Nbid(*self.data.add(2)),
+                AddresseeIdentifierType::Nbid => {
+                    AddresseeIdentifierRef::Nbid(*self.data.get_unchecked(2))
+                }
                 AddresseeIdentifierType::Noid => AddresseeIdentifierRef::Noid,
                 AddresseeIdentifierType::Uid => {
-                    let data = self.data.add(2) as *const [u8; 8];
-                    AddresseeIdentifierRef::Uid(&*data)
+                    let data = &*(self.data.get_unchecked(2..).as_ptr() as *const [u8; 8]);
+                    AddresseeIdentifierRef::Uid(data)
                 }
                 AddresseeIdentifierType::Vid => {
-                    let data = self.data.add(2) as *const [u8; 2];
-                    AddresseeIdentifierRef::Vid(&*data)
+                    let data = &*(self.data.get_unchecked(2..).as_ptr() as *const [u8; 2]);
+                    AddresseeIdentifierRef::Vid(data)
                 }
             }
         }
@@ -271,15 +281,8 @@ impl<'data> EncodedAddressee<'data> {
 
 impl<'data> EncodedData<'data> for EncodedAddressee<'data> {
     type DecodedData = AddresseeRef<'data>;
-    unsafe fn from_data_ref(data: &'data [u8]) -> Self {
-        Self::from_data_ptr(data.as_ptr())
-    }
-
-    unsafe fn from_data_ptr(data: *const u8) -> Self {
-        Self {
-            data,
-            data_life: core::marker::PhantomData,
-        }
+    unsafe fn new(data: &'data [u8]) -> Self {
+        Self { data }
     }
 
     unsafe fn expected_size(&self) -> usize {
@@ -299,28 +302,14 @@ impl<'data> EncodedData<'data> for EncodedAddressee<'data> {
     }
 
     fn complete_decoding(&self) -> WithByteSize<AddresseeRef<'data>> {
-        let id_type = self.id_type();
-        let identifier = unsafe {
-            match id_type {
-                AddresseeIdentifierType::Nbid => AddresseeIdentifierRef::Nbid(*self.data.add(2)),
-                AddresseeIdentifierType::Noid => AddresseeIdentifierRef::Noid,
-                AddresseeIdentifierType::Uid => {
-                    let data = self.data.add(2) as *const [u8; 8];
-                    AddresseeIdentifierRef::Uid(&*data)
-                }
-                AddresseeIdentifierType::Vid => {
-                    let data = self.data.add(2) as *const [u8; 2];
-                    AddresseeIdentifierRef::Vid(&*data)
-                }
-            }
-        };
+        let identifier = self.identifier();
         WithByteSize {
             item: AddresseeRef {
                 nls_method: self.nls_method(),
                 access_class: self.access_class(),
                 identifier,
             },
-            byte_size: 2 + id_type.size(),
+            byte_size: 2 + identifier.size(),
         }
     }
 }

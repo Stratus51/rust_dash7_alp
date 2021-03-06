@@ -26,7 +26,7 @@ pub mod write_file_properties;
 #[cfg(feature = "decode_action")]
 use crate::v1_2::define::op_code::OpCode;
 #[cfg(feature = "decode_action")]
-use crate::v1_2::error::{ActionDecodeError, PtrActionDecodeError};
+use crate::v1_2::error::ActionDecodeError;
 
 #[cfg(feature = "decode_nop")]
 use nop::EncodedNop;
@@ -349,11 +349,10 @@ pub enum EncodedAction<'data> {
 
 #[cfg(feature = "decode_action")]
 impl<'data> FailableEncodedData<'data> for EncodedAction<'data> {
-    type RefError = ActionDecodeError<'data>;
-    type PtrError = PtrActionDecodeError<'data>;
+    type Error = ActionDecodeError<'data>;
     type DecodedData = DecodedActionRef<'data>;
 
-    unsafe fn from_data_ref(data: &'data [u8]) -> Result<Self, ActionDecodeError<'data>> {
+    unsafe fn new(data: &'data [u8]) -> Result<Self, ActionDecodeError<'data>> {
         let code = *data.get_unchecked(0) & 0x3F;
         let op_code = match OpCode::from(code) {
             Ok(code) => code,
@@ -384,35 +383,6 @@ impl<'data> FailableEncodedData<'data> for EncodedAction<'data> {
             #[cfg(feature = "decode_status")]
             OpCode::Status => Self::Status(StatusRef::start_decoding_unchecked(data)?),
             _ => return Err(ActionDecodeError::UnknownActionCode(code)),
-        })
-    }
-
-    unsafe fn from_data_ptr(data: *const u8) -> Result<Self, PtrActionDecodeError<'data>> {
-        let code = *data.offset(0) & 0x3F;
-        let op_code = match OpCode::from(code) {
-            Ok(code) => code,
-            Err(_) => return Err(PtrActionDecodeError::UnknownActionCode(code)),
-        };
-        Ok(match op_code {
-            #[cfg(feature = "decode_nop")]
-            OpCode::Nop => Self::Nop(NopRef::start_decoding_ptr(data)),
-            #[cfg(feature = "decode_read_file_data")]
-            OpCode::ReadFileData => Self::ReadFileData(ReadFileDataRef::start_decoding_ptr(data)),
-            #[cfg(feature = "decode_read_file_properties")]
-            OpCode::ReadFileProperties => {
-                Self::ReadFileProperties(ReadFilePropertiesRef::start_decoding_ptr(data))
-            }
-            #[cfg(feature = "decode_write_file_data")]
-            OpCode::WriteFileData => {
-                Self::WriteFileData(WriteFileDataRef::start_decoding_ptr(data))
-            }
-            #[cfg(feature = "decode_action_query")]
-            OpCode::ActionQuery => {
-                Self::ActionQuery(DecodedActionQueryRef::start_decoding_ptr(data)?)
-            }
-            #[cfg(feature = "decode_status")]
-            OpCode::Status => Self::Status(StatusRef::start_decoding_ptr(data)?),
-            _ => return Err(PtrActionDecodeError::UnknownActionCode(code)),
         })
     }
 

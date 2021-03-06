@@ -111,32 +111,24 @@ impl<'item> NopRef<'item> {
 }
 
 pub struct EncodedNop<'data> {
-    data: *const u8,
-    data_life: core::marker::PhantomData<&'data ()>,
+    data: &'data [u8],
 }
 
 impl<'data> EncodedNop<'data> {
     pub fn group(&self) -> bool {
-        unsafe { *self.data.add(0) & flag::GROUP != 0 }
+        unsafe { *self.data.get_unchecked(0) & flag::GROUP != 0 }
     }
 
     pub fn response(&self) -> bool {
-        unsafe { *self.data.add(0) & flag::RESPONSE != 0 }
+        unsafe { *self.data.get_unchecked(0) & flag::RESPONSE != 0 }
     }
 }
 
 impl<'data> EncodedData<'data> for EncodedNop<'data> {
     type DecodedData = NopRef<'data>;
 
-    unsafe fn from_data_ref(data: &'data [u8]) -> Self {
-        Self::from_data_ptr(data.as_ptr())
-    }
-
-    unsafe fn from_data_ptr(data: *const u8) -> Self {
-        Self {
-            data,
-            data_life: core::marker::PhantomData,
-        }
+    unsafe fn new(data: &'data [u8]) -> Self {
+        Self { data }
     }
 
     unsafe fn expected_size(&self) -> usize {

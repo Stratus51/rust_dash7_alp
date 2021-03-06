@@ -5,7 +5,7 @@ use super::super::super::define::op_code::OpCode;
 #[cfg(feature = "decode_query")]
 use crate::decodable::{FailableDecodable, FailableEncodedData, WithByteSize};
 #[cfg(feature = "decode_query")]
-use crate::v1_2::error::{PtrUnknownQueryCode, UnknownQueryCode};
+use crate::v1_2::error::UnknownQueryCode;
 
 #[cfg(feature = "query")]
 use super::QueryRef;
@@ -16,6 +16,7 @@ use super::{DecodedQueryRef, EncodedQuery};
 #[cfg(feature = "alloc")]
 use super::Query;
 
+// TODO Rename to be more generic, and be reused in break_query
 /// Executes next action group depending on a condition
 #[cfg(feature = "query")]
 #[cfg_attr(feature = "repr_c", repr(C))]
@@ -131,19 +132,18 @@ impl<'item> From<DecodedActionQueryRef<'item>> for ActionQueryRef<'item> {
 
 #[cfg(feature = "decode_query")]
 pub struct EncodedActionQuery<'data> {
-    data: *const u8,
-    data_life: core::marker::PhantomData<&'data ()>,
+    data: &'data [u8],
     query: EncodedQuery<'data>,
 }
 
 #[cfg(feature = "decode_query")]
 impl<'data> EncodedActionQuery<'data> {
     pub fn group(&self) -> bool {
-        unsafe { *self.data.add(0) & flag::GROUP != 0 }
+        unsafe { *self.data.get_unchecked(0) & flag::GROUP != 0 }
     }
 
     pub fn response(&self) -> bool {
-        unsafe { *self.data.add(0) & flag::RESPONSE != 0 }
+        unsafe { *self.data.get_unchecked(0) & flag::RESPONSE != 0 }
     }
 
     pub fn query(&self) -> &EncodedQuery<'data> {
@@ -153,26 +153,12 @@ impl<'data> EncodedActionQuery<'data> {
 
 #[cfg(feature = "decode_query")]
 impl<'data> FailableEncodedData<'data> for EncodedActionQuery<'data> {
-    type RefError = UnknownQueryCode<'data>;
-    type PtrError = PtrUnknownQueryCode<'data>;
+    type Error = UnknownQueryCode<'data>;
     type DecodedData = DecodedActionQueryRef<'data>;
 
-    unsafe fn from_data_ref(data: &'data [u8]) -> Result<Self, Self::RefError> {
+    unsafe fn new(data: &'data [u8]) -> Result<Self, Self::Error> {
         let query = DecodedQueryRef::start_decoding_unchecked(&data[1..])?;
-        Ok(Self {
-            data: data.as_ptr(),
-            data_life: core::marker::PhantomData,
-            query,
-        })
-    }
-
-    unsafe fn from_data_ptr(data: *const u8) -> Result<Self, Self::PtrError> {
-        let query = DecodedQueryRef::start_decoding_ptr(data.add(1))?;
-        Ok(Self {
-            data,
-            data_life: core::marker::PhantomData,
-            query,
-        })
+        Ok(Self { data, query })
     }
 
     unsafe fn expected_size(&self) -> usize {

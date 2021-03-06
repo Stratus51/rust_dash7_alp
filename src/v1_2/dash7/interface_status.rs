@@ -83,9 +83,8 @@ impl AddresseeWithNlsState {
 }
 
 pub struct EncodedAddresseeWithNlsState<'data> {
-    data: *const u8,
+    data: &'data [u8],
     addressee: EncodedAddressee<'data>,
-    data_life: core::marker::PhantomData<&'data ()>,
 }
 
 impl<'data> EncodedAddresseeWithNlsState<'data> {
@@ -103,7 +102,7 @@ impl<'data> EncodedAddresseeWithNlsState<'data> {
         } else {
             unsafe {
                 let size = self.addressee.expected_size();
-                let data = self.data.add(size) as *const [u8; 5];
+                let data = &*(self.data.get_unchecked(size..size + 5).as_ptr() as *const [u8; 5]);
                 Some(&*data)
             }
         }
@@ -112,15 +111,10 @@ impl<'data> EncodedAddresseeWithNlsState<'data> {
 
 impl<'data> EncodedData<'data> for EncodedAddresseeWithNlsState<'data> {
     type DecodedData = AddresseeWithNlsStateRef<'data>;
-    unsafe fn from_data_ref(data: &'data [u8]) -> Self {
-        Self::from_data_ptr(data.as_ptr())
-    }
-
-    unsafe fn from_data_ptr(data: *const u8) -> Self {
+    unsafe fn new(data: &'data [u8]) -> Self {
         Self {
             data,
-            addressee: AddresseeRef::start_decoding_ptr(data),
-            data_life: core::marker::PhantomData,
+            addressee: AddresseeRef::start_decoding_unchecked(data),
         }
     }
 
@@ -150,7 +144,10 @@ impl<'data> EncodedData<'data> for EncodedAddresseeWithNlsState<'data> {
             if addressee.nls_method == NlsMethod::None {
                 (None, 0)
             } else {
-                let data = self.data.add(addressee_size) as *const [u8; 5];
+                let data = &*(self
+                    .data
+                    .get_unchecked(addressee_size..addressee_size + 5)
+                    .as_ptr() as *const [u8; 5]);
                 (Some(&*data), 5)
             }
         };
@@ -272,65 +269,57 @@ impl<'item> Dash7InterfaceStatusRef<'item> {
 }
 
 pub struct EncodedDash7InterfaceStatus<'data> {
-    data: *const u8,
-    data_life: core::marker::PhantomData<&'data ()>,
+    data: &'data [u8],
 }
 
 impl<'data> EncodedDash7InterfaceStatus<'data> {
     pub fn ch_header(&self) -> u8 {
-        unsafe { *self.data.add(0) }
+        unsafe { *self.data.get_unchecked(0) }
     }
 
     pub fn ch_idx(&self) -> u16 {
         unsafe {
             let mut data: [u8; 2] = [core::mem::MaybeUninit::uninit().assume_init(); 2];
-            data.as_mut_ptr().copy_from(self.data.add(1), 2);
+            data.as_mut_ptr().copy_from(self.data.get_unchecked(1), 2);
             // TODO SPEC endianess
             u16::from_le_bytes(data)
         }
     }
     pub fn rxlev(&self) -> u8 {
-        unsafe { *self.data.add(3) }
+        unsafe { *self.data.get_unchecked(3) }
     }
     pub fn lb(&self) -> u8 {
-        unsafe { *self.data.add(4) }
+        unsafe { *self.data.get_unchecked(4) }
     }
     pub fn snr(&self) -> u8 {
-        unsafe { *self.data.add(5) }
+        unsafe { *self.data.get_unchecked(5) }
     }
     pub fn status(&self) -> u8 {
-        unsafe { *self.data.add(6) }
+        unsafe { *self.data.get_unchecked(6) }
     }
     pub fn token(&self) -> u8 {
-        unsafe { *self.data.add(7) }
+        unsafe { *self.data.get_unchecked(7) }
     }
     pub fn seq(&self) -> u8 {
-        unsafe { *self.data.add(8) }
+        unsafe { *self.data.get_unchecked(8) }
     }
     pub fn resp_to(&self) -> u8 {
-        unsafe { *self.data.add(9) }
+        unsafe { *self.data.get_unchecked(9) }
     }
     pub fn addressee(&self) -> EncodedAddressee<'data> {
-        unsafe { AddresseeRef::start_decoding_ptr(self.data.add(10)) }
+        unsafe { AddresseeRef::start_decoding_unchecked(self.data.get_unchecked(10..)) }
     }
 
     pub fn addressee_with_nls_state(&self) -> EncodedAddresseeWithNlsState<'data> {
-        unsafe { EncodedAddresseeWithNlsState::from_data_ptr(self.data.add(10)) }
+        unsafe { EncodedAddresseeWithNlsState::new(self.data.get_unchecked(10..)) }
     }
 }
 
 impl<'data> EncodedData<'data> for EncodedDash7InterfaceStatus<'data> {
     type DecodedData = Dash7InterfaceStatusRef<'data>;
 
-    unsafe fn from_data_ref(data: &'data [u8]) -> Self {
-        Self::from_data_ptr(data.as_ptr())
-    }
-
-    unsafe fn from_data_ptr(data: *const u8) -> Self {
-        Self {
-            data,
-            data_life: core::marker::PhantomData,
-        }
+    unsafe fn new(data: &'data [u8]) -> Self {
+        Self { data }
     }
 
     unsafe fn expected_size(&self) -> usize {

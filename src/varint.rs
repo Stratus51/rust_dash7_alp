@@ -205,25 +205,17 @@ impl Varint {
 }
 
 pub struct EncodedVarint<'data> {
-    data: *const u8,
-    data_life: core::marker::PhantomData<&'data ()>,
+    data: &'data [u8],
 }
 
 impl<'data> EncodedData<'data> for EncodedVarint<'data> {
     type DecodedData = Varint;
-    unsafe fn from_data_ref(data: &'data [u8]) -> Self {
-        Self::from_data_ptr(data.as_ptr())
-    }
-
-    unsafe fn from_data_ptr(data: *const u8) -> Self {
-        Self {
-            data,
-            data_life: core::marker::PhantomData,
-        }
+    unsafe fn new(data: &'data [u8]) -> Self {
+        Self { data }
     }
 
     unsafe fn expected_size(&self) -> usize {
-        ((*self.data.add(0) & 0xC0) >> 6) as usize + 1
+        ((self.data.get_unchecked(0) & 0xC0) >> 6) as usize + 1
     }
 
     fn smaller_than(&self, data_size: usize) -> Result<usize, usize> {
@@ -243,18 +235,20 @@ impl<'data> EncodedData<'data> for EncodedVarint<'data> {
             let size = self.expected_size();
             let data = &self.data;
             let ret = Varint::new_unchecked(match size {
-                1 => (*data.add(0) & 0x3F) as u32,
-                2 => (((*data.add(0) & 0x3F) as u32) << 8) + *data.add(1) as u32,
+                1 => (*data.get_unchecked(0) & 0x3F) as u32,
+                2 => {
+                    (((*data.get_unchecked(0) & 0x3F) as u32) << 8) + *data.get_unchecked(1) as u32
+                }
                 3 => {
-                    (((*data.add(0) & 0x3F) as u32) << 16)
-                        + ((*data.add(1) as u32) << 8)
-                        + *data.add(2) as u32
+                    (((*data.get_unchecked(0) & 0x3F) as u32) << 16)
+                        + ((*data.get_unchecked(1) as u32) << 8)
+                        + *data.get_unchecked(2) as u32
                 }
                 4 => {
-                    (((*data.add(0) & 0x3F) as u32) << 24)
-                        + ((*data.add(1) as u32) << 16)
-                        + ((*data.add(2) as u32) << 8)
-                        + *data.add(3) as u32
+                    (((*data.get_unchecked(0) & 0x3F) as u32) << 24)
+                        + ((*data.get_unchecked(1) as u32) << 16)
+                        + ((*data.get_unchecked(2) as u32) << 8)
+                        + *data.get_unchecked(3) as u32
                 }
                 // This is bad and incorrect. But size should mathematically never evaluate to this
                 // case. Let's just hope the size method is not broken.
