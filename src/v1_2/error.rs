@@ -49,36 +49,12 @@ pub struct UnknownQueryCode<'data> {
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct PtrUnknownQueryCode<'data> {
-    /// Parsed query code
-    pub code: u8,
-    /// Remaining bytes starting with the byte containing the query code
-    /// because it may contain some query specific data.
-    pub remaining_data: *const u8,
-    pub phantom: core::marker::PhantomData<&'data ()>,
-}
-
-#[cfg_attr(feature = "repr_c", repr(C))]
-#[cfg_attr(feature = "packed", repr(packed))]
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct UnknownExtension<'data> {
     /// Parsed status extension field
     pub extension: u8,
     /// Remaining bytes starting after the ALP action opcode byte because
     /// there is nothing left to parse in the first byte.
     pub remaining_data: &'data [u8],
-}
-
-#[cfg_attr(feature = "repr_c", repr(C))]
-#[cfg_attr(feature = "packed", repr(packed))]
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct PtrUnknownExtension<'data> {
-    /// Parsed status extension field
-    pub extension: u8,
-    /// Remaining bytes starting after the ALP action opcode byte because
-    /// there is nothing left to parse in the first byte.
-    pub remaining_data: *const u8,
-    pub phantom: core::marker::PhantomData<&'data ()>,
 }
 
 #[cfg_attr(feature = "repr_c", repr(C))]
@@ -94,32 +70,11 @@ pub struct UnknownInterfaceId<'data> {
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct PtrUnknownInterfaceId<'data> {
-    /// Parsed status extension field
-    pub id: u8,
-    /// Remaining bytes starting after the interface ID byte
-    pub remaining_data: *const u8,
-    pub phantom: core::marker::PhantomData<&'data ()>,
-}
-
-#[cfg_attr(feature = "repr_c", repr(C))]
-#[cfg_attr(feature = "packed", repr(packed))]
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum StatusDecodeError<'data> {
     /// The decoded query contains an unknown query code.
     UnknownExtension(UnknownExtension<'data>),
     /// The input data contains an unknown interface ID
     UnknownInterfaceId(UnknownInterfaceId<'data>),
-}
-
-#[cfg_attr(feature = "repr_c", repr(C))]
-#[cfg_attr(feature = "packed", repr(packed))]
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub enum PtrStatusDecodeError<'data> {
-    /// The decoded query contains an unknown query code.
-    UnknownExtension(PtrUnknownExtension<'data>),
-    /// The input data contains an unknown interface ID
-    UnknownInterfaceId(PtrUnknownInterfaceId<'data>),
 }
 
 #[cfg_attr(feature = "repr_c", repr(C))]
@@ -154,31 +109,6 @@ impl<'data> From<StatusDecodeError<'data>> for ActionDecodeError<'data> {
 
 impl<'data> From<UnknownQueryCode<'data>> for ActionDecodeError<'data> {
     fn from(e: UnknownQueryCode<'data>) -> Self {
-        Self::UnknownQueryCode(e)
-    }
-}
-
-#[cfg_attr(feature = "repr_c", repr(C))]
-#[cfg_attr(feature = "packed", repr(packed))]
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub enum PtrActionDecodeError<'data> {
-    UnknownActionCode(u8),
-    UnknownQueryCode(PtrUnknownQueryCode<'data>),
-    UnknownStatusExtension(PtrUnknownExtension<'data>),
-    UnknownStatusInterfaceId(PtrUnknownInterfaceId<'data>),
-}
-
-impl<'data> From<PtrStatusDecodeError<'data>> for PtrActionDecodeError<'data> {
-    fn from(e: PtrStatusDecodeError<'data>) -> Self {
-        match e {
-            PtrStatusDecodeError::UnknownExtension(e) => Self::UnknownStatusExtension(e),
-            PtrStatusDecodeError::UnknownInterfaceId(e) => Self::UnknownStatusInterfaceId(e),
-        }
-    }
-}
-
-impl<'data> From<PtrUnknownQueryCode<'data>> for PtrActionDecodeError<'data> {
-    fn from(e: PtrUnknownQueryCode<'data>) -> Self {
         Self::UnknownQueryCode(e)
     }
 }
