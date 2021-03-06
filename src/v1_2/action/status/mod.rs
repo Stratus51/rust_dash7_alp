@@ -27,9 +27,9 @@ impl<'data> Encodable for StatusRef<'data> {
         }
     }
 
-    fn size(&self) -> usize {
+    fn encoded_size(&self) -> usize {
         1 + match self {
-            Self::Interface(status) => status.size(),
+            Self::Interface(status) => status.encoded_size(),
         }
     }
 }
@@ -53,29 +53,33 @@ pub enum ValidEncodedStatus<'data> {
 }
 
 impl<'data> EncodedStatus<'data> {
+    /// # Safety
+    /// This reads data without checking boundaries.
+    /// If self.data.len() < self.encoded_size() then this is safe.
+    ///
     /// # Errors
     /// Fails if the status extension is unsupported.
-    pub fn extension(&self) -> Result<StatusExtension, UnsupportedExtension<'data>> {
-        unsafe {
-            let byte = self.data.get_unchecked(0);
-            let code = byte >> 6;
-            StatusExtension::from(code).map_err(|_| UnsupportedExtension {
-                extension: code,
-                remaining_data: self.data.get_unchecked(1..),
-            })
-        }
+    pub unsafe fn extension(&self) -> Result<StatusExtension, UnsupportedExtension<'data>> {
+        let byte = self.data.get_unchecked(0);
+        let code = byte >> 6;
+        StatusExtension::from(code).map_err(|_| UnsupportedExtension {
+            extension: code,
+            remaining_data: self.data.get_unchecked(1..),
+        })
     }
 
+    /// # Safety
+    /// This reads data without checking boundaries.
+    /// If self.data.len() < self.encoded_size() then this is safe.
+    ///
     /// # Errors
     /// Fails if the status extension is unsupported.
-    pub fn status(&self) -> Result<ValidEncodedStatus<'data>, UnsupportedExtension<'data>> {
-        unsafe {
-            Ok(match self.extension()? {
-                StatusExtension::Interface => ValidEncodedStatus::Interface(
-                    StatusInterfaceRef::start_decoding_unchecked(&self.data[1..]),
-                ),
-            })
-        }
+    pub unsafe fn status(&self) -> Result<ValidEncodedStatus<'data>, UnsupportedExtension<'data>> {
+        Ok(match self.extension()? {
+            StatusExtension::Interface => ValidEncodedStatus::Interface(
+                StatusInterfaceRef::start_decoding_unchecked(&self.data[1..]),
+            ),
+        })
     }
 }
 
@@ -88,19 +92,24 @@ impl<'data> FailableEncodedData<'data> for EncodedStatus<'data> {
     type DecodeError = StatusDecodeError<'data>;
     type DecodedData = StatusRef<'data>;
 
-    unsafe fn new(data: &'data [u8]) -> Self {
+    fn new(data: &'data [u8]) -> Self {
         Self { data }
     }
 
-    fn size(&self) -> Result<usize, Self::SizeError> {
-        match self.status()? {
-            ValidEncodedStatus::Interface(status) => status.size(),
+    fn encoded_size(&self) -> Result<usize, Self::SizeError> {
+        if self.data.is_empty() {
+            return Err(StatusSizeError::MissingBytes);
+        }
+        match unsafe { self.status()? } {
+            ValidEncodedStatus::Interface(status) => status.encoded_size(),
         }
         .map(|v| v + 1)
         .map_err(|e| e.into())
     }
 
-    fn complete_decoding(&self) -> Result<WithByteSize<StatusRef<'data>>, Self::DecodeError> {
+    unsafe fn complete_decoding(
+        &self,
+    ) -> Result<WithByteSize<StatusRef<'data>>, Self::DecodeError> {
         let mut ret = match &self.status()? {
             ValidEncodedStatus::Interface(interface) => {
                 let WithByteSize {

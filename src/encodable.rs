@@ -33,7 +33,7 @@ pub trait Encodable {
     /// Fails if the pre allocated array is smaller than [`self.size()`](#method.size)
     /// returning the number of input bytes required.
     fn encode_in(&self, out: &mut [u8]) -> Result<usize, usize> {
-        let size = self.size();
+        let size = self.encoded_size();
         if out.len() >= size {
             Ok(unsafe { self.encode_in_ptr(out.as_mut_ptr()) })
         } else {
@@ -42,5 +42,5 @@ pub trait Encodable {
     }
 
     /// Size in bytes of the encoded equivalent of the item.
-    fn size(&self) -> usize;
+    fn encoded_size(&self) -> usize;
 }

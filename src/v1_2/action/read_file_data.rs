@@ -74,8 +74,8 @@ impl<'data> Encodable for ReadFileDataRef<'data> {
         size
     }
 
-    fn size(&self) -> usize {
-        1 + 1 + self.offset.size() + self.length.size()
+    fn encoded_size(&self) -> usize {
+        1 + 1 + self.offset.encoded_size() + self.length.encoded_size()
     }
 }
 
@@ -84,27 +84,40 @@ pub struct EncodedReadFileData<'data> {
 }
 
 impl<'data> EncodedReadFileData<'data> {
-    pub fn group(&self) -> bool {
-        unsafe { *self.data.get_unchecked(0) & flag::GROUP != 0 }
+    /// # Safety
+    /// This reads data without checking boundaries.
+    /// If self.data.len() < self.encoded_size() then this is safe.
+    pub unsafe fn group(&self) -> bool {
+        *self.data.get_unchecked(0) & flag::GROUP != 0
     }
 
-    pub fn response(&self) -> bool {
-        unsafe { *self.data.get_unchecked(0) & flag::RESPONSE != 0 }
+    /// # Safety
+    /// This reads data without checking boundaries.
+    /// If self.data.len() < self.encoded_size() then this is safe.
+    pub unsafe fn response(&self) -> bool {
+        *self.data.get_unchecked(0) & flag::RESPONSE != 0
     }
 
-    pub fn file_id(&self) -> FileId {
-        unsafe { FileId(*self.data.get_unchecked(1)) }
+    /// # Safety
+    /// This reads data without checking boundaries.
+    /// If self.data.len() < self.encoded_size() then this is safe.
+    pub unsafe fn file_id(&self) -> FileId {
+        FileId(*self.data.get_unchecked(1))
     }
 
-    pub fn offset(&self) -> EncodedVarint {
-        unsafe { Varint::start_decoding_unchecked(self.data.get_unchecked(2..)) }
+    /// # Safety
+    /// This reads data without checking boundaries.
+    /// If self.data.len() < self.encoded_size() then this is safe.
+    pub unsafe fn offset(&self) -> EncodedVarint {
+        Varint::start_decoding_unchecked(self.data.get_unchecked(2..))
     }
 
-    pub fn length(&self) -> EncodedVarint {
-        unsafe {
-            let offset_size = (((*self.data.get_unchecked(2) & 0xC0) >> 6) + 1) as usize;
-            Varint::start_decoding_unchecked(self.data.get_unchecked(2 + offset_size..))
-        }
+    /// # Safety
+    /// This reads data without checking boundaries.
+    /// If self.data.len() < self.encoded_size() then this is safe.
+    pub unsafe fn length(&self) -> EncodedVarint {
+        let offset_size = (((*self.data.get_unchecked(2) & 0xC0) >> 6) + 1) as usize;
+        Varint::start_decoding_unchecked(self.data.get_unchecked(2 + offset_size..))
     }
 
     /// # Safety
@@ -121,11 +134,11 @@ impl<'data> EncodedReadFileData<'data> {
 
 impl<'data> EncodedData<'data> for EncodedReadFileData<'data> {
     type DecodedData = ReadFileDataRef<'data>;
-    unsafe fn new(data: &'data [u8]) -> Self {
+    fn new(data: &'data [u8]) -> Self {
         Self { data }
     }
 
-    fn size(&self) -> Result<usize, SizeError> {
+    fn encoded_size(&self) -> Result<usize, SizeError> {
         unsafe {
             let mut size = 3;
             let data_size = self.data.len();
@@ -146,7 +159,7 @@ impl<'data> EncodedData<'data> for EncodedReadFileData<'data> {
         }
     }
 
-    fn complete_decoding(&self) -> WithByteSize<ReadFileDataRef<'data>> {
+    unsafe fn complete_decoding(&self) -> WithByteSize<ReadFileDataRef<'data>> {
         let WithByteSize {
             item: offset,
             byte_size: offset_size,
@@ -154,7 +167,7 @@ impl<'data> EncodedData<'data> for EncodedReadFileData<'data> {
         let WithByteSize {
             item: length,
             byte_size: length_size,
-        } = unsafe { Varint::decode_unchecked(self.data.get_unchecked(2 + offset_size..)) };
+        } = Varint::decode_unchecked(self.data.get_unchecked(2 + offset_size..));
         WithByteSize {
             item: ReadFileDataRef {
                 group: self.group(),
@@ -235,18 +248,20 @@ mod test {
             } = ReadFileDataRef::start_decoding(data).unwrap();
             assert_eq!(expected_size, size);
             assert_eq!(unsafe { decoder.size_unchecked() }, size);
-            assert_eq!(decoder.size().unwrap(), size);
-            assert_eq!(
-                op,
-                ReadFileDataRef {
-                    group: decoder.group(),
-                    response: decoder.response(),
-                    file_id: decoder.file_id(),
-                    offset: decoder.offset().complete_decoding().item,
-                    length: decoder.length().complete_decoding().item,
-                    phantom: core::marker::PhantomData,
-                }
-            );
+            assert_eq!(decoder.encoded_size().unwrap(), size);
+            unsafe {
+                assert_eq!(
+                    op,
+                    ReadFileDataRef {
+                        group: decoder.group(),
+                        response: decoder.response(),
+                        file_id: decoder.file_id(),
+                        offset: decoder.offset().complete_decoding().item,
+                        length: decoder.length().complete_decoding().item,
+                        phantom: core::marker::PhantomData,
+                    }
+                );
+            }
         }
         test(
             ReadFileDataRef {

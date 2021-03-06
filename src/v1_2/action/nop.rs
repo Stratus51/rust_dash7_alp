@@ -66,7 +66,7 @@ impl<'data> Encodable for NopRef<'data> {
         1
     }
 
-    fn size(&self) -> usize {
+    fn encoded_size(&self) -> usize {
         SIZE
     }
 }
@@ -76,12 +76,18 @@ pub struct EncodedNop<'data> {
 }
 
 impl<'data> EncodedNop<'data> {
-    pub fn group(&self) -> bool {
-        unsafe { *self.data.get_unchecked(0) & flag::GROUP != 0 }
+    /// # Safety
+    /// This reads data without checking boundaries.
+    /// If self.data.len() < self.encoded_size() then this is safe.
+    pub unsafe fn group(&self) -> bool {
+        *self.data.get_unchecked(0) & flag::GROUP != 0
     }
 
-    pub fn response(&self) -> bool {
-        unsafe { *self.data.get_unchecked(0) & flag::RESPONSE != 0 }
+    /// # Safety
+    /// This reads data without checking boundaries.
+    /// If self.data.len() < self.encoded_size() then this is safe.
+    pub unsafe fn response(&self) -> bool {
+        *self.data.get_unchecked(0) & flag::RESPONSE != 0
     }
 
     pub fn size_unchecked(&self) -> usize {
@@ -92,15 +98,15 @@ impl<'data> EncodedNop<'data> {
 impl<'data> EncodedData<'data> for EncodedNop<'data> {
     type DecodedData = NopRef<'data>;
 
-    unsafe fn new(data: &'data [u8]) -> Self {
+    fn new(data: &'data [u8]) -> Self {
         Self { data }
     }
 
-    fn size(&self) -> Result<usize, SizeError> {
+    fn encoded_size(&self) -> Result<usize, SizeError> {
         Ok(SIZE)
     }
 
-    fn complete_decoding(&self) -> WithByteSize<NopRef<'data>> {
+    unsafe fn complete_decoding(&self) -> WithByteSize<NopRef<'data>> {
         WithByteSize {
             item: NopRef {
                 group: self.group(),
@@ -165,16 +171,18 @@ mod test {
 
             // Test partial_decode == op
             let decoder = NopRef::start_decoding(data).unwrap().item;
-            assert_eq!(decoder.size_unchecked(), size);
-            assert_eq!(decoder.size().unwrap(), size);
-            assert_eq!(
-                op,
-                NopRef {
-                    group: decoder.group(),
-                    response: decoder.response(),
-                    phantom: core::marker::PhantomData,
-                }
-            );
+            unsafe {
+                assert_eq!(decoder.size_unchecked(), size);
+                assert_eq!(decoder.encoded_size().unwrap(), size);
+                assert_eq!(
+                    op,
+                    NopRef {
+                        group: decoder.group(),
+                        response: decoder.response(),
+                        phantom: core::marker::PhantomData,
+                    }
+                );
+            }
         }
         test(
             NopRef {

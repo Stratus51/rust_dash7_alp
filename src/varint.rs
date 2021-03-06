@@ -121,7 +121,7 @@ impl Varint {
 
 impl Encodable for Varint {
     unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
-        let size = self.size();
+        let size = self.encoded_size();
         match size {
             1 => *out.add(0) = (self.value & 0x3F) as u8,
             2 => {
@@ -145,7 +145,7 @@ impl Encodable for Varint {
         size
     }
 
-    fn size(&self) -> usize {
+    fn encoded_size(&self) -> usize {
         let n = self.value;
         if n <= 0x3F {
             1
@@ -174,11 +174,11 @@ impl<'data> EncodedVarint<'data> {
 
 impl<'data> EncodedData<'data> for EncodedVarint<'data> {
     type DecodedData = Varint;
-    unsafe fn new(data: &'data [u8]) -> Self {
+    fn new(data: &'data [u8]) -> Self {
         Self { data }
     }
 
-    fn size(&self) -> Result<usize, SizeError> {
+    fn encoded_size(&self) -> Result<usize, SizeError> {
         let mut size = 1;
         if self.data.len() < size {
             return Err(SizeError::MissingBytes);
@@ -190,34 +190,30 @@ impl<'data> EncodedData<'data> for EncodedVarint<'data> {
         Ok(size)
     }
 
-    fn complete_decoding(&self) -> WithByteSize<Varint> {
-        unsafe {
-            let size = self.size_unchecked();
-            let data = &self.data;
-            let ret = Varint::new_unchecked(match size {
-                1 => (*data.get_unchecked(0) & 0x3F) as u32,
-                2 => {
-                    (((*data.get_unchecked(0) & 0x3F) as u32) << 8) + *data.get_unchecked(1) as u32
-                }
-                3 => {
-                    (((*data.get_unchecked(0) & 0x3F) as u32) << 16)
-                        + ((*data.get_unchecked(1) as u32) << 8)
-                        + *data.get_unchecked(2) as u32
-                }
-                4 => {
-                    (((*data.get_unchecked(0) & 0x3F) as u32) << 24)
-                        + ((*data.get_unchecked(1) as u32) << 16)
-                        + ((*data.get_unchecked(2) as u32) << 8)
-                        + *data.get_unchecked(3) as u32
-                }
-                // This is bad and incorrect. But size should mathematically never evaluate to this
-                // case. Let's just hope the size method is not broken.
-                _ => 0,
-            });
-            WithByteSize {
-                item: ret,
-                byte_size: size,
+    unsafe fn complete_decoding(&self) -> WithByteSize<Varint> {
+        let size = self.size_unchecked();
+        let data = &self.data;
+        let ret = Varint::new_unchecked(match size {
+            1 => (*data.get_unchecked(0) & 0x3F) as u32,
+            2 => (((*data.get_unchecked(0) & 0x3F) as u32) << 8) + *data.get_unchecked(1) as u32,
+            3 => {
+                (((*data.get_unchecked(0) & 0x3F) as u32) << 16)
+                    + ((*data.get_unchecked(1) as u32) << 8)
+                    + *data.get_unchecked(2) as u32
             }
+            4 => {
+                (((*data.get_unchecked(0) & 0x3F) as u32) << 24)
+                    + ((*data.get_unchecked(1) as u32) << 16)
+                    + ((*data.get_unchecked(2) as u32) << 8)
+                    + *data.get_unchecked(3) as u32
+            }
+            // This is bad and incorrect. But size should mathematically never evaluate to this
+            // case. Let's just hope the size method is not broken.
+            _ => 0,
+        });
+        WithByteSize {
+            item: ret,
+            byte_size: size,
         }
     }
 }
@@ -242,11 +238,11 @@ mod test {
 
     #[test]
     fn test_size() {
-        assert_eq!(Varint::new(0x00).unwrap().size(), 1);
-        assert_eq!(Varint::new(0x3F).unwrap().size(), 1);
-        assert_eq!(Varint::new(0x3F_FF).unwrap().size(), 2);
-        assert_eq!(Varint::new(0x3F_FF_FF).unwrap().size(), 3);
-        assert_eq!(Varint::new(0x3F_FF_FF_FF).unwrap().size(), 4);
+        assert_eq!(Varint::new(0x00).unwrap().encoded_size(), 1);
+        assert_eq!(Varint::new(0x3F).unwrap().encoded_size(), 1);
+        assert_eq!(Varint::new(0x3F_FF).unwrap().encoded_size(), 2);
+        assert_eq!(Varint::new(0x3F_FF_FF).unwrap().encoded_size(), 3);
+        assert_eq!(Varint::new(0x3F_FF_FF_FF).unwrap().encoded_size(), 4);
     }
 
     #[test]
@@ -280,7 +276,7 @@ mod test {
                 item: decoder,
                 byte_size: expected_size,
             } = Varint::start_decoding(data).unwrap();
-            let part_size = decoder.size().unwrap();
+            let part_size = decoder.encoded_size().unwrap();
             assert_eq!(expected_size, size);
             assert_eq!(part_size, size);
             assert_eq!(unsafe { decoder.size_unchecked() }, size);

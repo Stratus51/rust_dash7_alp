@@ -69,9 +69,9 @@ impl<'data> Encodable for WriteFileDataRef<'data> {
         size
     }
 
-    fn size(&self) -> usize {
+    fn encoded_size(&self) -> usize {
         let length = unsafe { Varint::new_unchecked(self.data.len() as u32) };
-        1 + 1 + self.offset.size() + length.size()
+        1 + 1 + self.offset.encoded_size() + length.encoded_size()
     }
 }
 
@@ -80,45 +80,59 @@ pub struct EncodedWriteFileData<'data> {
 }
 
 impl<'data> EncodedWriteFileData<'data> {
-    pub fn group(&self) -> bool {
-        unsafe { *self.data.get_unchecked(0) & flag::GROUP != 0 }
+    /// # Safety
+    /// This reads data without checking boundaries.
+    /// If self.data.len() < self.encoded_size() then this is safe.
+    pub unsafe fn group(&self) -> bool {
+        *self.data.get_unchecked(0) & flag::GROUP != 0
     }
 
-    pub fn response(&self) -> bool {
-        unsafe { *self.data.get_unchecked(0) & flag::RESPONSE != 0 }
+    /// # Safety
+    /// This reads data without checking boundaries.
+    /// If self.data.len() < self.encoded_size() then this is safe.
+    pub unsafe fn response(&self) -> bool {
+        *self.data.get_unchecked(0) & flag::RESPONSE != 0
     }
 
-    pub fn file_id(&self) -> FileId {
-        unsafe { FileId(*self.data.get_unchecked(1)) }
+    /// # Safety
+    /// This reads data without checking boundaries.
+    /// If self.data.len() < self.encoded_size() then this is safe.
+    pub unsafe fn file_id(&self) -> FileId {
+        FileId(*self.data.get_unchecked(1))
     }
 
-    pub fn offset(&self) -> EncodedVarint {
-        unsafe { Varint::start_decoding_unchecked(self.data.get_unchecked(2..)) }
+    /// # Safety
+    /// This reads data without checking boundaries.
+    /// If self.data.len() < self.encoded_size() then this is safe.
+    pub unsafe fn offset(&self) -> EncodedVarint {
+        Varint::start_decoding_unchecked(self.data.get_unchecked(2..))
     }
 
-    pub fn length(&self) -> EncodedVarint {
-        unsafe {
-            let offset_size = (((*self.data.get_unchecked(2) & 0xC0) >> 6) + 1) as usize;
-            Varint::start_decoding_unchecked(self.data.get_unchecked(2 + offset_size..))
-        }
+    /// # Safety
+    /// This reads data without checking boundaries.
+    /// If self.data.len() < self.encoded_size() then this is safe.
+    pub unsafe fn length(&self) -> EncodedVarint {
+        let offset_size = (((*self.data.get_unchecked(2) & 0xC0) >> 6) + 1) as usize;
+        Varint::start_decoding_unchecked(self.data.get_unchecked(2 + offset_size..))
     }
 
-    pub fn data(&self) -> WithByteSize<EncodableDataRef<'data>> {
-        unsafe {
-            let offset_size = (((*self.data.get_unchecked(2) & 0xC0) >> 6) + 1) as usize;
-            let WithByteSize {
-                item: length,
-                byte_size: length_size,
-            } = Varint::decode_unchecked(self.data.get_unchecked(2 + offset_size..));
-            let data_offset = 2 + offset_size + length_size;
-            let data = core::slice::from_raw_parts(
-                self.data.get_unchecked(data_offset),
-                length.u32() as usize,
-            );
-            WithByteSize {
-                item: EncodableDataRef::new_unchecked(data),
-                byte_size: length_size + length.u32() as usize,
-            }
+    /// # Safety
+    /// This reads data without checking boundaries.
+    /// If self.data.len() < self.encoded_size() then this is safe.
+    pub unsafe fn data(&self) -> WithByteSize<EncodableDataRef<'data>> {
+        let offset_size = (((*self.data.get_unchecked(2) & 0xC0) >> 6) + 1) as usize;
+        let WithByteSize {
+            item: length,
+            byte_size: length_size,
+        } = Varint::decode_unchecked(self.data.get_unchecked(2 + offset_size..));
+        let data_offset = 2 + offset_size + length_size;
+        let data = core::slice::from_raw_parts(
+            self.data.get_unchecked(data_offset),
+            length.u32() as usize,
+        );
+        WithByteSize {
+            item: EncodableDataRef::new_unchecked(data),
+            byte_size: length_size + length.u32() as usize,
         }
     }
 
@@ -137,11 +151,11 @@ impl<'data> EncodedWriteFileData<'data> {
 
 impl<'data> EncodedData<'data> for EncodedWriteFileData<'data> {
     type DecodedData = WriteFileDataRef<'data>;
-    unsafe fn new(data: &'data [u8]) -> Self {
+    fn new(data: &'data [u8]) -> Self {
         Self { data }
     }
 
-    fn size(&self) -> Result<usize, SizeError> {
+    fn encoded_size(&self) -> Result<usize, SizeError> {
         unsafe {
             let mut size = 3;
             let data_size = self.data.len();
@@ -164,12 +178,12 @@ impl<'data> EncodedData<'data> for EncodedWriteFileData<'data> {
         }
     }
 
-    fn complete_decoding(&self) -> WithByteSize<WriteFileDataRef<'data>> {
+    unsafe fn complete_decoding(&self) -> WithByteSize<WriteFileDataRef<'data>> {
         let WithByteSize {
             item: offset,
             byte_size: offset_size,
         } = self.offset().complete_decoding();
-        let (data, length_size, length) = unsafe {
+        let (data, length_size, length) = {
             let WithByteSize {
                 item: length,
                 byte_size: length_size,
@@ -263,21 +277,23 @@ mod test {
             } = WriteFileDataRef::start_decoding(data).unwrap();
             assert_eq!(expected_size, size);
             assert_eq!(unsafe { decoder.size_unchecked() }, size);
-            assert_eq!(decoder.size().unwrap(), size);
-            assert_eq!(
-                op.data.len(),
-                decoder.length().complete_decoding().item.u32() as usize
-            );
-            assert_eq!(
-                op,
-                WriteFileDataRef {
-                    group: decoder.group(),
-                    response: decoder.response(),
-                    file_id: decoder.file_id(),
-                    offset: decoder.offset().complete_decoding().item,
-                    data: decoder.data().item,
-                }
-            );
+            assert_eq!(decoder.encoded_size().unwrap(), size);
+            unsafe {
+                assert_eq!(
+                    op.data.len(),
+                    decoder.length().complete_decoding().item.u32() as usize
+                );
+                assert_eq!(
+                    op,
+                    WriteFileDataRef {
+                        group: decoder.group(),
+                        response: decoder.response(),
+                        file_id: decoder.file_id(),
+                        offset: decoder.offset().complete_decoding().item,
+                        data: decoder.data().item,
+                    }
+                );
+            }
         }
         test(
             WriteFileDataRef {

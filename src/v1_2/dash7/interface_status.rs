@@ -56,8 +56,8 @@ impl<'item> AddresseeWithNlsStateRef<'item> {
         &self.nls_state
     }
 
-    pub fn size(&self) -> usize {
-        let addressee_size = self.addressee.size();
+    pub fn encoded_size(&self) -> usize {
+        let addressee_size = self.addressee.encoded_size();
         if self.nls_state.is_some() {
             addressee_size + 5
         } else {
@@ -96,23 +96,30 @@ pub struct EncodedAddresseeWithNlsState<'data> {
 }
 
 impl<'data> EncodedAddresseeWithNlsState<'data> {
-    pub fn has_auth(&self) -> bool {
+    /// # Safety
+    /// This reads data without checking boundaries.
+    /// If self.data.len() < self.encoded_size() then this is safe.
+    pub unsafe fn has_auth(&self) -> bool {
         self.addressee.nls_method() != NlsMethod::None
     }
 
-    pub fn addressee(&self) -> &EncodedAddressee<'data> {
+    /// # Safety
+    /// This reads data without checking boundaries.
+    /// If self.data.len() < self.encoded_size() then this is safe.
+    pub unsafe fn addressee(&self) -> &EncodedAddressee<'data> {
         &self.addressee
     }
 
-    pub fn nls_state(&self) -> Option<&[u8]> {
+    /// # Safety
+    /// This reads data without checking boundaries.
+    /// If self.data.len() < self.encoded_size() then this is safe.
+    pub unsafe fn nls_state(&self) -> Option<&[u8]> {
         if self.addressee.nls_method() == NlsMethod::None {
             None
         } else {
-            unsafe {
-                let size = self.addressee.size_unchecked();
-                let data = &*(self.data.get_unchecked(size..size + 5).as_ptr() as *const [u8; 5]);
-                Some(&*data)
-            }
+            let size = self.addressee.size_unchecked();
+            let data = &*(self.data.get_unchecked(size..size + 5).as_ptr() as *const [u8; 5]);
+            Some(&*data)
         }
     }
 
@@ -127,14 +134,14 @@ impl<'data> EncodedAddresseeWithNlsState<'data> {
 
 impl<'data> EncodedData<'data> for EncodedAddresseeWithNlsState<'data> {
     type DecodedData = AddresseeWithNlsStateRef<'data>;
-    unsafe fn new(data: &'data [u8]) -> Self {
+    fn new(data: &'data [u8]) -> Self {
         Self {
             data,
             addressee: AddresseeRef::start_decoding_unchecked(data),
         }
     }
 
-    fn size(&self) -> Result<usize, SizeError> {
+    fn encoded_size(&self) -> Result<usize, SizeError> {
         let mut size = 3;
         let data_size = self.data.len();
         if data_size < size {
@@ -147,24 +154,22 @@ impl<'data> EncodedData<'data> for EncodedAddresseeWithNlsState<'data> {
         Ok(size)
     }
 
-    fn complete_decoding(&self) -> WithByteSize<AddresseeWithNlsStateRef<'data>> {
+    unsafe fn complete_decoding(&self) -> WithByteSize<AddresseeWithNlsStateRef<'data>> {
         let WithByteSize {
             item: addressee,
             byte_size: addressee_size,
         } = self.addressee.complete_decoding();
-        let (nls_state, nls_state_size) = unsafe {
-            if addressee.nls_method == NlsMethod::None {
-                (None, 0)
-            } else {
-                let data = &*(self
-                    .data
-                    .get_unchecked(addressee_size..addressee_size + 5)
-                    .as_ptr() as *const [u8; 5]);
-                (Some(&*data), 5)
-            }
+        let (nls_state, nls_state_size) = if addressee.nls_method == NlsMethod::None {
+            (None, 0)
+        } else {
+            let data = &*(self
+                .data
+                .get_unchecked(addressee_size..addressee_size + 5)
+                .as_ptr() as *const [u8; 5]);
+            (Some(&*data), 5)
         };
         WithByteSize {
-            item: unsafe { AddresseeWithNlsStateRef::new_unchecked(addressee, nls_state) },
+            item: AddresseeWithNlsStateRef::new_unchecked(addressee, nls_state),
             byte_size: addressee_size + nls_state_size,
         }
     }
@@ -219,8 +224,8 @@ impl<'data> Encodable for Dash7InterfaceStatusRef<'data> {
         size
     }
 
-    fn size(&self) -> usize {
-        10 + self.addressee_with_nls_state.size()
+    fn encoded_size(&self) -> usize {
+        10 + self.addressee_with_nls_state.encoded_size()
     }
 }
 
@@ -246,45 +251,76 @@ pub struct EncodedDash7InterfaceStatus<'data> {
 }
 
 impl<'data> EncodedDash7InterfaceStatus<'data> {
-    pub fn ch_header(&self) -> u8 {
-        unsafe { *self.data.get_unchecked(0) }
+    /// # Safety
+    /// This reads data without checking boundaries.
+    /// If self.data.len() < self.encoded_size() then this is safe.
+    pub unsafe fn ch_header(&self) -> u8 {
+        *self.data.get_unchecked(0)
     }
 
-    pub fn ch_idx(&self) -> u16 {
-        unsafe {
-            let mut data: [u8; 2] = [core::mem::MaybeUninit::uninit().assume_init(); 2];
-            data.as_mut_ptr().copy_from(self.data.get_unchecked(1), 2);
-            // TODO SPEC endianess
-            u16::from_le_bytes(data)
-        }
+    /// # Safety
+    /// This reads data without checking boundaries.
+    /// If self.data.len() < self.encoded_size() then this is safe.
+    pub unsafe fn ch_idx(&self) -> u16 {
+        let mut data: [u8; 2] = [core::mem::MaybeUninit::uninit().assume_init(); 2];
+        data.as_mut_ptr().copy_from(self.data.get_unchecked(1), 2);
+        // TODO SPEC endianess
+        u16::from_le_bytes(data)
     }
-    pub fn rxlev(&self) -> u8 {
-        unsafe { *self.data.get_unchecked(3) }
+    /// # Safety
+    /// This reads data without checking boundaries.
+    /// If self.data.len() < self.encoded_size() then this is safe.
+    pub unsafe fn rxlev(&self) -> u8 {
+        *self.data.get_unchecked(3)
     }
-    pub fn lb(&self) -> u8 {
-        unsafe { *self.data.get_unchecked(4) }
+    /// # Safety
+    /// This reads data without checking boundaries.
+    /// If self.data.len() < self.encoded_size() then this is safe.
+    pub unsafe fn lb(&self) -> u8 {
+        *self.data.get_unchecked(4)
     }
-    pub fn snr(&self) -> u8 {
-        unsafe { *self.data.get_unchecked(5) }
+    /// # Safety
+    /// This reads data without checking boundaries.
+    /// If self.data.len() < self.encoded_size() then this is safe.
+    pub unsafe fn snr(&self) -> u8 {
+        *self.data.get_unchecked(5)
     }
-    pub fn status(&self) -> u8 {
-        unsafe { *self.data.get_unchecked(6) }
+    /// # Safety
+    /// This reads data without checking boundaries.
+    /// If self.data.len() < self.encoded_size() then this is safe.
+    pub unsafe fn status(&self) -> u8 {
+        *self.data.get_unchecked(6)
     }
-    pub fn token(&self) -> u8 {
-        unsafe { *self.data.get_unchecked(7) }
+    /// # Safety
+    /// This reads data without checking boundaries.
+    /// If self.data.len() < self.encoded_size() then this is safe.
+    pub unsafe fn token(&self) -> u8 {
+        *self.data.get_unchecked(7)
     }
-    pub fn seq(&self) -> u8 {
-        unsafe { *self.data.get_unchecked(8) }
+    /// # Safety
+    /// This reads data without checking boundaries.
+    /// If self.data.len() < self.encoded_size() then this is safe.
+    pub unsafe fn seq(&self) -> u8 {
+        *self.data.get_unchecked(8)
     }
-    pub fn resp_to(&self) -> u8 {
-        unsafe { *self.data.get_unchecked(9) }
+    /// # Safety
+    /// This reads data without checking boundaries.
+    /// If self.data.len() < self.encoded_size() then this is safe.
+    pub unsafe fn resp_to(&self) -> u8 {
+        *self.data.get_unchecked(9)
     }
-    pub fn addressee(&self) -> EncodedAddressee<'data> {
-        unsafe { AddresseeRef::start_decoding_unchecked(self.data.get_unchecked(10..)) }
+    /// # Safety
+    /// This reads data without checking boundaries.
+    /// If self.data.len() < self.encoded_size() then this is safe.
+    pub unsafe fn addressee(&self) -> EncodedAddressee<'data> {
+        AddresseeRef::start_decoding_unchecked(self.data.get_unchecked(10..))
     }
 
-    pub fn addressee_with_nls_state(&self) -> EncodedAddresseeWithNlsState<'data> {
-        unsafe { EncodedAddresseeWithNlsState::new(self.data.get_unchecked(10..)) }
+    /// # Safety
+    /// This reads data without checking boundaries.
+    /// If self.data.len() < self.encoded_size() then this is safe.
+    pub unsafe fn addressee_with_nls_state(&self) -> EncodedAddresseeWithNlsState<'data> {
+        EncodedAddresseeWithNlsState::new(self.data.get_unchecked(10..))
     }
 
     /// # Safety
@@ -298,11 +334,11 @@ impl<'data> EncodedDash7InterfaceStatus<'data> {
 impl<'data> EncodedData<'data> for EncodedDash7InterfaceStatus<'data> {
     type DecodedData = Dash7InterfaceStatusRef<'data>;
 
-    unsafe fn new(data: &'data [u8]) -> Self {
+    fn new(data: &'data [u8]) -> Self {
         Self { data }
     }
 
-    fn size(&self) -> Result<usize, SizeError> {
+    fn encoded_size(&self) -> Result<usize, SizeError> {
         let mut size = 11;
         let data_size = self.data.len();
         if data_size < size {
@@ -316,7 +352,7 @@ impl<'data> EncodedData<'data> for EncodedDash7InterfaceStatus<'data> {
         Ok(size)
     }
 
-    fn complete_decoding(&self) -> WithByteSize<Dash7InterfaceStatusRef<'data>> {
+    unsafe fn complete_decoding(&self) -> WithByteSize<Dash7InterfaceStatusRef<'data>> {
         let WithByteSize {
             item: addressee_with_nls_state,
             byte_size: end_size,
@@ -404,31 +440,33 @@ mod test {
                 item: decoder,
                 byte_size: expected_size,
             } = Dash7InterfaceStatusRef::start_decoding(data).unwrap();
-            assert_eq!(
-                ret.addressee_with_nls_state.addressee(),
-                &decoder.addressee().complete_decoding().item
-            );
-            assert_eq!(expected_size, size);
-            assert_eq!(unsafe { decoder.size_unchecked() }, size);
-            assert_eq!(decoder.size().unwrap(), size);
-            assert_eq!(
-                op,
-                Dash7InterfaceStatusRef {
-                    ch_header: decoder.ch_header(),
-                    ch_idx: decoder.ch_idx(),
-                    rxlev: decoder.rxlev(),
-                    lb: decoder.lb(),
-                    snr: decoder.snr(),
-                    status: decoder.status(),
-                    token: decoder.token(),
-                    seq: decoder.seq(),
-                    resp_to: decoder.resp_to(),
-                    addressee_with_nls_state: decoder
-                        .addressee_with_nls_state()
-                        .complete_decoding()
-                        .item,
-                }
-            );
+            unsafe {
+                assert_eq!(
+                    ret.addressee_with_nls_state.addressee(),
+                    &decoder.addressee().complete_decoding().item
+                );
+                assert_eq!(expected_size, size);
+                assert_eq!(decoder.size_unchecked(), size);
+                assert_eq!(decoder.encoded_size().unwrap(), size);
+                assert_eq!(
+                    op,
+                    Dash7InterfaceStatusRef {
+                        ch_header: decoder.ch_header(),
+                        ch_idx: decoder.ch_idx(),
+                        rxlev: decoder.rxlev(),
+                        lb: decoder.lb(),
+                        snr: decoder.snr(),
+                        status: decoder.status(),
+                        token: decoder.token(),
+                        seq: decoder.seq(),
+                        resp_to: decoder.resp_to(),
+                        addressee_with_nls_state: decoder
+                            .addressee_with_nls_state()
+                            .complete_decoding()
+                            .item,
+                    }
+                );
+            }
         }
         test(
             Dash7InterfaceStatusRef {

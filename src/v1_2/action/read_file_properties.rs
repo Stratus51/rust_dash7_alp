@@ -63,7 +63,7 @@ impl<'data> Encodable for ReadFilePropertiesRef<'data> {
     }
 
     /// Size in bytes of the encoded equivalent of the item.
-    fn size(&self) -> usize {
+    fn encoded_size(&self) -> usize {
         SIZE
     }
 }
@@ -73,16 +73,25 @@ pub struct EncodedReadFileProperties<'data> {
 }
 
 impl<'data> EncodedReadFileProperties<'data> {
-    pub fn group(&self) -> bool {
-        unsafe { *self.data.get_unchecked(0) & flag::GROUP != 0 }
+    /// # Safety
+    /// This reads data without checking boundaries.
+    /// If self.data.len() < self.encoded_size() then this is safe.
+    pub unsafe fn group(&self) -> bool {
+        *self.data.get_unchecked(0) & flag::GROUP != 0
     }
 
-    pub fn response(&self) -> bool {
-        unsafe { *self.data.get_unchecked(0) & flag::RESPONSE != 0 }
+    /// # Safety
+    /// This reads data without checking boundaries.
+    /// If self.data.len() < self.encoded_size() then this is safe.
+    pub unsafe fn response(&self) -> bool {
+        *self.data.get_unchecked(0) & flag::RESPONSE != 0
     }
 
-    pub fn file_id(&self) -> FileId {
-        unsafe { FileId::new(*self.data.get_unchecked(1)) }
+    /// # Safety
+    /// This reads data without checking boundaries.
+    /// If self.data.len() < self.encoded_size() then this is safe.
+    pub unsafe fn file_id(&self) -> FileId {
+        FileId::new(*self.data.get_unchecked(1))
     }
 
     pub fn size_unchecked(&self) -> usize {
@@ -93,15 +102,15 @@ impl<'data> EncodedReadFileProperties<'data> {
 impl<'data> EncodedData<'data> for EncodedReadFileProperties<'data> {
     type DecodedData = ReadFilePropertiesRef<'data>;
 
-    unsafe fn new(data: &'data [u8]) -> Self {
+    fn new(data: &'data [u8]) -> Self {
         Self { data }
     }
 
-    fn size(&self) -> Result<usize, SizeError> {
+    fn encoded_size(&self) -> Result<usize, SizeError> {
         Ok(SIZE)
     }
 
-    fn complete_decoding(&self) -> WithByteSize<ReadFilePropertiesRef<'data>> {
+    unsafe fn complete_decoding(&self) -> WithByteSize<ReadFilePropertiesRef<'data>> {
         WithByteSize {
             item: ReadFilePropertiesRef {
                 group: self.group(),
@@ -171,16 +180,18 @@ mod test {
             // Test partial_decode == op
             let decoder = ReadFilePropertiesRef::start_decoding(data).unwrap().item;
             assert_eq!(size, decoder.size_unchecked());
-            assert_eq!(size, decoder.size().unwrap());
-            assert_eq!(
-                op,
-                ReadFilePropertiesRef {
-                    group: decoder.group(),
-                    response: decoder.response(),
-                    file_id: decoder.file_id(),
-                    phantom: core::marker::PhantomData,
-                }
-            );
+            assert_eq!(size, decoder.encoded_size().unwrap());
+            unsafe {
+                assert_eq!(
+                    op,
+                    ReadFilePropertiesRef {
+                        group: decoder.group(),
+                        response: decoder.response(),
+                        file_id: decoder.file_id(),
+                        phantom: core::marker::PhantomData,
+                    }
+                );
+            }
         }
         test(
             ReadFilePropertiesRef {
