@@ -61,8 +61,6 @@ use status::{Status, StatusRef};
 #[cfg(feature = "write_file_data")]
 use write_file_data::WriteFileDataRef;
 
-#[cfg(feature = "decode_action")]
-use crate::decodable::WithByteSize;
 #[cfg(any(
     feature = "decode_nop",
     feature = "decode_read_file_data",
@@ -72,6 +70,8 @@ use crate::decodable::WithByteSize;
 use crate::decodable::{Decodable, EncodedData};
 #[cfg(feature = "decode_action")]
 use crate::decodable::{FailableDecodable, FailableEncodedData};
+#[cfg(feature = "decode_action")]
+use crate::decodable::{SizeError, WithByteSize};
 
 // TODO SPEC: Why are some actions named "return". Removing that from the name would still
 // be technically correct: The operand "File data" contains file data. Seems good enough.
@@ -142,6 +142,11 @@ pub enum ActionRef<'item> {
 
     // // TODO
     // Extension(Extension),
+}
+
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub enum ActionToOwnedError {
+    RequiresAllocation,
 }
 
 impl<'item> ActionRef<'item> {
@@ -226,7 +231,7 @@ impl<'item> ActionRef<'item> {
     /// # Errors
     /// Fails only if the alloc flag is not set and the owned action requires the
     /// alloc feature.
-    pub fn to_owned(&self) -> Result<Action, ()> {
+    pub fn to_owned(&self) -> Result<Action, ActionToOwnedError> {
         Ok(match self {
             #[cfg(feature = "nop")]
             Self::Nop(action) => Action::Nop(action.to_owned()),
@@ -246,7 +251,7 @@ impl<'item> ActionRef<'item> {
             // they are selected manually.
             #[cfg_attr(not(feature = "all_actions"), allow(unreachable_patterns))]
             #[allow(unreachable_patterns)]
-            _ => return Err(()),
+            _ => return Err(ActionToOwnedError::RequiresAllocation),
         })
     }
 }
@@ -406,7 +411,7 @@ impl<'data> FailableEncodedData<'data> for EncodedAction<'data> {
         })
     }
 
-    fn size(&self) -> Result<usize, ()> {
+    fn size(&self) -> Result<usize, SizeError> {
         match self {
             #[cfg(feature = "decode_nop")]
             Self::Nop(action) => action.size(),

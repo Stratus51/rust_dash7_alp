@@ -1,6 +1,6 @@
 use super::super::define::flag;
 use super::super::define::op_code::OpCode;
-use crate::decodable::{Decodable, EncodedData, WithByteSize};
+use crate::decodable::{Decodable, EncodedData, SizeError, WithByteSize};
 
 /// Maximum byte size of an encoded Nop
 pub const MAX_SIZE: usize = 1;
@@ -135,7 +135,7 @@ impl<'data> EncodedData<'data> for EncodedNop<'data> {
         Self { data }
     }
 
-    fn size(&self) -> Result<usize, ()> {
+    fn size(&self) -> Result<usize, SizeError> {
         Ok(SIZE)
     }
 

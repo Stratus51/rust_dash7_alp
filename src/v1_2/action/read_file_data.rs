@@ -1,6 +1,6 @@
 use super::super::define::flag;
 use super::super::define::op_code::OpCode;
-use crate::decodable::{Decodable, EncodedData, WithByteSize};
+use crate::decodable::{Decodable, EncodedData, SizeError, WithByteSize};
 use crate::define::FileId;
 use crate::varint::{self, EncodedVarint, Varint};
 
@@ -163,22 +163,22 @@ impl<'data> EncodedData<'data> for EncodedReadFileData<'data> {
         Self { data }
     }
 
-    fn size(&self) -> Result<usize, ()> {
+    fn size(&self) -> Result<usize, SizeError> {
         unsafe {
             let mut size = 3;
             let data_size = self.data.len();
             if data_size < size {
-                return Err(());
+                return Err(SizeError::MissingBytes);
             }
             size += self.offset().size_unchecked();
             if data_size < size {
-                return Err(());
+                return Err(SizeError::MissingBytes);
             }
             size += Varint::start_decoding_unchecked(self.data.get_unchecked(size - 1..))
                 .size_unchecked();
             size -= 1;
             if data_size < size {
-                return Err(());
+                return Err(SizeError::MissingBytes);
             }
             Ok(size)
         }

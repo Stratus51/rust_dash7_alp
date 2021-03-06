@@ -1,4 +1,4 @@
-use crate::decodable::{Decodable, EncodedData, WithByteSize};
+use crate::decodable::{Decodable, EncodedData, SizeError, WithByteSize};
 
 /// Maximum byte size of an encoded `an Addressee`
 pub const MAX_SIZE: usize = 2 + 8;
@@ -292,15 +292,15 @@ impl<'data> EncodedData<'data> for EncodedAddressee<'data> {
         Self { data }
     }
 
-    fn size(&self) -> Result<usize, ()> {
+    fn size(&self) -> Result<usize, SizeError> {
         let mut size = 1;
         let data_size = self.data.len();
         if data_size < size {
-            return Err(());
+            return Err(SizeError::MissingBytes);
         }
         size = unsafe { self.size_unchecked() };
         if data_size < size {
-            return Err(());
+            return Err(SizeError::MissingBytes);
         }
         Ok(size)
     }

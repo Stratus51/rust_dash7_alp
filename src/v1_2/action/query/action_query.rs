@@ -3,7 +3,7 @@ use super::super::super::define::flag;
 #[cfg(feature = "query")]
 use super::super::super::define::op_code::OpCode;
 #[cfg(feature = "decode_query")]
-use crate::decodable::{FailableDecodable, FailableEncodedData, WithByteSize};
+use crate::decodable::{FailableDecodable, FailableEncodedData, SizeError, WithByteSize};
 #[cfg(feature = "decode_query")]
 use crate::v1_2::error::UnknownQueryCode;
 
@@ -161,7 +161,7 @@ impl<'data> FailableEncodedData<'data> for EncodedActionQuery<'data> {
         Ok(Self { data, query })
     }
 
-    fn size(&self) -> Result<usize, ()> {
+    fn size(&self) -> Result<usize, SizeError> {
         self.query.size().map(|size| 1 + size)
     }
 

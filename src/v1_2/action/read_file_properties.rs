@@ -1,6 +1,6 @@
 use super::super::define::flag;
 use super::super::define::op_code::OpCode;
-use crate::decodable::{Decodable, EncodedData, WithByteSize};
+use crate::decodable::{Decodable, EncodedData, SizeError, WithByteSize};
 use crate::define::FileId;
 
 /// Maximum byte size of an encoded `ReadFileProperties`
@@ -135,7 +135,7 @@ impl<'data> EncodedData<'data> for EncodedReadFileProperties<'data> {
         Self { data }
     }
 
-    fn size(&self) -> Result<usize, ()> {
+    fn size(&self) -> Result<usize, SizeError> {
         Ok(SIZE)
     }
 

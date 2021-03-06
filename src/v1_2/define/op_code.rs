@@ -41,6 +41,14 @@ pub enum OpCode {
     Extension = 63,
 }
 
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+pub enum OpCodeError {
+    Unsupported { code: u8 },
+    Invalid,
+}
+
 impl OpCode {
     /// # Safety
     /// You are to warrant that n is encoded on 6 bits only.
@@ -80,7 +88,7 @@ impl OpCode {
 
     /// # Errors
     /// Returns an error if n > 7
-    pub const fn from(n: u8) -> Result<Self, ()> {
+    pub const fn from(n: u8) -> Result<Self, OpCodeError> {
         Ok(match n {
             0 => Self::Nop,
             1 => Self::ReadFileData,
@@ -108,7 +116,8 @@ impl OpCode {
             // 51 => Self::IndirectForward,
             // 52 => Self::RequestTag,
             // 63 => Self::Extension,
-            _ => return Err(()),
+            n if n <= 0x3F => return Err(OpCodeError::Unsupported { code: n }),
+            _ => return Err(OpCodeError::Invalid),
         })
     }
 }

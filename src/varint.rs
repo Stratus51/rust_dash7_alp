@@ -1,6 +1,6 @@
 // TODO ALP_SPEC: The encoding of the value is not specified!
 // Big endian at bit and byte level probably, but it has to be specified!
-use crate::decodable::{Decodable, EncodedData, WithByteSize};
+use crate::decodable::{Decodable, EncodedData, SizeError, WithByteSize};
 
 /// Maximum value writable in a Varint encodable on 1 byte
 pub const U8_MAX: u8 = 0x3F;
@@ -22,6 +22,13 @@ pub struct Varint {
     value: u32,
 }
 
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+pub enum VarintError {
+    ValueTooBig,
+}
+
 impl Varint {
     /// Create a struct representing a Varint
     ///
@@ -40,9 +47,9 @@ impl Varint {
     ///
     /// # Errors
     /// Fails if the value is bigger than [`MAX`](constant.MAX.html)
-    pub const fn new(value: u32) -> Result<Self, ()> {
+    pub const fn new(value: u32) -> Result<Self, VarintError> {
         if value > U32_MAX {
-            Err(())
+            Err(VarintError::ValueTooBig)
         } else {
             unsafe { Ok(Self::new_unchecked(value)) }
         }
@@ -223,14 +230,14 @@ impl<'data> EncodedData<'data> for EncodedVarint<'data> {
         Self { data }
     }
 
-    fn size(&self) -> Result<usize, ()> {
+    fn size(&self) -> Result<usize, SizeError> {
         let mut size = 1;
         if self.data.len() < size {
-            return Err(());
+            return Err(SizeError::MissingBytes);
         }
         size = unsafe { self.size_unchecked() };
         if self.data.len() < size {
-            return Err(());
+            return Err(SizeError::MissingBytes);
         }
         Ok(size)
     }

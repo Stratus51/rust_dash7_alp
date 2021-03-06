@@ -25,7 +25,7 @@ use define::QueryCode;
 
 #[cfg(feature = "decode_query")]
 use crate::decodable::{
-    Decodable, EncodedData, FailableDecodable, FailableEncodedData, WithByteSize,
+    Decodable, EncodedData, FailableDecodable, FailableEncodedData, SizeError, WithByteSize,
 };
 #[cfg(feature = "decode_query")]
 use crate::v1_2::error::UnknownQueryCode;
@@ -217,7 +217,7 @@ impl<'data> FailableEncodedData<'data> for EncodedQuery<'data> {
         })
     }
 
-    fn size(&self) -> Result<usize, ()> {
+    fn size(&self) -> Result<usize, SizeError> {
         match self {
             #[cfg(feature = "decode_query_compare_with_value")]
             Self::ComparisonWithValue(d) => d.size(),

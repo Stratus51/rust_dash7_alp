@@ -5,6 +5,14 @@ pub enum InterfaceId {
     Host = 0,
     Dash7 = 0xD7,
 }
+
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+pub enum InterfaceIdError {
+    Unknown,
+}
+
 impl InterfaceId {
     /// # Safety
     /// You have to ensure that the n belongs to the set defined to
@@ -20,11 +28,11 @@ impl InterfaceId {
 
     /// # Errors
     /// Returns an error if n > 7
-    pub const fn from(n: u8) -> Result<Self, ()> {
+    pub const fn from(n: u8) -> Result<Self, InterfaceIdError> {
         Ok(match n {
             0 => Self::Host,
             0xD7 => Self::Dash7,
-            _ => return Err(()),
+            _ => return Err(InterfaceIdError::Unknown),
         })
     }
 }

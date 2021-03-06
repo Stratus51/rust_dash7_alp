@@ -3,7 +3,7 @@ pub mod define;
 pub mod interface;
 
 use super::super::define::op_code::OpCode;
-use crate::decodable::{FailableDecodable, FailableEncodedData, WithByteSize};
+use crate::decodable::{FailableDecodable, FailableEncodedData, SizeError, WithByteSize};
 use crate::v1_2::error::{StatusDecodeError, UnknownExtension};
 pub use define::StatusExtension;
 pub use interface::{EncodedStatusInterface, StatusInterface, StatusInterfaceRef};
@@ -99,11 +99,11 @@ impl<'data> FailableEncodedData<'data> for EncodedStatus<'data> {
         let code = byte >> 6;
         let extension = match StatusExtension::from(code) {
             Ok(ext) => ext,
-            Err(ext) => {
+            Err(_ext) => {
                 return Err(StatusDecodeError::UnknownExtension(UnknownExtension {
-                    extension: ext,
+                    extension: code,
                     remaining_data: data.get_unchecked(1..),
-                }))
+                }));
             }
         };
         Ok(match extension {
@@ -114,7 +114,7 @@ impl<'data> FailableEncodedData<'data> for EncodedStatus<'data> {
         })
     }
 
-    fn size(&self) -> Result<usize, ()> {
+    fn size(&self) -> Result<usize, SizeError> {
         match self {
             Self::Interface(status) => status.size(),
         }

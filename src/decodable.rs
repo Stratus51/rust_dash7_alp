@@ -1,6 +1,13 @@
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+pub enum SizeError {
+    MissingBytes,
+}
+
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct WithByteSize<T> {
     pub item: T,
     pub byte_size: usize,
@@ -33,7 +40,7 @@ pub trait EncodedData<'data> {
     /// # Errors
     /// Fails if the data_size is smaller than the required data size to decode the object.
     /// On error, returns the minimum bytes required to continue parsing the size of this item.
-    fn size(&self) -> Result<usize, ()>;
+    fn size(&self) -> Result<usize, SizeError>;
 
     /// Fully decodes the Item.
     fn complete_decoding(&self) -> WithByteSize<Self::DecodedData>;
@@ -62,11 +69,11 @@ pub trait Decodable<'data>: Sized + 'data {
     ///
     /// # Errors
     /// - Fails if data is smaller then the decoded expected size.
-    fn start_decoding(data: &'data [u8]) -> Result<WithByteSize<Self::Data>, ()> {
+    fn start_decoding(data: &'data [u8]) -> Result<WithByteSize<Self::Data>, SizeError> {
         let ret = unsafe { Self::start_decoding_unchecked(data) };
         let size = ret.size()?;
         if size > data.len() {
-            return Err(());
+            return Err(SizeError::MissingBytes);
         }
         Ok(WithByteSize {
             item: ret,
@@ -94,7 +101,7 @@ pub trait Decodable<'data>: Sized + 'data {
     /// # Errors
     /// Fails if the input data is too small to decode and requires the minimum
     /// number of bytes required to continue decoding.
-    fn decode(data: &'data [u8]) -> Result<WithByteSize<Self>, ()> {
+    fn decode(data: &'data [u8]) -> Result<WithByteSize<Self>, SizeError> {
         Self::start_decoding(data).map(|v| v.item.complete_decoding())
     }
 }
@@ -121,7 +128,7 @@ pub trait FailableEncodedData<'data> {
     /// # Errors
     /// Fails if the data_size is smaller than the required data size to decode the object.
     /// On error, returns the minimum bytes required to continue parsing the size of this item.
-    fn size(&self) -> Result<usize, ()>;
+    fn size(&self) -> Result<usize, SizeError>;
 
     /// Fully decodes the Item.
     fn complete_decoding(&self) -> WithByteSize<Self::DecodedData>;

@@ -1,6 +1,6 @@
 use super::super::super::define::flag;
 use super::define::{QueryCode, QueryRangeComparisonType};
-use crate::decodable::{Decodable, EncodedData, WithByteSize};
+use crate::decodable::{Decodable, EncodedData, SizeError, WithByteSize};
 use crate::define::{FileId, MaskedRangeRef};
 use crate::varint::{EncodedVarint, Varint};
 
@@ -304,23 +304,23 @@ impl<'data> EncodedData<'data> for EncodedComparisonWithRange<'data> {
         Self { data }
     }
 
-    fn size(&self) -> Result<usize, ()> {
+    fn size(&self) -> Result<usize, SizeError> {
         unsafe {
             let mut size = 2;
             let data_size = self.data.len();
             if data_size < size {
-                return Err(());
+                return Err(SizeError::MissingBytes);
             }
             let compare_length = self.compare_length();
             size = 1 + compare_length.size_unchecked();
             if data_size < size {
-                return Err(());
+                return Err(SizeError::MissingBytes);
             }
             let compare_length = compare_length.complete_decoding().item.usize();
 
             size += 2 * compare_length;
             if data_size < size {
-                return Err(());
+                return Err(SizeError::MissingBytes);
             }
 
             if self.mask_flag() {
@@ -343,14 +343,14 @@ impl<'data> EncodedData<'data> for EncodedComparisonWithRange<'data> {
             }
             size += 2;
             if data_size < size {
-                return Err(());
+                return Err(SizeError::MissingBytes);
             }
             let decodable_offset =
                 Varint::start_decoding_unchecked(self.data.get_unchecked(size - 1..));
             size += decodable_offset.size_unchecked();
             size -= 1;
             if data_size < size {
-                return Err(());
+                return Err(SizeError::MissingBytes);
             }
             Ok(size)
         }

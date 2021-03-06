@@ -1,5 +1,5 @@
 use super::addressee::{self, Addressee, AddresseeRef, EncodedAddressee, NlsMethod};
-use crate::decodable::{Decodable, EncodedData, WithByteSize};
+use crate::decodable::{Decodable, EncodedData, SizeError, WithByteSize};
 
 /// Maximum byte size of an encoded `ReadFileData`
 pub const MAX_SIZE: usize = 10 + addressee::MAX_SIZE + 5;
@@ -10,6 +10,13 @@ pub const MAX_SIZE: usize = 10 + addressee::MAX_SIZE + 5;
 pub struct AddresseeWithNlsStateRef<'item> {
     addressee: AddresseeRef<'item>,
     nls_state: Option<&'item [u8; 5]>,
+}
+
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+pub enum AddresseeWithNlsStateError {
+    NlsMethodMismatchNlsStatePresence,
 }
 
 impl<'item> AddresseeWithNlsStateRef<'item> {
@@ -31,12 +38,12 @@ impl<'item> AddresseeWithNlsStateRef<'item> {
     pub fn new(
         addressee: AddresseeRef<'item>,
         nls_state: Option<&'item [u8; 5]>,
-    ) -> Result<Self, ()> {
+    ) -> Result<Self, AddresseeWithNlsStateError> {
         let security = addressee.nls_method != NlsMethod::None;
         if security == nls_state.is_some() {
             Ok(unsafe { Self::new_unchecked(addressee, nls_state) })
         } else {
-            Err(())
+            Err(AddresseeWithNlsStateError::NlsMethodMismatchNlsStatePresence)
         }
     }
 
@@ -126,15 +133,15 @@ impl<'data> EncodedData<'data> for EncodedAddresseeWithNlsState<'data> {
         }
     }
 
-    fn size(&self) -> Result<usize, ()> {
+    fn size(&self) -> Result<usize, SizeError> {
         let mut size = 3;
         let data_size = self.data.len();
         if data_size < size {
-            return Err(());
+            return Err(SizeError::MissingBytes);
         }
         size = unsafe { self.addressee.size_unchecked() };
         if data_size < size {
-            return Err(());
+            return Err(SizeError::MissingBytes);
         }
         Ok(size)
     }
@@ -333,16 +340,16 @@ impl<'data> EncodedData<'data> for EncodedDash7InterfaceStatus<'data> {
         Self { data }
     }
 
-    fn size(&self) -> Result<usize, ()> {
+    fn size(&self) -> Result<usize, SizeError> {
         let mut size = 11;
         let data_size = self.data.len();
         if data_size < size {
-            return Err(());
+            return Err(SizeError::MissingBytes);
         }
         size += unsafe { self.addressee_with_nls_state().size_unchecked() };
         size -= 1;
         if data_size < size {
-            return Err(());
+            return Err(SizeError::MissingBytes);
         }
         Ok(size)
     }

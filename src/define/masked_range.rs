@@ -28,6 +28,11 @@ pub struct MaskedRangeRef<'a> {
     bitmap: Option<&'a [u8]>,
 }
 
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+pub enum MaskedRangeNewError {
+    BadBitmapLength { expected: usize },
+}
+
 impl<'a> MaskedRangeRef<'a> {
     /// # Safety
     /// If bitmap is defined you are to warrant that bitmap.len() == `floor((end - start + 6)/8)`.
@@ -41,11 +46,17 @@ impl<'a> MaskedRangeRef<'a> {
 
     /// # Errors
     /// Fails if the bitmap is defined and bitmap.len() != `floor((end - start + 6)/8)`.
-    pub fn new(start: usize, end: usize, bitmap: Option<&'a [u8]>) -> Result<Self, usize> {
+    pub fn new(
+        start: usize,
+        end: usize,
+        bitmap: Option<&'a [u8]>,
+    ) -> Result<Self, MaskedRangeNewError> {
         if let Some(bitmap) = &bitmap {
             let bitmap_size = Self::bitmap_size(start, end);
             if bitmap.len() != bitmap_size {
-                return Err(bitmap_size);
+                return Err(MaskedRangeNewError::BadBitmapLength {
+                    expected: bitmap_size,
+                });
             }
         }
         Ok(unsafe { Self::new_unchecked(start, end, bitmap) })

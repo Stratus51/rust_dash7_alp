@@ -1,6 +1,6 @@
 use super::super::super::error::UnknownInterfaceId;
 use crate::decodable::{
-    Decodable, EncodedData, FailableDecodable, FailableEncodedData, WithByteSize,
+    Decodable, EncodedData, FailableDecodable, FailableEncodedData, SizeError, WithByteSize,
 };
 use crate::v1_2::dash7::interface_status::{
     Dash7InterfaceStatus, Dash7InterfaceStatusRef, EncodedDash7InterfaceStatus,
@@ -193,25 +193,25 @@ impl<'data> FailableEncodedData<'data> for EncodedStatusInterface<'data> {
         Ok(Self { data, interface_id })
     }
 
-    fn size(&self) -> Result<usize, ()> {
+    fn size(&self) -> Result<usize, SizeError> {
         let mut size = 2;
         let data_size = self.data.len();
         if data_size < size {
-            return Err(());
+            return Err(SizeError::MissingBytes);
         }
         size = 1 + unsafe { self.len_field().size_unchecked() };
         if data_size < size {
-            return Err(());
+            return Err(SizeError::MissingBytes);
         }
         size += match &self.status() {
             EncodedStatusInterfaceKind::Host => 0,
             EncodedStatusInterfaceKind::Dash7(status) => match status.size() {
                 Ok(size) => size,
-                Err(_) => return Err(()),
+                Err(_) => return Err(SizeError::MissingBytes),
             },
         };
         if data_size < size {
-            return Err(());
+            return Err(SizeError::MissingBytes);
         }
         Ok(size)
     }
