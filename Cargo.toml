@@ -17,6 +17,7 @@ hex-literal = "0"
 
 [features]
 default = ["decode_all_actions", "decode_all_queries"]
+
 decode_all_actions = ["decode_nop", "decode_action_query", "decode_read_file_data", "decode_read_file_properties", "decode_status", "decode_write_file_data"]
 decode_nop = ["decode_action", "nop"]
 decode_read_file_data = ["decode_action", "read_file_data"]

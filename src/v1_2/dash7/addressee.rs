@@ -1,4 +1,5 @@
 use crate::decodable::{Decodable, EncodedData, SizeError, WithByteSize};
+use crate::encodable::Encodable;
 
 /// Maximum byte size of an encoded `an Addressee`
 pub const MAX_SIZE: usize = 2 + 8;
@@ -173,22 +174,8 @@ pub struct AddresseeRef<'item> {
     pub identifier: AddresseeIdentifierRef<'item>,
 }
 
-impl<'item> AddresseeRef<'item> {
-    /// Encodes the Item into a data pointer without checking the size of the
-    /// receiving byte array.
-    ///
-    /// This method is meant to allow unchecked cross language wrapper libraries
-    /// to implement an unchecked call without having to build a fake slice with
-    /// a fake size.
-    ///
-    /// It is not meant to be used inside a Rust library/binary.
-    ///
-    /// # Safety
-    /// You are responsible for checking that `out.len()` >= [`self.size()`](#method.size).
-    ///
-    /// Failing that will result in the program writing out of bound in
-    /// random parts of your memory.
-    pub unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
+impl<'data> Encodable for AddresseeRef<'data> {
+    unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
         let id_type = self.identifier.id_type();
         *out.add(0) = (id_type as u8) << 4 | (self.nls_method as u8);
         *out.add(1) = self.access_class.u8();
@@ -202,37 +189,12 @@ impl<'item> AddresseeRef<'item> {
         2 + id_type.size()
     }
 
-    /// Encodes the Item without checking the size of the receiving
-    /// byte array.
-    ///
-    /// # Safety
-    /// You are responsible for checking that `out.len()` >= [`self.size()`](#method.size).
-    ///
-    /// Failing that will result in the program writing out of bound in
-    /// random parts of your memory.
-    pub unsafe fn encode_in_unchecked(&self, out: &mut [u8]) -> usize {
-        self.encode_in_ptr(out.as_mut_ptr())
-    }
-
-    /// Encodes the value into pre allocated array.
-    ///
-    /// # Errors
-    /// Fails if the pre allocated array is smaller than [`self.size()`](#method.size)
-    /// returning the number of input bytes required.
-    pub fn encode_in(&self, out: &mut [u8]) -> Result<usize, usize> {
-        let size = self.size();
-        if out.len() >= size {
-            Ok(unsafe { self.encode_in_ptr(out.as_mut_ptr()) })
-        } else {
-            Err(size)
-        }
-    }
-
-    /// Size in bytes of the encoded equivalent of the item.
-    pub fn size(&self) -> usize {
+    fn size(&self) -> usize {
         2 + self.identifier.id_type().size()
     }
+}
 
+impl<'item> AddresseeRef<'item> {
     pub fn to_owned(&self) -> Addressee {
         Addressee {
             nls_method: self.nls_method,

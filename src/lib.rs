@@ -56,6 +56,7 @@ extern crate alloc;
 
 pub mod decodable;
 pub mod define;
+pub mod encodable;
 pub mod v1_2;
 pub mod varint;
 

@@ -1,6 +1,7 @@
 // TODO ALP_SPEC: The encoding of the value is not specified!
 // Big endian at bit and byte level probably, but it has to be specified!
 use crate::decodable::{Decodable, EncodedData, SizeError, WithByteSize};
+use crate::encodable::Encodable;
 
 /// Maximum value writable in a Varint encodable on 1 byte
 pub const U8_MAX: u8 = 0x3F;
@@ -67,99 +68,6 @@ impl Varint {
         self.value as usize
     }
 
-    /// Size in bytes of the encoded equivalent of the item.
-    pub const fn size(&self) -> usize {
-        let n = self.value;
-        if n <= 0x3F {
-            1
-        } else if n <= 0x3F_FF {
-            2
-        } else if n <= 0x3F_FF_FF {
-            3
-        } else {
-            4
-        }
-    }
-
-    /// # Safety
-    /// You are responsible for checking that:
-    /// - `size` == [`self.size()`](#method.size) (this determines the integer encoding)
-    /// - `out.len()` >= `size`.
-    ///
-    /// Failing that will result in the program writing out of bound in
-    /// random parts of your memory.
-    pub unsafe fn __encode_in_ptr(&self, out: *mut u8, size: usize) {
-        match size {
-            1 => *out.add(0) = (self.value & 0x3F) as u8,
-            2 => {
-                *out.add(0) = ((self.value >> 8) & 0x3F) as u8;
-                *out.add(1) = (self.value & 0xFF) as u8;
-            }
-            3 => {
-                *out.add(0) = ((self.value >> 16) & 0x3F) as u8;
-                *out.add(1) = ((self.value >> 8) & 0xFF) as u8;
-                *out.add(2) = (self.value & 0xFF) as u8;
-            }
-            4 => {
-                *out.add(0) = ((self.value >> 24) & 0x3F) as u8;
-                *out.add(1) = ((self.value >> 16) & 0xFF) as u8;
-                *out.add(2) = ((self.value >> 8) & 0xFF) as u8;
-                *out.add(3) = (self.value & 0xFF) as u8;
-            }
-            _ => (),
-        }
-        *out.add(0) |= (size as u8 - 1) << 6;
-    }
-
-    /// Encodes the Item into a data pointer without checking the size of the
-    /// receiving byte array.
-    ///
-    /// This method is meant to allow unchecked cross language wrapper libraries
-    /// to implement an unchecked call without having to build a fake slice with
-    /// a fake size.
-    ///
-    /// It is not meant to be used inside a Rust library/binary.
-    ///
-    /// # Safety
-    /// You are responsible for checking that `out.len()` >= [`self.size()`](#method.size).
-    ///
-    /// Failing that will result in the program writing out of bound in
-    /// random parts of your memory.
-    pub unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
-        let size = self.size();
-        self.__encode_in_ptr(out, size);
-        size
-    }
-
-    /// Encodes the Item without checking the size of the receiving
-    /// byte array.
-    ///
-    /// # Safety
-    /// You are responsible for checking that `out.len()` >= [`self.size()`](#method.size).
-    ///
-    /// Failing that will result in the program writing out of bound in
-    /// random parts of your memory.
-    pub unsafe fn encode_in_unchecked(&self, out: &mut [u8]) -> usize {
-        let size = self.size();
-        self.__encode_in_ptr(out.as_mut_ptr(), size);
-        size
-    }
-
-    /// Encodes the value into pre allocated array.
-    ///
-    /// # Errors
-    /// Fails if the pre allocated array is smaller than [`self.size()`](#method.size)
-    /// returning the number of input bytes required.
-    pub fn encode_in(&self, out: &mut [u8]) -> Result<usize, usize> {
-        let size = self.size();
-        if out.len() >= size {
-            unsafe { self.__encode_in_ptr(out.as_mut_ptr(), size) };
-            Ok(size)
-        } else {
-            Err(size)
-        }
-    }
-
     /// Encode the value into a single byte array.
     ///
     /// # Safety
@@ -208,6 +116,46 @@ impl Varint {
             ((value >> 8) & 0xFF) as u8,
             (value & 0xFF) as u8,
         ]
+    }
+}
+
+impl Encodable for Varint {
+    unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
+        let size = self.size();
+        match size {
+            1 => *out.add(0) = (self.value & 0x3F) as u8,
+            2 => {
+                *out.add(0) = ((self.value >> 8) & 0x3F) as u8;
+                *out.add(1) = (self.value & 0xFF) as u8;
+            }
+            3 => {
+                *out.add(0) = ((self.value >> 16) & 0x3F) as u8;
+                *out.add(1) = ((self.value >> 8) & 0xFF) as u8;
+                *out.add(2) = (self.value & 0xFF) as u8;
+            }
+            4 => {
+                *out.add(0) = ((self.value >> 24) & 0x3F) as u8;
+                *out.add(1) = ((self.value >> 16) & 0xFF) as u8;
+                *out.add(2) = ((self.value >> 8) & 0xFF) as u8;
+                *out.add(3) = (self.value & 0xFF) as u8;
+            }
+            _ => (),
+        }
+        *out.add(0) |= (size as u8 - 1) << 6;
+        size
+    }
+
+    fn size(&self) -> usize {
+        let n = self.value;
+        if n <= 0x3F {
+            1
+        } else if n <= 0x3F_FF {
+            2
+        } else if n <= 0x3F_FF_FF {
+            3
+        } else {
+            4
+        }
     }
 }
 

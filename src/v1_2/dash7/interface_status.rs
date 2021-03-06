@@ -1,5 +1,6 @@
 use super::addressee::{self, Addressee, AddresseeRef, EncodedAddressee, NlsMethod};
 use crate::decodable::{Decodable, EncodedData, SizeError, WithByteSize};
+use crate::encodable::Encodable;
 
 /// Maximum byte size of an encoded `ReadFileData`
 pub const MAX_SIZE: usize = 10 + addressee::MAX_SIZE + 5;
@@ -190,22 +191,8 @@ pub struct Dash7InterfaceStatusRef<'item> {
     pub addressee_with_nls_state: AddresseeWithNlsStateRef<'item>,
 }
 
-impl<'item> Dash7InterfaceStatusRef<'item> {
-    /// Encodes the Item into a data pointer without checking the size of the
-    /// receiving byte array.
-    ///
-    /// This method is meant to allow unchecked cross language wrapper libraries
-    /// to implement an unchecked call without having to build a fake slice with
-    /// a fake size.
-    ///
-    /// It is not meant to be used inside a Rust library/binary.
-    ///
-    /// # Safety
-    /// You are responsible for checking that `out.len()` >= [`self.size()`](#method.size).
-    ///
-    /// Failing that will result in the program writing out of bound in
-    /// random parts of your memory.
-    pub unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
+impl<'data> Encodable for Dash7InterfaceStatusRef<'data> {
+    unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
         let mut size = 10;
         *out.add(0) = self.ch_header;
         // TODO: SPEC: Endianness ?
@@ -232,37 +219,12 @@ impl<'item> Dash7InterfaceStatusRef<'item> {
         size
     }
 
-    /// Encodes the Item without checking the size of the receiving
-    /// byte array.
-    ///
-    /// # Safety
-    /// You are responsible for checking that `out.len()` >= [`self.size()`](#method.size).
-    ///
-    /// Failing that will result in the program writing out of bound in
-    /// random parts of your memory.
-    pub unsafe fn encode_in_unchecked(&self, out: &mut [u8]) -> usize {
-        self.encode_in_ptr(out.as_mut_ptr())
-    }
-
-    /// Encodes the value into pre allocated array.
-    ///
-    /// # Errors
-    /// Fails if the pre allocated array is smaller than [`self.size()`](#method.size)
-    /// returning the number of input bytes required.
-    pub fn encode_in(&self, out: &mut [u8]) -> Result<usize, usize> {
-        let size = self.size();
-        if out.len() >= size {
-            Ok(unsafe { self.encode_in_ptr(out.as_mut_ptr()) })
-        } else {
-            Err(size)
-        }
-    }
-
-    /// Size in bytes of the encoded equivalent of the item.
-    pub fn size(&self) -> usize {
+    fn size(&self) -> usize {
         10 + self.addressee_with_nls_state.size()
     }
+}
 
+impl<'item> Dash7InterfaceStatusRef<'item> {
     pub fn to_owned(&self) -> Dash7InterfaceStatus {
         Dash7InterfaceStatus {
             ch_header: self.ch_header,
