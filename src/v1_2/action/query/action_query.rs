@@ -161,15 +161,8 @@ impl<'data> FailableEncodedData<'data> for EncodedActionQuery<'data> {
         Ok(Self { data, query })
     }
 
-    unsafe fn expected_size(&self) -> usize {
-        1 + self.query.expected_size()
-    }
-
-    fn smaller_than(&self, data_size: usize) -> Result<usize, usize> {
-        self.query
-            .smaller_than(data_size - 1)
-            .map(|size| 1 + size)
-            .map_err(|size| 1 + size)
+    fn size(&self) -> Result<usize, ()> {
+        self.query.size().map(|size| 1 + size)
     }
 
     fn complete_decoding(&self) -> WithByteSize<DecodedActionQueryRef<'data>> {

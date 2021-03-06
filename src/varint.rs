@@ -208,31 +208,36 @@ pub struct EncodedVarint<'data> {
     data: &'data [u8],
 }
 
+impl<'data> EncodedVarint<'data> {
+    /// # Safety
+    /// You are to warrant, somehow, that the input byte array contains a complete item.
+    /// Else this might result in out of bound reads, and absurd results.
+    pub unsafe fn size_unchecked(&self) -> usize {
+        ((self.data.get_unchecked(0) & 0xC0) >> 6) as usize + 1
+    }
+}
+
 impl<'data> EncodedData<'data> for EncodedVarint<'data> {
     type DecodedData = Varint;
     unsafe fn new(data: &'data [u8]) -> Self {
         Self { data }
     }
 
-    unsafe fn expected_size(&self) -> usize {
-        ((self.data.get_unchecked(0) & 0xC0) >> 6) as usize + 1
-    }
-
-    fn smaller_than(&self, data_size: usize) -> Result<usize, usize> {
+    fn size(&self) -> Result<usize, ()> {
         let mut size = 1;
-        if data_size < size {
-            return Err(size);
+        if self.data.len() < size {
+            return Err(());
         }
-        size = unsafe { self.expected_size() };
-        if data_size < size {
-            return Err(size);
+        size = unsafe { self.size_unchecked() };
+        if self.data.len() < size {
+            return Err(());
         }
         Ok(size)
     }
 
     fn complete_decoding(&self) -> WithByteSize<Varint> {
         unsafe {
-            let size = self.expected_size();
+            let size = self.size_unchecked();
             let data = &self.data;
             let ret = Varint::new_unchecked(match size {
                 1 => (*data.get_unchecked(0) & 0x3F) as u32,
@@ -320,10 +325,10 @@ mod test {
                 item: decoder,
                 byte_size: expected_size,
             } = Varint::start_decoding(data).unwrap();
-            let part_size = decoder.smaller_than(data.len()).unwrap();
+            let part_size = decoder.size().unwrap();
             assert_eq!(expected_size, size);
             assert_eq!(part_size, size);
-            assert_eq!(unsafe { decoder.expected_size() }, size);
+            assert_eq!(unsafe { decoder.size_unchecked() }, size);
         }
         test_ok(&[0], 0x00, 1);
         test_ok(&hex!("3F"), 0x3F, 1);

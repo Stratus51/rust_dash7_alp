@@ -122,6 +122,10 @@ impl<'data> EncodedNop<'data> {
     pub fn response(&self) -> bool {
         unsafe { *self.data.get_unchecked(0) & flag::RESPONSE != 0 }
     }
+
+    pub fn size_unchecked(&self) -> usize {
+        SIZE
+    }
 }
 
 impl<'data> EncodedData<'data> for EncodedNop<'data> {
@@ -131,14 +135,7 @@ impl<'data> EncodedData<'data> for EncodedNop<'data> {
         Self { data }
     }
 
-    unsafe fn expected_size(&self) -> usize {
-        SIZE
-    }
-
-    fn smaller_than(&self, data_size: usize) -> Result<usize, usize> {
-        if data_size < SIZE {
-            return Err(SIZE);
-        }
+    fn size(&self) -> Result<usize, ()> {
         Ok(SIZE)
     }
 
@@ -207,8 +204,8 @@ mod test {
 
             // Test partial_decode == op
             let decoder = NopRef::start_decoding(data).unwrap().item;
-            assert_eq!(unsafe { decoder.expected_size() }, size);
-            assert_eq!(decoder.smaller_than(data.len()).unwrap(), size);
+            assert_eq!(decoder.size_unchecked(), size);
+            assert_eq!(decoder.size().unwrap(), size);
             assert_eq!(
                 op,
                 NopRef {

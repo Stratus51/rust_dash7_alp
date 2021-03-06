@@ -165,6 +165,21 @@ pub enum EncodedQuery<'data> {
 }
 
 #[cfg(feature = "decode_query")]
+impl<'data> EncodedQuery<'data> {
+    /// # Safety
+    /// You are to warrant, somehow, that the input byte array contains a complete item.
+    /// Else this might result in out of bound reads, and absurd results.
+    pub unsafe fn size_unchecked(&self) -> usize {
+        match self {
+            #[cfg(feature = "decode_query_compare_with_value")]
+            Self::ComparisonWithValue(d) => d.size_unchecked(),
+            #[cfg(feature = "decode_query_compare_with_range")]
+            Self::ComparisonWithRange(d) => d.size_unchecked(),
+        }
+    }
+}
+
+#[cfg(feature = "decode_query")]
 impl<'data> FailableEncodedData<'data> for EncodedQuery<'data> {
     type Error = UnknownQueryCode<'data>;
     type DecodedData = DecodedQueryRef<'data>;
@@ -202,21 +217,12 @@ impl<'data> FailableEncodedData<'data> for EncodedQuery<'data> {
         })
     }
 
-    unsafe fn expected_size(&self) -> usize {
+    fn size(&self) -> Result<usize, ()> {
         match self {
             #[cfg(feature = "decode_query_compare_with_value")]
-            Self::ComparisonWithValue(d) => d.expected_size(),
+            Self::ComparisonWithValue(d) => d.size(),
             #[cfg(feature = "decode_query_compare_with_range")]
-            Self::ComparisonWithRange(d) => d.expected_size(),
-        }
-    }
-
-    fn smaller_than(&self, data_size: usize) -> Result<usize, usize> {
-        match self {
-            #[cfg(feature = "decode_query_compare_with_value")]
-            Self::ComparisonWithValue(d) => d.smaller_than(data_size),
-            #[cfg(feature = "decode_query_compare_with_range")]
-            Self::ComparisonWithRange(d) => d.smaller_than(data_size),
+            Self::ComparisonWithRange(d) => d.size(),
         }
     }
 
@@ -319,8 +325,8 @@ mod test {
                 byte_size: expected_size,
             } = DecodedQueryRef::start_decoding(data).unwrap();
             assert_eq!(expected_size, size);
-            assert_eq!(unsafe { decoder.expected_size() }, size);
-            assert_eq!(decoder.smaller_than(data.len()).unwrap(), size);
+            assert_eq!(unsafe { decoder.size_unchecked() }, size);
+            assert_eq!(decoder.size().unwrap(), size);
         }
         #[cfg(feature = "decode_query_compare_with_value")]
         test(

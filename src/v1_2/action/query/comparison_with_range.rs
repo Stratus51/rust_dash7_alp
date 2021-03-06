@@ -263,15 +263,11 @@ impl<'data> EncodedComparisonWithRange<'data> {
             Varint::start_decoding_unchecked(self.data.get_unchecked(size..))
         }
     }
-}
 
-impl<'data> EncodedData<'data> for EncodedComparisonWithRange<'data> {
-    type DecodedData = ComparisonWithRangeRef<'data>;
-    unsafe fn new(data: &'data [u8]) -> Self {
-        Self { data }
-    }
-
-    unsafe fn expected_size(&self) -> usize {
+    /// # Safety
+    /// You are to warrant, somehow, that the input byte array contains a complete item.
+    /// Else this might result in out of bound reads, and absurd results.
+    pub unsafe fn size_unchecked(&self) -> usize {
         let WithByteSize {
             item: compare_length,
             byte_size: compare_length_size,
@@ -297,26 +293,34 @@ impl<'data> EncodedData<'data> for EncodedComparisonWithRange<'data> {
         }
         size += 1;
         let decodable_offset = Varint::start_decoding_unchecked(self.data.get_unchecked(size..));
-        size += decodable_offset.expected_size();
+        size += decodable_offset.size_unchecked();
         size
     }
+}
 
-    fn smaller_than(&self, data_size: usize) -> Result<usize, usize> {
+impl<'data> EncodedData<'data> for EncodedComparisonWithRange<'data> {
+    type DecodedData = ComparisonWithRangeRef<'data>;
+    unsafe fn new(data: &'data [u8]) -> Self {
+        Self { data }
+    }
+
+    fn size(&self) -> Result<usize, ()> {
         unsafe {
             let mut size = 2;
+            let data_size = self.data.len();
             if data_size < size {
-                return Err(size);
+                return Err(());
             }
             let compare_length = self.compare_length();
-            size = 1 + compare_length.expected_size();
+            size = 1 + compare_length.size_unchecked();
             if data_size < size {
-                return Err(size);
+                return Err(());
             }
             let compare_length = compare_length.complete_decoding().item.usize();
 
             size += 2 * compare_length;
             if data_size < size {
-                return Err(size);
+                return Err(());
             }
 
             if self.mask_flag() {
@@ -339,14 +343,14 @@ impl<'data> EncodedData<'data> for EncodedComparisonWithRange<'data> {
             }
             size += 2;
             if data_size < size {
-                return Err(size);
+                return Err(());
             }
             let decodable_offset =
                 Varint::start_decoding_unchecked(self.data.get_unchecked(size - 1..));
-            size += decodable_offset.expected_size();
+            size += decodable_offset.size_unchecked();
             size -= 1;
             if data_size < size {
-                return Err(size);
+                return Err(());
             }
             Ok(size)
         }
@@ -473,8 +477,8 @@ mod test {
             );
             assert_eq!(ret.range, decoder.range());
             assert_eq!(expected_size, size);
-            assert_eq!(unsafe { decoder.expected_size() }, size);
-            assert_eq!(decoder.smaller_than(data.len()).unwrap(), size);
+            assert_eq!(unsafe { decoder.size_unchecked() }, size);
+            assert_eq!(decoder.size().unwrap(), size);
             assert_eq!(
                 op,
                 ComparisonWithRangeRef {

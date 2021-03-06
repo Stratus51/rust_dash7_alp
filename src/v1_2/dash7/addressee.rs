@@ -277,6 +277,13 @@ impl<'data> EncodedAddressee<'data> {
             }
         }
     }
+
+    /// # Safety
+    /// You are to warrant, somehow, that the input byte array contains a complete item.
+    /// Else this might result in out of bound reads, and absurd results.
+    pub unsafe fn size_unchecked(&self) -> usize {
+        2 + self.id_type().size()
+    }
 }
 
 impl<'data> EncodedData<'data> for EncodedAddressee<'data> {
@@ -285,18 +292,15 @@ impl<'data> EncodedData<'data> for EncodedAddressee<'data> {
         Self { data }
     }
 
-    unsafe fn expected_size(&self) -> usize {
-        2 + self.id_type().size()
-    }
-
-    fn smaller_than(&self, data_size: usize) -> Result<usize, usize> {
+    fn size(&self) -> Result<usize, ()> {
         let mut size = 1;
+        let data_size = self.data.len();
         if data_size < size {
-            return Err(size);
+            return Err(());
         }
-        size = unsafe { self.expected_size() };
+        size = unsafe { self.size_unchecked() };
         if data_size < size {
-            return Err(size);
+            return Err(());
         }
         Ok(size)
     }
@@ -366,8 +370,8 @@ mod test {
             } = AddresseeRef::start_decoding(data).unwrap();
             assert_eq!(ret.identifier.id_type(), decoder.id_type());
             assert_eq!(expected_size, size);
-            assert_eq!(unsafe { decoder.expected_size() }, size);
-            assert_eq!(decoder.smaller_than(data.len()).unwrap(), size);
+            assert_eq!(unsafe { decoder.size_unchecked() }, size);
+            assert_eq!(decoder.size().unwrap(), size);
             assert_eq!(
                 op,
                 AddresseeRef {

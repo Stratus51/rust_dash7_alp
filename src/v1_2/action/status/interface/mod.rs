@@ -167,7 +167,7 @@ impl<'data> EncodedStatusInterface<'data> {
 
     pub fn status(&self) -> EncodedStatusInterfaceKind<'data> {
         unsafe {
-            let offset = 1 + self.len_field().expected_size();
+            let offset = 1 + self.len_field().size_unchecked();
             match self.interface_id {
                 InterfaceId::Host => EncodedStatusInterfaceKind::Host,
                 InterfaceId::Dash7 => EncodedStatusInterfaceKind::Dash7(
@@ -188,45 +188,36 @@ impl<'data> FailableEncodedData<'data> for EncodedStatusInterface<'data> {
         let byte = data.get_unchecked(0);
         let interface_id = InterfaceId::from(*byte).map_err(|_| UnknownInterfaceId {
             id: *byte,
-            remaining_data: &data.get_unchecked(1..),
+            remaining_data: data.get_unchecked(1..),
         })?;
         Ok(Self { data, interface_id })
     }
 
-    unsafe fn expected_size(&self) -> usize {
-        1 + self.len_field().expected_size()
-            + match &self.status() {
-                EncodedStatusInterfaceKind::Host => 0,
-                EncodedStatusInterfaceKind::Dash7(status) => status.expected_size(),
-            }
-    }
-
-    fn smaller_than(&self, data_size: usize) -> Result<usize, usize> {
+    fn size(&self) -> Result<usize, ()> {
         let mut size = 2;
+        let data_size = self.data.len();
         if data_size < size {
-            return Err(size);
+            return Err(());
         }
-        size = 1 + unsafe { self.len_field().expected_size() };
+        size = 1 + unsafe { self.len_field().size_unchecked() };
         if data_size < size {
-            return Err(size);
+            return Err(());
         }
         size += match &self.status() {
             EncodedStatusInterfaceKind::Host => 0,
-            EncodedStatusInterfaceKind::Dash7(status) => {
-                match status.smaller_than(data_size - size + 1) {
-                    Ok(size) => size,
-                    Err(s) => return Err(size - 1 + s),
-                }
-            }
+            EncodedStatusInterfaceKind::Dash7(status) => match status.size() {
+                Ok(size) => size,
+                Err(_) => return Err(()),
+            },
         };
         if data_size < size {
-            return Err(size);
+            return Err(());
         }
         Ok(size)
     }
 
     fn complete_decoding(&self) -> WithByteSize<StatusInterfaceRef<'data>> {
-        let offset = 1 + unsafe { self.len_field().expected_size() };
+        let offset = 1 + unsafe { self.len_field().size_unchecked() };
         unsafe {
             match self.interface_id {
                 InterfaceId::Host => WithByteSize {
@@ -305,8 +296,7 @@ mod test {
                 byte_size: expected_size,
             } = StatusInterfaceRef::start_decoding(data).unwrap();
             assert_eq!(expected_size, size);
-            assert_eq!(unsafe { decoder.expected_size() }, size);
-            assert_eq!(decoder.smaller_than(data.len()).unwrap(), size);
+            assert_eq!(decoder.size().unwrap(), size);
             assert_eq!(
                 op,
                 match decoder.status() {

@@ -160,6 +160,18 @@ impl<'data> EncodedWriteFileData<'data> {
             }
         }
     }
+
+    /// # Safety
+    /// You are to warrant, somehow, that the input byte array contains a complete item.
+    /// Else this might result in out of bound reads, and absurd results.
+    pub unsafe fn size_unchecked(&self) -> usize {
+        let offset_size = self.offset().size_unchecked();
+        let WithByteSize {
+            item: length,
+            byte_size: length_size,
+        } = Varint::decode_unchecked(self.data.get_unchecked(2 + offset_size..));
+        2 + offset_size + length_size + length.usize()
+    }
 }
 
 impl<'data> EncodedData<'data> for EncodedWriteFileData<'data> {
@@ -168,24 +180,16 @@ impl<'data> EncodedData<'data> for EncodedWriteFileData<'data> {
         Self { data }
     }
 
-    unsafe fn expected_size(&self) -> usize {
-        let offset_size = self.offset().expected_size();
-        let WithByteSize {
-            item: length,
-            byte_size: length_size,
-        } = Varint::decode_unchecked(self.data.get_unchecked(2 + offset_size..));
-        2 + offset_size + length_size + length.usize()
-    }
-
-    fn smaller_than(&self, data_size: usize) -> Result<usize, usize> {
+    fn size(&self) -> Result<usize, ()> {
         unsafe {
             let mut size = 3;
+            let data_size = self.data.len();
             if data_size < size {
-                return Err(size);
+                return Err(());
             }
-            size += self.offset().expected_size();
+            size += self.offset().size_unchecked();
             if data_size < size {
-                return Err(size);
+                return Err(());
             }
             let WithByteSize {
                 item: length,
@@ -193,7 +197,7 @@ impl<'data> EncodedData<'data> for EncodedWriteFileData<'data> {
             } = Varint::decode_unchecked(self.data.get_unchecked(size - 1..));
             size += length.usize() + length_size - 1;
             if data_size < size {
-                return Err(size);
+                return Err(());
             }
             Ok(size)
         }
@@ -297,8 +301,8 @@ mod test {
                 byte_size: expected_size,
             } = WriteFileDataRef::start_decoding(data).unwrap();
             assert_eq!(expected_size, size);
-            assert_eq!(unsafe { decoder.expected_size() }, size);
-            assert_eq!(decoder.smaller_than(data.len()).unwrap(), size);
+            assert_eq!(unsafe { decoder.size_unchecked() }, size);
+            assert_eq!(decoder.size().unwrap(), size);
             assert_eq!(
                 op.data.len(),
                 decoder.length().complete_decoding().item.u32() as usize

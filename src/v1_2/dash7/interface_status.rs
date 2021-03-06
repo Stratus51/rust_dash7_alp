@@ -101,11 +101,19 @@ impl<'data> EncodedAddresseeWithNlsState<'data> {
             None
         } else {
             unsafe {
-                let size = self.addressee.expected_size();
+                let size = self.addressee.size_unchecked();
                 let data = &*(self.data.get_unchecked(size..size + 5).as_ptr() as *const [u8; 5]);
                 Some(&*data)
             }
         }
+    }
+
+    /// # Safety
+    /// You are to warrant, somehow, that the input byte array contains a complete item.
+    /// Else this might result in out of bound reads, and absurd results.
+    pub unsafe fn size_unchecked(&self) -> usize {
+        let nls_state_size = if self.has_auth() { 5 } else { 0 };
+        self.addressee.size_unchecked() + nls_state_size
     }
 }
 
@@ -118,19 +126,15 @@ impl<'data> EncodedData<'data> for EncodedAddresseeWithNlsState<'data> {
         }
     }
 
-    unsafe fn expected_size(&self) -> usize {
-        let nls_state_size = if self.has_auth() { 5 } else { 0 };
-        self.addressee.expected_size() + nls_state_size
-    }
-
-    fn smaller_than(&self, data_size: usize) -> Result<usize, usize> {
-        let mut size = 1;
+    fn size(&self) -> Result<usize, ()> {
+        let mut size = 3;
+        let data_size = self.data.len();
         if data_size < size {
-            return Err(size);
+            return Err(());
         }
-        size = unsafe { self.addressee.expected_size() };
+        size = unsafe { self.addressee.size_unchecked() };
         if data_size < size {
-            return Err(size);
+            return Err(());
         }
         Ok(size)
     }
@@ -313,6 +317,13 @@ impl<'data> EncodedDash7InterfaceStatus<'data> {
     pub fn addressee_with_nls_state(&self) -> EncodedAddresseeWithNlsState<'data> {
         unsafe { EncodedAddresseeWithNlsState::new(self.data.get_unchecked(10..)) }
     }
+
+    /// # Safety
+    /// You have to be sure your byte array is at least 11 bytes long for this
+    /// function call to be safe.
+    pub unsafe fn size_unchecked(&self) -> usize {
+        10 + self.addressee_with_nls_state().size_unchecked()
+    }
 }
 
 impl<'data> EncodedData<'data> for EncodedDash7InterfaceStatus<'data> {
@@ -322,19 +333,16 @@ impl<'data> EncodedData<'data> for EncodedDash7InterfaceStatus<'data> {
         Self { data }
     }
 
-    unsafe fn expected_size(&self) -> usize {
-        10 + self.addressee_with_nls_state().expected_size()
-    }
-
-    fn smaller_than(&self, data_size: usize) -> Result<usize, usize> {
+    fn size(&self) -> Result<usize, ()> {
         let mut size = 11;
+        let data_size = self.data.len();
         if data_size < size {
-            return Err(size);
+            return Err(());
         }
-        size += unsafe { self.addressee_with_nls_state().expected_size() };
+        size += unsafe { self.addressee_with_nls_state().size_unchecked() };
         size -= 1;
         if data_size < size {
-            return Err(size);
+            return Err(());
         }
         Ok(size)
     }
@@ -432,8 +440,8 @@ mod test {
                 &decoder.addressee().complete_decoding().item
             );
             assert_eq!(expected_size, size);
-            assert_eq!(unsafe { decoder.expected_size() }, size);
-            assert_eq!(decoder.smaller_than(data.len()).unwrap(), size);
+            assert_eq!(unsafe { decoder.size_unchecked() }, size);
+            assert_eq!(decoder.size().unwrap(), size);
             assert_eq!(
                 op,
                 Dash7InterfaceStatusRef {

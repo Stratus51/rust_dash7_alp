@@ -347,6 +347,26 @@ pub enum EncodedAction<'data> {
     Status(EncodedStatus<'data>),
 }
 
+// TODO Should we support that method if only actions supporting it have been activated?
+// impl<'data> FailableEncodedData<'data> for EncodedAction<'data> {
+//     pub unsafe fn size_unchecked(&self) -> usize {
+//         match self {
+//             #[cfg(feature = "decode_nop")]
+//             Self::Nop(action) => action.size_unchecked(),
+//             #[cfg(feature = "decode_read_file_data")]
+//             Self::ReadFileData(action) => action.size_unchecked(),
+//             #[cfg(feature = "decode_read_file_properties")]
+//             Self::ReadFileProperties(action) => action.size_unchecked(),
+//             #[cfg(feature = "decode_write_file_data")]
+//             Self::WriteFileData(action) => action.size_unchecked(),
+//             #[cfg(feature = "decode_action_query")]
+//             Self::ActionQuery(action) => action.size_unchecked(),
+//             #[cfg(feature = "decode_status")]
+//             Self::Status(action) => action.size_unchecked(),
+//         }
+//     }
+// }
+
 #[cfg(feature = "decode_action")]
 impl<'data> FailableEncodedData<'data> for EncodedAction<'data> {
     type Error = ActionDecodeError<'data>;
@@ -386,37 +406,20 @@ impl<'data> FailableEncodedData<'data> for EncodedAction<'data> {
         })
     }
 
-    unsafe fn expected_size(&self) -> usize {
+    fn size(&self) -> Result<usize, ()> {
         match self {
             #[cfg(feature = "decode_nop")]
-            Self::Nop(action) => action.expected_size(),
+            Self::Nop(action) => action.size(),
             #[cfg(feature = "decode_read_file_data")]
-            Self::ReadFileData(action) => action.expected_size(),
+            Self::ReadFileData(action) => action.size(),
             #[cfg(feature = "decode_read_file_properties")]
-            Self::ReadFileProperties(action) => action.expected_size(),
+            Self::ReadFileProperties(action) => action.size(),
             #[cfg(feature = "decode_write_file_data")]
-            Self::WriteFileData(action) => action.expected_size(),
+            Self::WriteFileData(action) => action.size(),
             #[cfg(feature = "decode_action_query")]
-            Self::ActionQuery(action) => action.expected_size(),
+            Self::ActionQuery(action) => action.size(),
             #[cfg(feature = "decode_status")]
-            Self::Status(action) => action.expected_size(),
-        }
-    }
-
-    fn smaller_than(&self, data_size: usize) -> Result<usize, usize> {
-        match self {
-            #[cfg(feature = "decode_nop")]
-            Self::Nop(action) => action.smaller_than(data_size),
-            #[cfg(feature = "decode_read_file_data")]
-            Self::ReadFileData(action) => action.smaller_than(data_size),
-            #[cfg(feature = "decode_read_file_properties")]
-            Self::ReadFileProperties(action) => action.smaller_than(data_size),
-            #[cfg(feature = "decode_write_file_data")]
-            Self::WriteFileData(action) => action.smaller_than(data_size),
-            #[cfg(feature = "decode_action_query")]
-            Self::ActionQuery(action) => action.smaller_than(data_size),
-            #[cfg(feature = "decode_status")]
-            Self::Status(action) => action.smaller_than(data_size),
+            Self::Status(action) => action.size(),
         }
     }
 
@@ -599,8 +602,9 @@ mod test {
                 byte_size: expected_size,
             } = DecodedActionRef::start_decoding(data).unwrap();
             assert_eq!(expected_size, size);
-            assert_eq!(unsafe { decoder.expected_size() }, size);
-            assert_eq!(decoder.smaller_than(data.len()).unwrap(), size);
+            // TODO Should this be supported?
+            // assert_eq!(unsafe { decoder.size_unchecked() }, size);
+            assert_eq!(decoder.size().unwrap(), size);
         }
         #[cfg(feature = "decode_nop")]
         test(ActionRef::Nop(NopRef::new(false, true)), &[0x40]);

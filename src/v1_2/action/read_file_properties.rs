@@ -122,6 +122,10 @@ impl<'data> EncodedReadFileProperties<'data> {
     pub fn file_id(&self) -> FileId {
         unsafe { FileId::new(*self.data.get_unchecked(1)) }
     }
+
+    pub fn size_unchecked(&self) -> usize {
+        SIZE
+    }
 }
 
 impl<'data> EncodedData<'data> for EncodedReadFileProperties<'data> {
@@ -131,14 +135,7 @@ impl<'data> EncodedData<'data> for EncodedReadFileProperties<'data> {
         Self { data }
     }
 
-    unsafe fn expected_size(&self) -> usize {
-        SIZE
-    }
-
-    fn smaller_than(&self, data_size: usize) -> Result<usize, usize> {
-        if data_size < SIZE {
-            return Err(SIZE);
-        }
+    fn size(&self) -> Result<usize, ()> {
         Ok(SIZE)
     }
 
@@ -211,8 +208,8 @@ mod test {
 
             // Test partial_decode == op
             let decoder = ReadFilePropertiesRef::start_decoding(data).unwrap().item;
-            assert_eq!(size, unsafe { decoder.expected_size() });
-            assert_eq!(size, decoder.smaller_than(data.len()).unwrap());
+            assert_eq!(size, decoder.size_unchecked());
+            assert_eq!(size, decoder.size().unwrap());
             assert_eq!(
                 op,
                 ReadFilePropertiesRef {

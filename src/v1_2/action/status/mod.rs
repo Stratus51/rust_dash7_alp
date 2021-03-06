@@ -114,18 +114,11 @@ impl<'data> FailableEncodedData<'data> for EncodedStatus<'data> {
         })
     }
 
-    unsafe fn expected_size(&self) -> usize {
-        1 + match self {
-            Self::Interface(status) => status.expected_size(),
-        }
-    }
-
-    fn smaller_than(&self, data_size: usize) -> Result<usize, usize> {
+    fn size(&self) -> Result<usize, ()> {
         match self {
-            Self::Interface(status) => status.smaller_than(data_size - 1),
+            Self::Interface(status) => status.size(),
         }
         .map(|v| v + 1)
-        .map_err(|v| v + 1)
     }
 
     fn complete_decoding(&self) -> WithByteSize<StatusRef<'data>> {

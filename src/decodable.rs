@@ -27,19 +27,13 @@ pub trait EncodedData<'data> {
     /// Requires the data to contain at least one byte.
     unsafe fn new(data: &'data [u8]) -> Self;
 
-    /// Decodes the size of the item in bytes
-    ///
-    /// # Safety
-    /// This might require reading data bytes that may be outside the valid data to be calculated.
-    unsafe fn expected_size(&self) -> usize;
-
     /// Safely checks whether the given data_size is bigger than the decoded object expected size
     /// and return the expected size.
     ///
     /// # Errors
     /// Fails if the data_size is smaller than the required data size to decode the object.
     /// On error, returns the minimum bytes required to continue parsing the size of this item.
-    fn smaller_than(&self, data_size: usize) -> Result<usize, usize>;
+    fn size(&self) -> Result<usize, ()>;
 
     /// Fully decodes the Item.
     fn complete_decoding(&self) -> WithByteSize<Self::DecodedData>;
@@ -68,9 +62,12 @@ pub trait Decodable<'data>: Sized + 'data {
     ///
     /// # Errors
     /// - Fails if data is smaller then the decoded expected size.
-    fn start_decoding(data: &'data [u8]) -> Result<WithByteSize<Self::Data>, usize> {
+    fn start_decoding(data: &'data [u8]) -> Result<WithByteSize<Self::Data>, ()> {
         let ret = unsafe { Self::start_decoding_unchecked(data) };
-        let size = ret.smaller_than(data.len())?;
+        let size = ret.size()?;
+        if size > data.len() {
+            return Err(());
+        }
         Ok(WithByteSize {
             item: ret,
             byte_size: size,
@@ -97,7 +94,7 @@ pub trait Decodable<'data>: Sized + 'data {
     /// # Errors
     /// Fails if the input data is too small to decode and requires the minimum
     /// number of bytes required to continue decoding.
-    fn decode(data: &'data [u8]) -> Result<WithByteSize<Self>, usize> {
+    fn decode(data: &'data [u8]) -> Result<WithByteSize<Self>, ()> {
         Self::start_decoding(data).map(|v| v.item.complete_decoding())
     }
 }
@@ -118,19 +115,13 @@ pub trait FailableEncodedData<'data> {
     where
         Self: Sized;
 
-    /// Decodes the size of the Item in bytes
-    ///
-    /// # Safety
-    /// This might require reading data bytes that may be outside the valid data to be calculated.
-    unsafe fn expected_size(&self) -> usize;
-
     /// Safely checks whether the given data_size is bigger than the decoded object expected size
     /// and return the expected size.
     ///
     /// # Errors
     /// Fails if the data_size is smaller than the required data size to decode the object.
     /// On error, returns the minimum bytes required to continue parsing the size of this item.
-    fn smaller_than(&self, data_size: usize) -> Result<usize, usize>;
+    fn size(&self) -> Result<usize, ()>;
 
     /// Fully decodes the Item.
     fn complete_decoding(&self) -> WithByteSize<Self::DecodedData>;
@@ -139,7 +130,7 @@ pub trait FailableEncodedData<'data> {
 pub type FailableEncodedDataError<'data, T> = <T as FailableEncodedData<'data>>::Error;
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum FailableDecodingError<'data, T: FailableEncodedData<'data, DecodedData = U>, U> {
-    DataSize(usize),
+    DataSize,
     Decode(FailableEncodedDataError<'data, T>),
 }
 impl<'data, T: FailableEncodedData<'data, DecodedData = U>, U> core::fmt::Debug
@@ -147,7 +138,7 @@ impl<'data, T: FailableEncodedData<'data, DecodedData = U>, U> core::fmt::Debug
 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::DataSize(size) => write!(f, "DataSize({})", size),
+            Self::DataSize => write!(f, "DataSize"),
             Self::Decode(error) => write!(f, "Decode({:?})", error),
         }
     }
@@ -187,9 +178,10 @@ pub trait FailableDecodable<'data>: Sized + 'data {
     ) -> Result<WithByteSize<Self::Data>, FailableDecodingError<'data, Self::Data, Self>> {
         let ret =
             unsafe { Self::start_decoding_unchecked(data).map_err(FailableDecodingError::Decode)? };
-        let size = ret
-            .smaller_than(data.len())
-            .map_err(FailableDecodingError::DataSize)?;
+        let size = ret.size().map_err(|_| FailableDecodingError::DataSize)?;
+        if size > data.len() {
+            return Err(FailableDecodingError::DataSize);
+        }
         Ok(WithByteSize {
             item: ret,
             byte_size: size,
