@@ -1,7 +1,7 @@
-use super::super::super::define::flag;
 use super::define::{QueryCode, QueryRangeComparisonType};
 use crate::decodable::{Decodable, EncodedData, SizeError, WithByteSize};
 use crate::define::{FileId, MaskedRangeRef};
+use crate::v1_2::define::flag;
 use crate::varint::{EncodedVarint, Varint};
 
 #[cfg(feature = "alloc")]

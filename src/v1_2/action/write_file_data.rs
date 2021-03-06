@@ -1,9 +1,8 @@
-use super::super::define::flag;
-use super::super::define::op_code::OpCode;
 use crate::decodable::{Decodable, EncodedData, SizeError, WithByteSize};
 #[cfg(feature = "alloc")]
 use crate::define::EncodableData;
 use crate::define::{EncodableDataRef, FileId};
+use crate::v1_2::define::{flag, op_code};
 use crate::varint::{EncodedVarint, Varint};
 
 // TODO Is it the role of this library to teach the semantics of the protocol or should it just
@@ -56,7 +55,7 @@ impl<'item> WriteFileDataRef<'item> {
     /// random parts of your memory.
     pub unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
         let mut size = 0;
-        *out.add(0) = OpCode::WriteFileData as u8
+        *out.add(0) = op_code::WRITE_FILE_DATA
             | if self.group { flag::GROUP } else { 0 }
             | if self.response { flag::RESPONSE } else { 0 };
         *out.add(1) = self.file_id.u8();

@@ -1,7 +1,7 @@
-use super::super::define::flag;
-use super::super::define::op_code::OpCode;
 use crate::decodable::{Decodable, EncodedData, SizeError, WithByteSize};
 use crate::define::FileId;
+use crate::v1_2::define::flag;
+use crate::v1_2::define::op_code;
 use crate::varint::{self, EncodedVarint, Varint};
 
 // TODO SPEC: Verify if the new ReadFileData successfull length overflow
@@ -65,7 +65,7 @@ impl<'item> ReadFileDataRef<'item> {
     /// random parts of your memory.
     pub unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
         let mut size = 0;
-        *out.add(0) = OpCode::ReadFileData as u8
+        *out.add(0) = op_code::READ_FILE_DATA as u8
             | if self.group { flag::GROUP } else { 0 }
             | if self.response { flag::RESPONSE } else { 0 };
         *out.add(1) = self.file_id.u8();

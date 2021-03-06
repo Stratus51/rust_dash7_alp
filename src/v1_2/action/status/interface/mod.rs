@@ -1,10 +1,10 @@
-use super::super::super::error::UnknownInterfaceId;
 use crate::decodable::{
-    Decodable, EncodedData, FailableDecodable, FailableEncodedData, SizeError, WithByteSize,
+    Decodable, EncodedData, FailableDecodable, FailableEncodedData, WithByteSize,
 };
 use crate::v1_2::dash7::interface_status::{
     Dash7InterfaceStatus, Dash7InterfaceStatusRef, EncodedDash7InterfaceStatus,
 };
+use crate::v1_2::error::{StatusInterfaceSizeError, UnsupportedInterfaceId};
 use crate::varint::{EncodedVarint, Varint};
 
 pub mod define;
@@ -153,73 +153,87 @@ pub enum EncodedStatusInterfaceKind<'data> {
 
 pub struct EncodedStatusInterface<'data> {
     data: &'data [u8],
-    interface_id: InterfaceId,
 }
 
 impl<'data> EncodedStatusInterface<'data> {
-    pub fn interface_id(&self) -> &InterfaceId {
-        &self.interface_id
+    /// # Errors
+    /// Fails if the interface status id is unsupported.
+    pub fn interface_id(&self) -> Result<InterfaceId, UnsupportedInterfaceId<'data>> {
+        unsafe {
+            let byte = self.data.get_unchecked(0);
+            Ok(
+                InterfaceId::from(*byte).map_err(|_| UnsupportedInterfaceId {
+                    id: *byte,
+                    remaining_data: self.data.get_unchecked(1..),
+                })?,
+            )
+        }
     }
 
     pub fn len_field(&self) -> EncodedVarint<'data> {
         unsafe { Varint::start_decoding_unchecked(self.data.get_unchecked(1..)) }
     }
 
-    pub fn status(&self) -> EncodedStatusInterfaceKind<'data> {
+    /// # Errors
+    /// Fails if the interface status id is unsupported.
+    pub fn status(
+        &self,
+    ) -> Result<EncodedStatusInterfaceKind<'data>, UnsupportedInterfaceId<'data>> {
         unsafe {
             let offset = 1 + self.len_field().size_unchecked();
-            match self.interface_id {
+            Ok(match self.interface_id()? {
                 InterfaceId::Host => EncodedStatusInterfaceKind::Host,
                 InterfaceId::Dash7 => EncodedStatusInterfaceKind::Dash7(
                     Dash7InterfaceStatusRef::start_decoding_unchecked(
                         self.data.get_unchecked(offset..),
                     ),
                 ),
-            }
+            })
         }
     }
 }
 
 impl<'data> FailableEncodedData<'data> for EncodedStatusInterface<'data> {
-    type Error = UnknownInterfaceId<'data>;
+    type SizeError = StatusInterfaceSizeError<'data>;
+    type DecodeError = UnsupportedInterfaceId<'data>;
     type DecodedData = StatusInterfaceRef<'data>;
 
-    unsafe fn new(data: &'data [u8]) -> Result<Self, Self::Error> {
-        let byte = data.get_unchecked(0);
-        let interface_id = InterfaceId::from(*byte).map_err(|_| UnknownInterfaceId {
-            id: *byte,
-            remaining_data: data.get_unchecked(1..),
-        })?;
-        Ok(Self { data, interface_id })
+    unsafe fn new(data: &'data [u8]) -> Self {
+        Self { data }
     }
 
-    fn size(&self) -> Result<usize, SizeError> {
+    fn size(&self) -> Result<usize, Self::SizeError> {
         let mut size = 2;
         let data_size = self.data.len();
         if data_size < size {
-            return Err(SizeError::MissingBytes);
+            return Err(StatusInterfaceSizeError::MissingBytes);
         }
         size = 1 + unsafe { self.len_field().size_unchecked() };
         if data_size < size {
-            return Err(SizeError::MissingBytes);
+            return Err(StatusInterfaceSizeError::MissingBytes);
         }
-        size += match &self.status() {
+        size += match &self
+            .status()
+            .map_err(StatusInterfaceSizeError::UnsupportedInterfaceId)?
+        {
             EncodedStatusInterfaceKind::Host => 0,
             EncodedStatusInterfaceKind::Dash7(status) => match status.size() {
                 Ok(size) => size,
-                Err(_) => return Err(SizeError::MissingBytes),
+                Err(_) => return Err(StatusInterfaceSizeError::MissingBytes),
             },
         };
         if data_size < size {
-            return Err(SizeError::MissingBytes);
+            return Err(StatusInterfaceSizeError::MissingBytes);
         }
         Ok(size)
     }
 
-    fn complete_decoding(&self) -> WithByteSize<StatusInterfaceRef<'data>> {
+    fn complete_decoding(
+        &self,
+    ) -> Result<WithByteSize<StatusInterfaceRef<'data>>, Self::DecodeError> {
         let offset = 1 + unsafe { self.len_field().size_unchecked() };
         unsafe {
-            match self.interface_id {
+            Ok(match self.interface_id()? {
                 InterfaceId::Host => WithByteSize {
                     item: StatusInterfaceRef::Host,
                     byte_size: offset,
@@ -236,13 +250,14 @@ impl<'data> FailableEncodedData<'data> for EncodedStatusInterface<'data> {
                         byte_size: offset + size,
                     }
                 }
-            }
+            })
         }
     }
 }
 
 impl<'data> FailableDecodable<'data> for StatusInterfaceRef<'data> {
     type Data = EncodedStatusInterface<'data>;
+    type FullDecodeError = StatusInterfaceSizeError<'data>;
 }
 
 /// Details from the interface the command is coming from
@@ -299,7 +314,7 @@ mod test {
             assert_eq!(decoder.size().unwrap(), size);
             assert_eq!(
                 op,
-                match decoder.status() {
+                match decoder.status().unwrap() {
                     EncodedStatusInterfaceKind::Host => StatusInterfaceRef::Host,
                     EncodedStatusInterfaceKind::Dash7(status) =>
                         StatusInterfaceRef::Dash7(status.complete_decoding().item),

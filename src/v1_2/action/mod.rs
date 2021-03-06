@@ -26,7 +26,7 @@ pub mod write_file_properties;
 #[cfg(feature = "decode_action")]
 use crate::v1_2::define::op_code::OpCode;
 #[cfg(feature = "decode_action")]
-use crate::v1_2::error::ActionDecodeError;
+use crate::v1_2::error::{ActionDecodeError, ActionSizeError, UnsupportedOpCode};
 
 #[cfg(feature = "decode_nop")]
 use nop::EncodedNop;
@@ -61,6 +61,8 @@ use status::{Status, StatusRef};
 #[cfg(feature = "write_file_data")]
 use write_file_data::WriteFileDataRef;
 
+#[cfg(feature = "decode_action")]
+use crate::decodable::WithByteSize;
 #[cfg(any(
     feature = "decode_nop",
     feature = "decode_read_file_data",
@@ -70,8 +72,6 @@ use write_file_data::WriteFileDataRef;
 use crate::decodable::{Decodable, EncodedData};
 #[cfg(feature = "decode_action")]
 use crate::decodable::{FailableDecodable, FailableEncodedData};
-#[cfg(feature = "decode_action")]
-use crate::decodable::{SizeError, WithByteSize};
 
 // TODO SPEC: Why are some actions named "return". Removing that from the name would still
 // be technically correct: The operand "File data" contains file data. Seems good enough.
@@ -337,7 +337,7 @@ impl<'item> From<DecodedActionRef<'item>> for ActionRef<'item> {
 }
 
 #[cfg(feature = "decode_action")]
-pub enum EncodedAction<'data> {
+pub enum ValidEncodedAction<'data> {
     #[cfg(feature = "decode_nop")]
     Nop(EncodedNop<'data>),
     #[cfg(feature = "decode_read_file_data")]
@@ -352,111 +352,124 @@ pub enum EncodedAction<'data> {
     Status(EncodedStatus<'data>),
 }
 
-// TODO Should we support that method if only actions supporting it have been activated?
-// impl<'data> FailableEncodedData<'data> for EncodedAction<'data> {
-//     pub unsafe fn size_unchecked(&self) -> usize {
-//         match self {
-//             #[cfg(feature = "decode_nop")]
-//             Self::Nop(action) => action.size_unchecked(),
-//             #[cfg(feature = "decode_read_file_data")]
-//             Self::ReadFileData(action) => action.size_unchecked(),
-//             #[cfg(feature = "decode_read_file_properties")]
-//             Self::ReadFileProperties(action) => action.size_unchecked(),
-//             #[cfg(feature = "decode_write_file_data")]
-//             Self::WriteFileData(action) => action.size_unchecked(),
-//             #[cfg(feature = "decode_action_query")]
-//             Self::ActionQuery(action) => action.size_unchecked(),
-//             #[cfg(feature = "decode_status")]
-//             Self::Status(action) => action.size_unchecked(),
-//         }
-//     }
-// }
-
 #[cfg(feature = "decode_action")]
-impl<'data> FailableEncodedData<'data> for EncodedAction<'data> {
-    type Error = ActionDecodeError<'data>;
-    type DecodedData = DecodedActionRef<'data>;
-
-    unsafe fn new(data: &'data [u8]) -> Result<Self, ActionDecodeError<'data>> {
-        let code = *data.get_unchecked(0) & 0x3F;
-        let op_code = match OpCode::from(code) {
-            Ok(code) => code,
-            Err(_) => return Err(ActionDecodeError::UnknownActionCode(code)),
-        };
-        Ok(match op_code {
-            #[cfg(feature = "decode_nop")]
-            OpCode::Nop => Self::Nop(NopRef::start_decoding_unchecked(data)),
-            #[cfg(feature = "decode_read_file_data")]
-            OpCode::ReadFileData => {
-                Self::ReadFileData(ReadFileDataRef::start_decoding_unchecked(data))
-            }
-            #[cfg(feature = "decode_read_file_properties")]
-            OpCode::ReadFileProperties => {
-                Self::ReadFileProperties(ReadFilePropertiesRef::start_decoding_unchecked(data))
-            }
-            #[cfg(feature = "decode_write_file_data")]
-            OpCode::WriteFileData => {
-                Self::WriteFileData(WriteFileDataRef::start_decoding_unchecked(data))
-            }
-            #[cfg(feature = "decode_action_query")]
-            OpCode::ActionQuery => {
-                if data.len() < 2 {
-                    return Err(ActionDecodeError::MissingBytes(2));
-                }
-                Self::ActionQuery(DecodedActionQueryRef::start_decoding_unchecked(data)?)
-            }
-            #[cfg(feature = "decode_status")]
-            OpCode::Status => Self::Status(StatusRef::start_decoding_unchecked(data)?),
-            _ => return Err(ActionDecodeError::UnknownActionCode(code)),
+impl<'data> EncodedAction<'data> {
+    /// # Errors
+    /// Fails if the op code is unsupported.
+    pub fn op_code(&self) -> Result<OpCode, UnsupportedOpCode<'data>> {
+        let code = unsafe { *self.data.get_unchecked(0) & 0x3F };
+        OpCode::from(code).map_err(|_| UnsupportedOpCode {
+            op_code: code,
+            remaining_data: self.data,
         })
     }
 
-    fn size(&self) -> Result<usize, SizeError> {
-        match self {
-            #[cfg(feature = "decode_nop")]
-            Self::Nop(action) => action.size(),
-            #[cfg(feature = "decode_read_file_data")]
-            Self::ReadFileData(action) => action.size(),
-            #[cfg(feature = "decode_read_file_properties")]
-            Self::ReadFileProperties(action) => action.size(),
-            #[cfg(feature = "decode_write_file_data")]
-            Self::WriteFileData(action) => action.size(),
-            #[cfg(feature = "decode_action_query")]
-            Self::ActionQuery(action) => action.size(),
-            #[cfg(feature = "decode_status")]
-            Self::Status(action) => action.size(),
+    /// # Errors
+    /// Fails if the op code is unsupported.
+    pub fn action(&self) -> Result<ValidEncodedAction<'data>, UnsupportedOpCode<'data>> {
+        unsafe {
+            Ok(match self.op_code()? {
+                #[cfg(feature = "decode_nop")]
+                OpCode::Nop => ValidEncodedAction::Nop(NopRef::start_decoding_unchecked(self.data)),
+                #[cfg(feature = "decode_read_file_data")]
+                OpCode::ReadFileData => ValidEncodedAction::ReadFileData(
+                    ReadFileDataRef::start_decoding_unchecked(self.data),
+                ),
+                #[cfg(feature = "decode_read_file_properties")]
+                OpCode::ReadFileProperties => ValidEncodedAction::ReadFileProperties(
+                    ReadFilePropertiesRef::start_decoding_unchecked(self.data),
+                ),
+                #[cfg(feature = "decode_write_file_data")]
+                OpCode::WriteFileData => ValidEncodedAction::WriteFileData(
+                    WriteFileDataRef::start_decoding_unchecked(self.data),
+                ),
+                #[cfg(feature = "decode_action_query")]
+                OpCode::ActionQuery => ValidEncodedAction::ActionQuery(
+                    DecodedActionQueryRef::start_decoding_unchecked(self.data),
+                ),
+                #[cfg(feature = "decode_status")]
+                OpCode::Status => {
+                    ValidEncodedAction::Status(StatusRef::start_decoding_unchecked(self.data))
+                }
+                op_code => {
+                    return Err(UnsupportedOpCode {
+                        op_code: op_code as u8,
+                        remaining_data: self.data,
+                    })
+                }
+            })
         }
     }
+}
 
-    fn complete_decoding(&self) -> WithByteSize<DecodedActionRef<'data>> {
-        match self {
+#[cfg(feature = "decode_action")]
+pub struct EncodedAction<'data> {
+    data: &'data [u8],
+}
+
+#[cfg(feature = "decode_action")]
+impl<'data> FailableEncodedData<'data> for EncodedAction<'data> {
+    type SizeError = ActionSizeError<'data>;
+    type DecodeError = ActionDecodeError<'data>;
+    type DecodedData = DecodedActionRef<'data>;
+
+    unsafe fn new(data: &'data [u8]) -> Self {
+        Self { data }
+    }
+
+    fn size(&self) -> Result<usize, Self::SizeError> {
+        Ok(match self.action()? {
             #[cfg(feature = "decode_nop")]
-            Self::Nop(action) => action.complete_decoding().map(DecodedActionRef::Nop),
+            ValidEncodedAction::Nop(action) => action.size()?,
             #[cfg(feature = "decode_read_file_data")]
-            Self::ReadFileData(action) => action
+            ValidEncodedAction::ReadFileData(action) => action.size()?,
+            #[cfg(feature = "decode_read_file_properties")]
+            ValidEncodedAction::ReadFileProperties(action) => action.size()?,
+            #[cfg(feature = "decode_write_file_data")]
+            ValidEncodedAction::WriteFileData(action) => action.size()?,
+            #[cfg(feature = "decode_action_query")]
+            ValidEncodedAction::ActionQuery(action) => action.size()?,
+            #[cfg(feature = "decode_status")]
+            ValidEncodedAction::Status(action) => action.size()?,
+        })
+    }
+
+    fn complete_decoding(
+        &self,
+    ) -> Result<WithByteSize<DecodedActionRef<'data>>, Self::DecodeError> {
+        Ok(match self.action()? {
+            #[cfg(feature = "decode_nop")]
+            ValidEncodedAction::Nop(action) => {
+                action.complete_decoding().map(DecodedActionRef::Nop)
+            }
+            #[cfg(feature = "decode_read_file_data")]
+            ValidEncodedAction::ReadFileData(action) => action
                 .complete_decoding()
                 .map(DecodedActionRef::ReadFileData),
             #[cfg(feature = "decode_read_file_properties")]
-            Self::ReadFileProperties(action) => action
+            ValidEncodedAction::ReadFileProperties(action) => action
                 .complete_decoding()
                 .map(DecodedActionRef::ReadFileProperties),
             #[cfg(feature = "decode_write_file_data")]
-            Self::WriteFileData(action) => action
+            ValidEncodedAction::WriteFileData(action) => action
                 .complete_decoding()
                 .map(DecodedActionRef::WriteFileData),
             #[cfg(feature = "decode_action_query")]
-            Self::ActionQuery(action) => action
-                .complete_decoding()
+            ValidEncodedAction::ActionQuery(action) => action
+                .complete_decoding()?
                 .map(DecodedActionRef::ActionQuery),
             #[cfg(feature = "decode_status")]
-            Self::Status(action) => action.complete_decoding().map(DecodedActionRef::Status),
-        }
+            ValidEncodedAction::Status(action) => {
+                action.complete_decoding()?.map(DecodedActionRef::Status)
+            }
+        })
     }
 }
 
 #[cfg(feature = "decode_action")]
 impl<'data> FailableDecodable<'data> for DecodedActionRef<'data> {
     type Data = EncodedAction<'data>;
+    type FullDecodeError = ActionSizeError<'data>;
 }
 
 /// An Owned ALP Action

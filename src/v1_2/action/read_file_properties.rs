@@ -1,7 +1,6 @@
-use super::super::define::flag;
-use super::super::define::op_code::OpCode;
 use crate::decodable::{Decodable, EncodedData, SizeError, WithByteSize};
 use crate::define::FileId;
+use crate::v1_2::define::{flag, op_code};
 
 /// Maximum byte size of an encoded `ReadFileProperties`
 pub const MAX_SIZE: usize = 2;
@@ -37,7 +36,7 @@ impl<'item> ReadFilePropertiesRef<'item> {
     /// Encodes the Item into a fixed size array
     pub const fn encode_to_array(&self) -> [u8; 2] {
         [
-            OpCode::ReadFileProperties as u8
+            op_code::READ_FILE_PROPERTIES
                 | if self.group { flag::GROUP } else { 0 }
                 | if self.response { flag::RESPONSE } else { 0 },
             self.file_id.u8(),
@@ -59,7 +58,7 @@ impl<'item> ReadFilePropertiesRef<'item> {
     /// Failing that will result in the program writing out of bound in
     /// random parts of your memory.
     pub unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
-        *out.add(0) = OpCode::ReadFileProperties as u8
+        *out.add(0) = op_code::READ_FILE_PROPERTIES
             | if self.group { flag::GROUP } else { 0 }
             | if self.response { flag::RESPONSE } else { 0 };
         *out.add(1) = self.file_id.u8();

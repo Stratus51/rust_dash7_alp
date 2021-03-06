@@ -2,9 +2,9 @@ pub mod action;
 pub mod define;
 pub mod interface;
 
-use super::super::define::op_code::OpCode;
-use crate::decodable::{FailableDecodable, FailableEncodedData, SizeError, WithByteSize};
-use crate::v1_2::error::{StatusDecodeError, UnknownExtension};
+use crate::decodable::{FailableDecodable, FailableEncodedData, WithByteSize};
+use crate::v1_2::define::op_code;
+use crate::v1_2::error::{StatusDecodeError, StatusSizeError, UnsupportedExtension};
 pub use define::StatusExtension;
 pub use interface::{EncodedStatusInterface, StatusInterface, StatusInterfaceRef};
 
@@ -40,7 +40,7 @@ impl<'item> StatusRef<'item> {
     /// Failing that will result in the program writing out of bound in
     /// random parts of your memory.
     pub unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
-        *out.add(0) = OpCode::Status as u8 | ((self.extension() as u8) << 6);
+        *out.add(0) = op_code::STATUS | ((self.extension() as u8) << 6);
         1 + match self {
             Self::Interface(status) => status.encode_in_ptr(out.add(1)),
         }
@@ -86,48 +86,65 @@ impl<'item> StatusRef<'item> {
     }
 }
 
-pub enum EncodedStatus<'data> {
+pub enum ValidEncodedStatus<'data> {
     Interface(EncodedStatusInterface<'data>),
 }
 
+impl<'data> EncodedStatus<'data> {
+    /// # Errors
+    /// Fails if the status extension is unsupported.
+    pub fn extension(&self) -> Result<StatusExtension, UnsupportedExtension<'data>> {
+        unsafe {
+            let byte = self.data.get_unchecked(0);
+            let code = byte >> 6;
+            StatusExtension::from(code).map_err(|_| UnsupportedExtension {
+                extension: code,
+                remaining_data: self.data.get_unchecked(1..),
+            })
+        }
+    }
+
+    /// # Errors
+    /// Fails if the status extension is unsupported.
+    pub fn status(&self) -> Result<ValidEncodedStatus<'data>, UnsupportedExtension<'data>> {
+        unsafe {
+            Ok(match self.extension()? {
+                StatusExtension::Interface => ValidEncodedStatus::Interface(
+                    StatusInterfaceRef::start_decoding_unchecked(&self.data[1..]),
+                ),
+            })
+        }
+    }
+}
+
+pub struct EncodedStatus<'data> {
+    data: &'data [u8],
+}
+
 impl<'data> FailableEncodedData<'data> for EncodedStatus<'data> {
-    type Error = StatusDecodeError<'data>;
+    type SizeError = StatusSizeError<'data>;
+    type DecodeError = StatusDecodeError<'data>;
     type DecodedData = StatusRef<'data>;
 
-    unsafe fn new(data: &'data [u8]) -> Result<Self, Self::Error> {
-        let byte = data.get_unchecked(0);
-        let code = byte >> 6;
-        let extension = match StatusExtension::from(code) {
-            Ok(ext) => ext,
-            Err(_ext) => {
-                return Err(StatusDecodeError::UnknownExtension(UnknownExtension {
-                    extension: code,
-                    remaining_data: data.get_unchecked(1..),
-                }));
-            }
-        };
-        Ok(match extension {
-            StatusExtension::Interface => EncodedStatus::Interface(
-                StatusInterfaceRef::start_decoding_unchecked(&data[1..])
-                    .map_err(StatusDecodeError::UnknownInterfaceId)?,
-            ),
-        })
+    unsafe fn new(data: &'data [u8]) -> Self {
+        Self { data }
     }
 
-    fn size(&self) -> Result<usize, SizeError> {
-        match self {
-            Self::Interface(status) => status.size(),
+    fn size(&self) -> Result<usize, Self::SizeError> {
+        match self.status()? {
+            ValidEncodedStatus::Interface(status) => status.size(),
         }
         .map(|v| v + 1)
+        .map_err(|e| e.into())
     }
 
-    fn complete_decoding(&self) -> WithByteSize<StatusRef<'data>> {
-        let mut ret = match &self {
-            EncodedStatus::Interface(interface) => {
+    fn complete_decoding(&self) -> Result<WithByteSize<StatusRef<'data>>, Self::DecodeError> {
+        let mut ret = match &self.status()? {
+            ValidEncodedStatus::Interface(interface) => {
                 let WithByteSize {
                     item: status,
                     byte_size: size,
-                } = interface.complete_decoding();
+                } = interface.complete_decoding()?;
                 WithByteSize {
                     item: StatusRef::Interface(status),
                     byte_size: size,
@@ -135,12 +152,13 @@ impl<'data> FailableEncodedData<'data> for EncodedStatus<'data> {
             }
         };
         ret.byte_size += 1;
-        ret
+        Ok(ret)
     }
 }
 
 impl<'data> FailableDecodable<'data> for StatusRef<'data> {
     type Data = EncodedStatus<'data>;
+    type FullDecodeError = StatusSizeError<'data>;
 }
 
 /// Details from the interface the command is coming from

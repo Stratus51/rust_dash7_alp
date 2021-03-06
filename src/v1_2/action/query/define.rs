@@ -1,3 +1,5 @@
+use crate::v1_2::error::{QueryCodeError, QueryComparisonTypeError, QueryRangeComparisonTypeError};
+
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
@@ -10,12 +12,6 @@ pub enum QueryComparisonType {
     GreaterThanOrEqual = 5,
     Rfu6 = 6,
     Rfu7 = 7,
-}
-#[cfg_attr(feature = "repr_c", repr(C))]
-#[cfg_attr(feature = "packed", repr(packed))]
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub enum QueryComparisonTypeError {
-    Invalid,
 }
 impl QueryComparisonType {
     /// # Safety
@@ -66,12 +62,6 @@ pub enum QueryRangeComparisonType {
     Rfu6 = 6,
     Rfu7 = 7,
 }
-#[cfg_attr(feature = "repr_c", repr(C))]
-#[cfg_attr(feature = "packed", repr(packed))]
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub enum QueryRangeComparisonTypeError {
-    Invalid,
-}
 impl QueryRangeComparisonType {
     /// # Safety
     /// You are to warrant that n is encoded on 3 bits only.
@@ -118,13 +108,6 @@ pub enum QueryCode {
     // ComparisonWithOtherFile = 3,
     ComparisonWithRange = 4,
     // StringTokenSearch = 7,
-}
-#[cfg_attr(feature = "repr_c", repr(C))]
-#[cfg_attr(feature = "packed", repr(packed))]
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub enum QueryCodeError {
-    Unsupported { code: u8 },
-    Invalid,
 }
 impl QueryCode {
     /// # Errors

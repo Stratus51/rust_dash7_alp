@@ -1,6 +1,5 @@
-use super::super::define::flag;
-use super::super::define::op_code::OpCode;
 use crate::decodable::{Decodable, EncodedData, SizeError, WithByteSize};
+use crate::v1_2::define::{flag, op_code};
 
 /// Maximum byte size of an encoded Nop
 pub const MAX_SIZE: usize = 1;
@@ -45,7 +44,7 @@ impl<'item> NopRef<'item> {
 
     /// Encodes the Item into a fixed size array
     pub const fn encode_to_array(&self) -> [u8; 1] {
-        [OpCode::Nop as u8
+        [op_code::NOP
             | if self.group { flag::GROUP } else { 0 }
             | if self.response { flag::RESPONSE } else { 0 }]
     }
@@ -65,7 +64,7 @@ impl<'item> NopRef<'item> {
     /// Failing that will result in the program writing out of bound in
     /// random parts of your memory.
     pub unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
-        *out.add(0) = OpCode::Nop as u8
+        *out.add(0) = op_code::NOP
             | if self.group { flag::GROUP } else { 0 }
             | if self.response { flag::RESPONSE } else { 0 };
         1

@@ -106,9 +106,27 @@ pub trait Decodable<'data>: Sized + 'data {
     }
 }
 
+pub trait MissingByteErrorBuilder {
+    fn missing_bytes() -> Self;
+}
+
 /// Array of bytes that represents an item (DecodedData)
 pub trait FailableEncodedData<'data> {
-    type Error: Clone + Eq + PartialEq + Ord + PartialOrd + core::hash::Hash + core::fmt::Debug;
+    type DecodeError: Clone
+        + Eq
+        + PartialEq
+        + Ord
+        + PartialOrd
+        + core::hash::Hash
+        + core::fmt::Debug;
+    type SizeError: Clone
+        + Eq
+        + PartialEq
+        + Ord
+        + PartialOrd
+        + core::hash::Hash
+        + core::fmt::Debug
+        + MissingByteErrorBuilder;
     type DecodedData: Sized + 'data;
 
     /// Parse the first byte to check whether that data is parseable.
@@ -118,7 +136,7 @@ pub trait FailableEncodedData<'data> {
     ///
     /// # Errors
     /// The data is not parseable.
-    unsafe fn new(data: &'data [u8]) -> Result<Self, Self::Error>
+    unsafe fn new(data: &'data [u8]) -> Self
     where
         Self: Sized;
 
@@ -128,32 +146,34 @@ pub trait FailableEncodedData<'data> {
     /// # Errors
     /// Fails if the data_size is smaller than the required data size to decode the object.
     /// On error, returns the minimum bytes required to continue parsing the size of this item.
-    fn size(&self) -> Result<usize, SizeError>;
+    fn size(&self) -> Result<usize, Self::SizeError>;
 
     /// Fully decodes the Item.
-    fn complete_decoding(&self) -> WithByteSize<Self::DecodedData>;
+    ///
+    /// # Errors
+    /// Fails if the data is not decodable.
+    /// This currently means that either the data is incoherent or it contains unsupported
+    /// items.
+    ///
+    /// This method does not check data boundaries, as it assumes those have been previously done.
+    fn complete_decoding(&self) -> Result<WithByteSize<Self::DecodedData>, Self::DecodeError>;
 }
 
-pub type FailableEncodedDataError<'data, T> = <T as FailableEncodedData<'data>>::Error;
-#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub enum FailableDecodingError<'data, T: FailableEncodedData<'data, DecodedData = U>, U> {
-    DataSize,
-    Decode(FailableEncodedDataError<'data, T>),
-}
-impl<'data, T: FailableEncodedData<'data, DecodedData = U>, U> core::fmt::Debug
-    for FailableDecodingError<'data, T, U>
-{
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            Self::DataSize => write!(f, "DataSize"),
-            Self::Decode(error) => write!(f, "Decode({:?})", error),
-        }
-    }
-}
+pub type FailableEncodedDataSizeError<'data, T> = <T as FailableEncodedData<'data>>::SizeError;
+pub type FailableEncodedDataDecodeError<'data, T> = <T as FailableEncodedData<'data>>::DecodeError;
 
 /// Item that may be decoded from coherent bytes.
 pub trait FailableDecodable<'data>: Sized + 'data {
     type Data: FailableEncodedData<'data, DecodedData = Self>;
+    type FullDecodeError: Clone
+        + Eq
+        + PartialEq
+        + Ord
+        + PartialOrd
+        + core::hash::Hash
+        + core::fmt::Debug
+        + From<FailableEncodedDataSizeError<'data, Self::Data>>
+        + From<FailableEncodedDataDecodeError<'data, Self::Data>>;
 
     /// Creates an encoded item handle without checking the data size.
     ///
@@ -167,9 +187,7 @@ pub trait FailableDecodable<'data>: Sized + 'data {
     ///
     /// # Errors
     /// Fails if the data is not parseable.
-    unsafe fn start_decoding_unchecked(
-        data: &'data [u8],
-    ) -> Result<Self::Data, FailableEncodedDataError<'data, Self::Data>> {
+    unsafe fn start_decoding_unchecked(data: &'data [u8]) -> Self::Data {
         Self::Data::new(data)
     }
 
@@ -182,12 +200,11 @@ pub trait FailableDecodable<'data>: Sized + 'data {
     /// - Fails if the data is not parseable.
     fn start_decoding(
         data: &'data [u8],
-    ) -> Result<WithByteSize<Self::Data>, FailableDecodingError<'data, Self::Data, Self>> {
-        let ret =
-            unsafe { Self::start_decoding_unchecked(data).map_err(FailableDecodingError::Decode)? };
-        let size = ret.size().map_err(|_| FailableDecodingError::DataSize)?;
+    ) -> Result<WithByteSize<Self::Data>, FailableEncodedDataSizeError<'data, Self::Data>> {
+        let ret = unsafe { Self::start_decoding_unchecked(data) };
+        let size = ret.size()?;
         if size > data.len() {
-            return Err(FailableDecodingError::DataSize);
+            return Err(<FailableEncodedDataSizeError<'data, Self::Data> as MissingByteErrorBuilder>::missing_bytes());
         }
         Ok(WithByteSize {
             item: ret,
@@ -211,8 +228,8 @@ pub trait FailableDecodable<'data>: Sized + 'data {
     /// Fails if the data is not parseable.
     unsafe fn decode_unchecked(
         data: &'data [u8],
-    ) -> Result<WithByteSize<Self>, FailableEncodedDataError<'data, Self::Data>> {
-        Self::start_decoding_unchecked(data).map(|v| v.complete_decoding())
+    ) -> Result<WithByteSize<Self>, FailableEncodedDataDecodeError<'data, Self::Data>> {
+        Self::start_decoding_unchecked(data).complete_decoding()
     }
 
     /// Decodes an item from raw data.
@@ -221,9 +238,9 @@ pub trait FailableDecodable<'data>: Sized + 'data {
     /// - Fails if the input data is too small to decode and requires the minimum
     /// number of bytes required to continue decoding.
     /// - Fails if the data is not parseable.
-    fn decode(
-        data: &'data [u8],
-    ) -> Result<WithByteSize<Self>, FailableDecodingError<'data, Self::Data, Self>> {
-        Self::start_decoding(data).map(|v| v.item.complete_decoding())
+    fn decode(data: &'data [u8]) -> Result<WithByteSize<Self>, Self::FullDecodeError> {
+        Self::start_decoding(data)
+            .map_err(|e| e.into())
+            .and_then(|v| v.item.complete_decoding().map_err(|e| e.into()))
     }
 }

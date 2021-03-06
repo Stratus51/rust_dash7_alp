@@ -1,16 +1,11 @@
+use crate::v1_2::error::InterfaceIdError;
+
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum InterfaceId {
     Host = 0,
     Dash7 = 0xD7,
-}
-
-#[cfg_attr(feature = "repr_c", repr(C))]
-#[cfg_attr(feature = "packed", repr(packed))]
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub enum InterfaceIdError {
-    Unknown,
 }
 
 impl InterfaceId {
@@ -32,7 +27,7 @@ impl InterfaceId {
         Ok(match n {
             0 => Self::Host,
             0xD7 => Self::Dash7,
-            _ => return Err(InterfaceIdError::Unknown),
+            id => return Err(InterfaceIdError::Unsupported { id }),
         })
     }
 }

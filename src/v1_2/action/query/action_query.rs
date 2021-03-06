@@ -1,11 +1,11 @@
-#[cfg(feature = "query")]
-use super::super::super::define::flag;
-#[cfg(feature = "query")]
-use super::super::super::define::op_code::OpCode;
 #[cfg(feature = "decode_query")]
-use crate::decodable::{FailableDecodable, FailableEncodedData, SizeError, WithByteSize};
+use crate::decodable::{FailableDecodable, FailableEncodedData, WithByteSize};
+#[cfg(feature = "query")]
+use crate::v1_2::define::flag;
+#[cfg(feature = "query")]
+use crate::v1_2::define::op_code;
 #[cfg(feature = "decode_query")]
-use crate::v1_2::error::UnknownQueryCode;
+use crate::v1_2::error::{QuerySizeError, UnsupportedQueryCode};
 
 #[cfg(feature = "query")]
 use super::QueryRef;
@@ -49,7 +49,7 @@ impl<'item> ActionQueryRef<'item> {
     /// random parts of your memory.
     pub unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
         let mut size = 0;
-        *out.add(0) = OpCode::ActionQuery as u8
+        *out.add(0) = op_code::ACTION_QUERY
             | if self.group { flag::GROUP } else { 0 }
             | if self.response { flag::RESPONSE } else { 0 };
         size += 1;
@@ -133,7 +133,6 @@ impl<'item> From<DecodedActionQueryRef<'item>> for ActionQueryRef<'item> {
 #[cfg(feature = "decode_query")]
 pub struct EncodedActionQuery<'data> {
     data: &'data [u8],
-    query: EncodedQuery<'data>,
 }
 
 #[cfg(feature = "decode_query")]
@@ -146,44 +145,47 @@ impl<'data> EncodedActionQuery<'data> {
         unsafe { *self.data.get_unchecked(0) & flag::RESPONSE != 0 }
     }
 
-    pub fn query(&self) -> &EncodedQuery<'data> {
-        &self.query
+    pub fn query(&self) -> EncodedQuery<'data> {
+        unsafe { DecodedQueryRef::start_decoding_unchecked(&self.data[1..]) }
     }
 }
 
 #[cfg(feature = "decode_query")]
 impl<'data> FailableEncodedData<'data> for EncodedActionQuery<'data> {
-    type Error = UnknownQueryCode<'data>;
+    type SizeError = QuerySizeError<'data>;
+    type DecodeError = UnsupportedQueryCode<'data>;
     type DecodedData = DecodedActionQueryRef<'data>;
 
-    unsafe fn new(data: &'data [u8]) -> Result<Self, Self::Error> {
-        let query = DecodedQueryRef::start_decoding_unchecked(&data[1..])?;
-        Ok(Self { data, query })
+    unsafe fn new(data: &'data [u8]) -> Self {
+        Self { data }
     }
 
-    fn size(&self) -> Result<usize, SizeError> {
-        self.query.size().map(|size| 1 + size)
+    fn size(&self) -> Result<usize, Self::SizeError> {
+        self.query().size().map(|size| 1 + size)
     }
 
-    fn complete_decoding(&self) -> WithByteSize<DecodedActionQueryRef<'data>> {
+    fn complete_decoding(
+        &self,
+    ) -> Result<WithByteSize<DecodedActionQueryRef<'data>>, Self::DecodeError> {
         let WithByteSize {
             item: query,
             byte_size: query_size,
-        } = self.query.complete_decoding();
-        WithByteSize {
+        } = self.query().complete_decoding()?;
+        Ok(WithByteSize {
             item: DecodedActionQueryRef {
                 group: self.group(),
                 response: self.response(),
                 query,
             },
             byte_size: 1 + query_size,
-        }
+        })
     }
 }
 
 #[cfg(feature = "decode_query")]
 impl<'data> FailableDecodable<'data> for DecodedActionQueryRef<'data> {
     type Data = EncodedActionQuery<'data>;
+    type FullDecodeError = QuerySizeError<'data>;
 }
 
 /// Executes next action group depending on a condition
@@ -218,7 +220,9 @@ impl ActionQuery {
 #[cfg(test)]
 mod test {
     #![allow(clippy::unwrap_in_result, clippy::panic, clippy::expect_used)]
-    use super::super::define::QueryComparisonType;
+    use super::super::{
+        comparison_with_value::ComparisonWithValueRef, define::QueryComparisonType,
+    };
     use super::*;
     use crate::{
         define::{EncodableDataRef, FileId, MaskedValueRef},
@@ -253,7 +257,12 @@ mod test {
                 ActionQueryRef {
                     group: decoder.group(),
                     response: decoder.response(),
-                    query: decoder.query().complete_decoding().item.as_encodable(),
+                    query: decoder
+                        .query()
+                        .complete_decoding()
+                        .unwrap()
+                        .item
+                        .as_encodable(),
                 }
             );
         }
@@ -261,19 +270,17 @@ mod test {
             ActionQueryRef {
                 group: false,
                 response: true,
-                query: QueryRef::ComparisonWithValue(
-                    super::super::comparison_with_value::ComparisonWithValueRef {
-                        signed_data: true,
-                        comparison_type: QueryComparisonType::Equal,
-                        compare_value: MaskedValueRef::new(
-                            EncodableDataRef::new(&[0x00, 0x01, 0x02]).unwrap(),
-                            None,
-                        )
-                        .unwrap(),
-                        file_id: FileId::new(0x42),
-                        offset: Varint::new(0x40_00).unwrap(),
-                    },
-                ),
+                query: QueryRef::ComparisonWithValue(ComparisonWithValueRef {
+                    signed_data: true,
+                    comparison_type: QueryComparisonType::Equal,
+                    compare_value: MaskedValueRef::new(
+                        EncodableDataRef::new(&[0x00, 0x01, 0x02]).unwrap(),
+                        None,
+                    )
+                    .unwrap(),
+                    file_id: FileId::new(0x42),
+                    offset: Varint::new(0x40_00).unwrap(),
+                }),
             },
             &[
                 0x40 | 0x08,
@@ -296,19 +303,17 @@ mod test {
         let op = ActionQueryRef {
             group: true,
             response: false,
-            query: QueryRef::ComparisonWithValue(
-                super::super::comparison_with_value::ComparisonWithValueRef {
-                    signed_data: true,
-                    comparison_type: QueryComparisonType::Equal,
-                    compare_value: MaskedValueRef::new(
-                        EncodableDataRef::new(&[0x00, 0x01, 0x02]).unwrap(),
-                        None,
-                    )
-                    .unwrap(),
-                    file_id: FileId::new(0x42),
-                    offset: Varint::new(0x40_00).unwrap(),
-                },
-            ),
+            query: QueryRef::ComparisonWithValue(ComparisonWithValueRef {
+                signed_data: true,
+                comparison_type: QueryComparisonType::Equal,
+                compare_value: MaskedValueRef::new(
+                    EncodableDataRef::new(&[0x00, 0x01, 0x02]).unwrap(),
+                    None,
+                )
+                .unwrap(),
+                file_id: FileId::new(0x42),
+                offset: Varint::new(0x40_00).unwrap(),
+            }),
         };
 
         // Test decode(op.encode_in()) == op

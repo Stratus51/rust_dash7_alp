@@ -25,10 +25,10 @@ use define::QueryCode;
 
 #[cfg(feature = "decode_query")]
 use crate::decodable::{
-    Decodable, EncodedData, FailableDecodable, FailableEncodedData, SizeError, WithByteSize,
+    Decodable, EncodedData, FailableDecodable, FailableEncodedData, WithByteSize,
 };
 #[cfg(feature = "decode_query")]
-use crate::v1_2::error::UnknownQueryCode;
+use crate::v1_2::error::{QuerySizeError, UnsupportedQueryCode};
 
 #[cfg(feature = "query")]
 #[cfg_attr(feature = "repr_c", repr(C))]
@@ -153,7 +153,7 @@ impl<'item> From<DecodedQueryRef<'item>> for QueryRef<'item> {
 }
 
 #[cfg(feature = "decode_query")]
-pub enum EncodedQuery<'data> {
+pub enum ValidEncodedQuery<'data> {
     // NonVoid(non_void::NonVoid),
     // ComparisonWithZero(ComparisonWithZero),
     #[cfg(feature = "decode_query_compare_with_value")]
@@ -165,7 +165,7 @@ pub enum EncodedQuery<'data> {
 }
 
 #[cfg(feature = "decode_query")]
-impl<'data> EncodedQuery<'data> {
+impl<'data> ValidEncodedQuery<'data> {
     /// # Safety
     /// You are to warrant, somehow, that the input byte array contains a complete item.
     /// Else this might result in out of bound reads, and absurd results.
@@ -180,56 +180,76 @@ impl<'data> EncodedQuery<'data> {
 }
 
 #[cfg(feature = "decode_query")]
-impl<'data> FailableEncodedData<'data> for EncodedQuery<'data> {
-    type Error = UnknownQueryCode<'data>;
-    type DecodedData = DecodedQueryRef<'data>;
+pub struct EncodedQuery<'data> {
+    data: &'data [u8],
+}
 
-    unsafe fn new(data: &'data [u8]) -> Result<Self, Self::Error> {
-        let code = (*data.get_unchecked(0) >> 5) & 0x07;
-        let query_code = match QueryCode::from(code) {
-            Ok(code) => code,
-            Err(_) => {
-                return Err(UnknownQueryCode {
-                    code,
-                    remaining_data: &data[1..],
-                })
-            }
-        };
-        Ok(match query_code {
-            #[cfg(feature = "decode_query_compare_with_value")]
-            QueryCode::ComparisonWithValue => EncodedQuery::ComparisonWithValue(
-                ComparisonWithValueRef::start_decoding_unchecked(data),
-            ),
-            #[cfg(feature = "decode_query_compare_with_range")]
-            QueryCode::ComparisonWithRange => EncodedQuery::ComparisonWithRange(
-                ComparisonWithRangeRef::start_decoding_unchecked(data),
-            ),
-            #[cfg(not(all(
-                feature = "decode_query_compare_with_range",
-                feature = "decode_query_compare_with_value"
-            )))]
-            _ => {
-                return Err(UnknownQueryCode {
-                    code,
-                    remaining_data: &data[1..],
-                })
-            }
-        })
-    }
-
-    fn size(&self) -> Result<usize, SizeError> {
-        match self {
-            #[cfg(feature = "decode_query_compare_with_value")]
-            Self::ComparisonWithValue(d) => d.size(),
-            #[cfg(feature = "decode_query_compare_with_range")]
-            Self::ComparisonWithRange(d) => d.size(),
+#[cfg(feature = "decode_query")]
+impl<'data> EncodedQuery<'data> {
+    /// # Errors
+    /// Fails if the query code is unsupported.
+    pub fn query_code(&self) -> Result<QueryCode, UnsupportedQueryCode<'data>> {
+        unsafe {
+            let code = (*self.data.get_unchecked(0) >> 5) & 0x07;
+            QueryCode::from(code).map_err(|_| UnsupportedQueryCode {
+                code,
+                remaining_data: self.data.get_unchecked(1..),
+            })
         }
     }
 
-    fn complete_decoding(&self) -> WithByteSize<DecodedQueryRef<'data>> {
-        match self {
+    /// # Errors
+    /// Fails if the query code is unsupported.
+    pub fn query(&self) -> Result<ValidEncodedQuery<'data>, UnsupportedQueryCode<'data>> {
+        unsafe {
+            Ok(match self.query_code()? {
+                #[cfg(feature = "decode_query_compare_with_value")]
+                QueryCode::ComparisonWithValue => ValidEncodedQuery::ComparisonWithValue(
+                    ComparisonWithValueRef::start_decoding_unchecked(self.data),
+                ),
+                #[cfg(feature = "decode_query_compare_with_range")]
+                QueryCode::ComparisonWithRange => ValidEncodedQuery::ComparisonWithRange(
+                    ComparisonWithRangeRef::start_decoding_unchecked(self.data),
+                ),
+                #[cfg(not(all(
+                    feature = "decode_query_compare_with_range",
+                    feature = "decode_query_compare_with_value"
+                )))]
+                code => {
+                    return Err(UnsupportedQueryCode {
+                        code: code as u8,
+                        remaining_data: self.data.get_unchecked(1..),
+                    })
+                }
+            })
+        }
+    }
+}
+
+#[cfg(feature = "decode_query")]
+impl<'data> FailableEncodedData<'data> for EncodedQuery<'data> {
+    type SizeError = QuerySizeError<'data>;
+    type DecodeError = UnsupportedQueryCode<'data>;
+    type DecodedData = DecodedQueryRef<'data>;
+
+    unsafe fn new(data: &'data [u8]) -> Self {
+        Self { data }
+    }
+
+    fn size(&self) -> Result<usize, Self::SizeError> {
+        match self.query().map_err(QuerySizeError::UnsupportedQueryCode)? {
             #[cfg(feature = "decode_query_compare_with_value")]
-            Self::ComparisonWithValue(d) => {
+            ValidEncodedQuery::ComparisonWithValue(d) => d.size(),
+            #[cfg(feature = "decode_query_compare_with_range")]
+            ValidEncodedQuery::ComparisonWithRange(d) => d.size(),
+        }
+        .map_err(|_| QuerySizeError::MissingBytes)
+    }
+
+    fn complete_decoding(&self) -> Result<WithByteSize<DecodedQueryRef<'data>>, Self::DecodeError> {
+        Ok(match self.query()? {
+            #[cfg(feature = "decode_query_compare_with_value")]
+            ValidEncodedQuery::ComparisonWithValue(d) => {
                 let WithByteSize {
                     item: op,
                     byte_size: size,
@@ -240,7 +260,7 @@ impl<'data> FailableEncodedData<'data> for EncodedQuery<'data> {
                 }
             }
             #[cfg(feature = "decode_query_compare_with_range")]
-            Self::ComparisonWithRange(d) => {
+            ValidEncodedQuery::ComparisonWithRange(d) => {
                 let WithByteSize {
                     item: op,
                     byte_size: size,
@@ -250,13 +270,14 @@ impl<'data> FailableEncodedData<'data> for EncodedQuery<'data> {
                     byte_size: size,
                 }
             }
-        }
+        })
     }
 }
 
 #[cfg(feature = "decode_query")]
 impl<'data> FailableDecodable<'data> for DecodedQueryRef<'data> {
     type Data = EncodedQuery<'data>;
+    type FullDecodeError = QuerySizeError<'data>;
 }
 
 // TODO This alloc condition could be lighter and be required only for query variants that really
@@ -325,7 +346,7 @@ mod test {
                 byte_size: expected_size,
             } = DecodedQueryRef::start_decoding(data).unwrap();
             assert_eq!(expected_size, size);
-            assert_eq!(unsafe { decoder.size_unchecked() }, size);
+            assert_eq!(unsafe { decoder.query().unwrap().size_unchecked() }, size);
             assert_eq!(decoder.size().unwrap(), size);
         }
         #[cfg(feature = "decode_query_compare_with_value")]
