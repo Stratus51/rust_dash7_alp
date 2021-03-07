@@ -311,57 +311,51 @@ pub enum ValidEncodedAction<'data> {
 
 #[cfg(feature = "decode_action")]
 impl<'data> EncodedAction<'data> {
-    /// # Safety
-    /// This reads data without checking boundaries.
-    /// If self.data.len() < self.encoded_size() then this is safe.
-    ///
     /// # Errors
     /// Fails if the op code is unsupported.
-    pub unsafe fn op_code(&self) -> Result<OpCode, UnsupportedOpCode<'data>> {
-        let code = *self.data.get_unchecked(0) & 0x3F;
+    pub fn op_code(&self) -> Result<OpCode, UnsupportedOpCode<'data>> {
+        let code = unsafe { *self.data.get_unchecked(0) & 0x3F };
         OpCode::from(code).map_err(|_| UnsupportedOpCode {
             op_code: code,
             remaining_data: self.data,
         })
     }
 
-    /// # Safety
-    /// This reads data without checking boundaries.
-    /// If self.data.len() < self.encoded_size() then this is safe.
-    ///
     /// # Errors
     /// Fails if the op code is unsupported.
-    pub unsafe fn action(&self) -> Result<ValidEncodedAction<'data>, UnsupportedOpCode<'data>> {
-        Ok(match self.op_code()? {
-            #[cfg(feature = "decode_nop")]
-            OpCode::Nop => ValidEncodedAction::Nop(NopRef::start_decoding_unchecked(self.data)),
-            #[cfg(feature = "decode_read_file_data")]
-            OpCode::ReadFileData => ValidEncodedAction::ReadFileData(
-                ReadFileDataRef::start_decoding_unchecked(self.data),
-            ),
-            #[cfg(feature = "decode_read_file_properties")]
-            OpCode::ReadFileProperties => ValidEncodedAction::ReadFileProperties(
-                ReadFilePropertiesRef::start_decoding_unchecked(self.data),
-            ),
-            #[cfg(feature = "decode_write_file_data")]
-            OpCode::WriteFileData => ValidEncodedAction::WriteFileData(
-                WriteFileDataRef::start_decoding_unchecked(self.data),
-            ),
-            #[cfg(feature = "decode_action_query")]
-            OpCode::ActionQuery => ValidEncodedAction::ActionQuery(
-                DecodedActionQueryRef::start_decoding_unchecked(self.data),
-            ),
-            #[cfg(feature = "decode_status")]
-            OpCode::Status => {
-                ValidEncodedAction::Status(StatusRef::start_decoding_unchecked(self.data))
-            }
-            op_code => {
-                return Err(UnsupportedOpCode {
-                    op_code: op_code as u8,
-                    remaining_data: self.data,
-                })
-            }
-        })
+    pub fn action(&self) -> Result<ValidEncodedAction<'data>, UnsupportedOpCode<'data>> {
+        unsafe {
+            Ok(match self.op_code()? {
+                #[cfg(feature = "decode_nop")]
+                OpCode::Nop => ValidEncodedAction::Nop(NopRef::start_decoding_unchecked(self.data)),
+                #[cfg(feature = "decode_read_file_data")]
+                OpCode::ReadFileData => ValidEncodedAction::ReadFileData(
+                    ReadFileDataRef::start_decoding_unchecked(self.data),
+                ),
+                #[cfg(feature = "decode_read_file_properties")]
+                OpCode::ReadFileProperties => ValidEncodedAction::ReadFileProperties(
+                    ReadFilePropertiesRef::start_decoding_unchecked(self.data),
+                ),
+                #[cfg(feature = "decode_write_file_data")]
+                OpCode::WriteFileData => ValidEncodedAction::WriteFileData(
+                    WriteFileDataRef::start_decoding_unchecked(self.data),
+                ),
+                #[cfg(feature = "decode_action_query")]
+                OpCode::ActionQuery => ValidEncodedAction::ActionQuery(
+                    DecodedActionQueryRef::start_decoding_unchecked(self.data),
+                ),
+                #[cfg(feature = "decode_status")]
+                OpCode::Status => {
+                    ValidEncodedAction::Status(StatusRef::start_decoding_unchecked(self.data))
+                }
+                op_code => {
+                    return Err(UnsupportedOpCode {
+                        op_code: op_code as u8,
+                        remaining_data: self.data,
+                    })
+                }
+            })
+        }
     }
 }
 
@@ -376,15 +370,12 @@ impl<'data> FailableEncodedData<'data> for EncodedAction<'data> {
     type DecodeError = ActionDecodeError<'data>;
     type DecodedData = DecodedActionRef<'data>;
 
-    fn new(data: &'data [u8]) -> Self {
+    unsafe fn new(data: &'data [u8]) -> Self {
         Self { data }
     }
 
     fn encoded_size(&self) -> Result<usize, Self::SizeError> {
-        if self.data.is_empty() {
-            return Err(ActionSizeError::MissingBytes);
-        }
-        Ok(match unsafe { self.action()? } {
+        Ok(match self.action()? {
             #[cfg(feature = "decode_nop")]
             ValidEncodedAction::Nop(action) => action.encoded_size()?,
             #[cfg(feature = "decode_read_file_data")]
@@ -400,7 +391,7 @@ impl<'data> FailableEncodedData<'data> for EncodedAction<'data> {
         })
     }
 
-    unsafe fn complete_decoding(
+    fn complete_decoding(
         &self,
     ) -> Result<WithByteSize<DecodedActionRef<'data>>, Self::DecodeError> {
         Ok(match self.action()? {
@@ -587,7 +578,7 @@ mod test {
             } = DecodedActionRef::start_decoding(data).unwrap();
             assert_eq!(expected_size, size);
             // TODO Should this be supported?
-            // assert_eq!(unsafe { decoder.size_unchecked() }, size);
+            // assert_eq!(unsafe { decoder.encoded_size_unchecked() }, size);
             assert_eq!(decoder.encoded_size().unwrap(), size);
         }
         #[cfg(feature = "decode_nop")]

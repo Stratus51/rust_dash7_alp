@@ -118,47 +118,40 @@ pub struct EncodedStatusInterface<'data> {
 }
 
 impl<'data> EncodedStatusInterface<'data> {
-    /// # Safety
-    /// This reads data without checking boundaries.
-    /// If self.data.len() < self.encoded_size() then this is safe.
-    ///
     /// # Errors
     /// Fails if the interface status id is unsupported.
-    pub unsafe fn interface_id(&self) -> Result<InterfaceId, UnsupportedInterfaceId<'data>> {
-        let byte = self.data.get_unchecked(0);
-        Ok(
-            InterfaceId::from(*byte).map_err(|_| UnsupportedInterfaceId {
-                id: *byte,
-                remaining_data: self.data.get_unchecked(1..),
-            })?,
-        )
+    pub fn interface_id(&self) -> Result<InterfaceId, UnsupportedInterfaceId<'data>> {
+        unsafe {
+            let byte = self.data.get_unchecked(0);
+            Ok(
+                InterfaceId::from(*byte).map_err(|_| UnsupportedInterfaceId {
+                    id: *byte,
+                    remaining_data: self.data.get_unchecked(1..),
+                })?,
+            )
+        }
     }
 
-    /// # Safety
-    /// This reads data without checking boundaries.
-    /// If self.data.len() < self.encoded_size() then this is safe.
-    pub unsafe fn len_field(&self) -> EncodedVarint<'data> {
-        Varint::start_decoding_unchecked(self.data.get_unchecked(1..))
+    pub fn len_field(&self) -> EncodedVarint<'data> {
+        unsafe { Varint::start_decoding_unchecked(self.data.get_unchecked(1..)) }
     }
 
-    /// # Safety
-    /// This reads data without checking boundaries.
-    /// If self.data.len() < self.encoded_size() then this is safe.
-    ///
     /// # Errors
     /// Fails if the interface status id is unsupported.
-    pub unsafe fn status(
+    pub fn status(
         &self,
     ) -> Result<EncodedStatusInterfaceKind<'data>, UnsupportedInterfaceId<'data>> {
-        let offset = 1 + self.len_field().size_unchecked();
-        Ok(match self.interface_id()? {
-            InterfaceId::Host => EncodedStatusInterfaceKind::Host,
-            InterfaceId::Dash7 => EncodedStatusInterfaceKind::Dash7(
-                Dash7InterfaceStatusRef::start_decoding_unchecked(
-                    self.data.get_unchecked(offset..),
+        unsafe {
+            let offset = 1 + self.len_field().encoded_size_unchecked();
+            Ok(match self.interface_id()? {
+                InterfaceId::Host => EncodedStatusInterfaceKind::Host,
+                InterfaceId::Dash7 => EncodedStatusInterfaceKind::Dash7(
+                    Dash7InterfaceStatusRef::start_decoding_unchecked(
+                        self.data.get_unchecked(offset..),
+                    ),
                 ),
-            ),
-        })
+            })
+        }
     }
 }
 
@@ -167,7 +160,7 @@ impl<'data> FailableEncodedData<'data> for EncodedStatusInterface<'data> {
     type DecodeError = UnsupportedInterfaceId<'data>;
     type DecodedData = StatusInterfaceRef<'data>;
 
-    fn new(data: &'data [u8]) -> Self {
+    unsafe fn new(data: &'data [u8]) -> Self {
         Self { data }
     }
 
@@ -177,48 +170,50 @@ impl<'data> FailableEncodedData<'data> for EncodedStatusInterface<'data> {
         if data_size < size {
             return Err(StatusInterfaceSizeError::MissingBytes);
         }
-        size = 1 + unsafe { self.len_field().size_unchecked() };
+        size = 1 + unsafe { self.len_field().encoded_size_unchecked() };
         if data_size < size {
             return Err(StatusInterfaceSizeError::MissingBytes);
         }
-        unsafe {
-            size += match &self
-                .status()
-                .map_err(StatusInterfaceSizeError::UnsupportedInterfaceId)?
-            {
-                EncodedStatusInterfaceKind::Host => 0,
-                EncodedStatusInterfaceKind::Dash7(status) => match status.encoded_size() {
-                    Ok(size) => size,
-                    Err(_) => return Err(StatusInterfaceSizeError::MissingBytes),
-                },
-            };
-        }
+        size += match &self
+            .status()
+            .map_err(StatusInterfaceSizeError::UnsupportedInterfaceId)?
+        {
+            EncodedStatusInterfaceKind::Host => 0,
+            EncodedStatusInterfaceKind::Dash7(status) => match status.encoded_size() {
+                Ok(size) => size,
+                Err(_) => return Err(StatusInterfaceSizeError::MissingBytes),
+            },
+        };
         if data_size < size {
             return Err(StatusInterfaceSizeError::MissingBytes);
         }
         Ok(size)
     }
 
-    unsafe fn complete_decoding(
+    fn complete_decoding(
         &self,
     ) -> Result<WithByteSize<StatusInterfaceRef<'data>>, Self::DecodeError> {
-        let offset = 1 + self.len_field().size_unchecked();
-        Ok(match self.interface_id()? {
-            InterfaceId::Host => WithByteSize {
-                item: StatusInterfaceRef::Host,
-                byte_size: offset,
-            },
-            InterfaceId::Dash7 => {
-                let WithByteSize {
-                    item: status,
-                    byte_size: size,
-                } = Dash7InterfaceStatusRef::decode_unchecked(self.data.get_unchecked(offset..));
-                WithByteSize {
-                    item: StatusInterfaceRef::Dash7(status),
-                    byte_size: offset + size,
+        let offset = 1 + unsafe { self.len_field().encoded_size_unchecked() };
+        unsafe {
+            Ok(match self.interface_id()? {
+                InterfaceId::Host => WithByteSize {
+                    item: StatusInterfaceRef::Host,
+                    byte_size: offset,
+                },
+                InterfaceId::Dash7 => {
+                    let WithByteSize {
+                        item: status,
+                        byte_size: size,
+                    } = Dash7InterfaceStatusRef::decode_unchecked(
+                        self.data.get_unchecked(offset..),
+                    );
+                    WithByteSize {
+                        item: StatusInterfaceRef::Dash7(status),
+                        byte_size: offset + size,
+                    }
                 }
-            }
-        })
+            })
+        }
     }
 }
 
@@ -279,16 +274,14 @@ mod test {
             } = StatusInterfaceRef::start_decoding(data).unwrap();
             assert_eq!(expected_size, size);
             assert_eq!(decoder.encoded_size().unwrap(), size);
-            unsafe {
-                assert_eq!(
-                    op,
-                    match decoder.status().unwrap() {
-                        EncodedStatusInterfaceKind::Host => StatusInterfaceRef::Host,
-                        EncodedStatusInterfaceKind::Dash7(status) =>
-                            StatusInterfaceRef::Dash7(status.complete_decoding().item),
-                    },
-                );
-            }
+            assert_eq!(
+                op,
+                match decoder.status().unwrap() {
+                    EncodedStatusInterfaceKind::Host => StatusInterfaceRef::Host,
+                    EncodedStatusInterfaceKind::Dash7(status) =>
+                        StatusInterfaceRef::Dash7(status.complete_decoding().item),
+                },
+            );
         }
         test(StatusInterfaceRef::Host, &[0x00, 0x00]);
         test(

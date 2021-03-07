@@ -101,25 +101,16 @@ pub struct EncodedActionQuery<'data> {
 
 #[cfg(feature = "decode_query")]
 impl<'data> EncodedActionQuery<'data> {
-    /// # Safety
-    /// This reads data without checking boundaries.
-    /// If self.data.len() < self.encoded_size() then this is safe.
-    pub unsafe fn group(&self) -> bool {
-        *self.data.get_unchecked(0) & flag::GROUP != 0
+    pub fn group(&self) -> bool {
+        unsafe { *self.data.get_unchecked(0) & flag::GROUP != 0 }
     }
 
-    /// # Safety
-    /// This reads data without checking boundaries.
-    /// If self.data.len() < self.encoded_size() then this is safe.
-    pub unsafe fn response(&self) -> bool {
-        *self.data.get_unchecked(0) & flag::RESPONSE != 0
+    pub fn response(&self) -> bool {
+        unsafe { *self.data.get_unchecked(0) & flag::RESPONSE != 0 }
     }
 
-    /// # Safety
-    /// This reads data without checking boundaries.
-    /// If self.data.len() < self.encoded_size() then this is safe.
-    pub unsafe fn query(&self) -> EncodedQuery<'data> {
-        DecodedQueryRef::start_decoding_unchecked(&self.data[1..])
+    pub fn query(&self) -> EncodedQuery<'data> {
+        unsafe { DecodedQueryRef::start_decoding_unchecked(&self.data[1..]) }
     }
 }
 
@@ -129,18 +120,15 @@ impl<'data> FailableEncodedData<'data> for EncodedActionQuery<'data> {
     type DecodeError = UnsupportedQueryCode<'data>;
     type DecodedData = DecodedActionQueryRef<'data>;
 
-    fn new(data: &'data [u8]) -> Self {
+    unsafe fn new(data: &'data [u8]) -> Self {
         Self { data }
     }
 
     fn encoded_size(&self) -> Result<usize, Self::SizeError> {
-        if self.data.is_empty() {
-            return Err(QuerySizeError::MissingBytes);
-        }
-        unsafe { self.query().encoded_size().map(|size| 1 + size) }
+        self.query().encoded_size().map(|size| 1 + size)
     }
 
-    unsafe fn complete_decoding(
+    fn complete_decoding(
         &self,
     ) -> Result<WithByteSize<DecodedActionQueryRef<'data>>, Self::DecodeError> {
         let WithByteSize {
@@ -228,21 +216,19 @@ mod test {
                 byte_size: expected_size,
             } = DecodedActionQueryRef::start_decoding(data).unwrap();
             assert_eq!(expected_size, size);
-            unsafe {
-                assert_eq!(
-                    op,
-                    ActionQueryRef {
-                        group: decoder.group(),
-                        response: decoder.response(),
-                        query: decoder
-                            .query()
-                            .complete_decoding()
-                            .unwrap()
-                            .item
-                            .as_encodable(),
-                    }
-                );
-            }
+            assert_eq!(
+                op,
+                ActionQueryRef {
+                    group: decoder.group(),
+                    response: decoder.response(),
+                    query: decoder
+                        .query()
+                        .complete_decoding()
+                        .unwrap()
+                        .item
+                        .as_encodable(),
+                }
+            );
         }
         test(
             ActionQueryRef {

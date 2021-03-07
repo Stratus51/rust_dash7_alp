@@ -95,59 +95,45 @@ pub struct EncodedComparisonWithValue<'data> {
 }
 
 impl<'data> EncodedComparisonWithValue<'data> {
-    /// # Safety
-    /// This reads data without checking boundaries.
-    /// If self.data.len() < self.encoded_size() then this is safe.
-    pub unsafe fn mask_flag(&self) -> bool {
-        *self.data.get_unchecked(0) & flag::QUERY_MASK == flag::QUERY_MASK
+    pub fn mask_flag(&self) -> bool {
+        unsafe { *self.data.get_unchecked(0) & flag::QUERY_MASK == flag::QUERY_MASK }
     }
 
-    /// # Safety
-    /// This reads data without checking boundaries.
-    /// If self.data.len() < self.encoded_size() then this is safe.
-    pub unsafe fn signed_data(&self) -> bool {
-        *self.data.get_unchecked(0) & flag::QUERY_SIGNED_DATA == flag::QUERY_SIGNED_DATA
+    pub fn signed_data(&self) -> bool {
+        unsafe { *self.data.get_unchecked(0) & flag::QUERY_SIGNED_DATA == flag::QUERY_SIGNED_DATA }
     }
 
-    /// # Safety
-    /// This reads data without checking boundaries.
-    /// If self.data.len() < self.encoded_size() then this is safe.
-    pub unsafe fn comparison_type(&self) -> QueryComparisonType {
-        QueryComparisonType::from_unchecked(
-            *self.data.get_unchecked(0) & flag::QUERY_COMPARISON_TYPE,
-        )
+    pub fn comparison_type(&self) -> QueryComparisonType {
+        unsafe {
+            QueryComparisonType::from_unchecked(
+                *self.data.get_unchecked(0) & flag::QUERY_COMPARISON_TYPE,
+            )
+        }
     }
 
-    /// # Safety
-    /// This reads data without checking boundaries.
-    /// If self.data.len() < self.encoded_size() then this is safe.
-    pub unsafe fn compare_length(&self) -> EncodedVarint {
-        Varint::start_decoding_unchecked(self.data.get_unchecked(1..))
+    pub fn compare_length(&self) -> EncodedVarint {
+        unsafe { Varint::start_decoding_unchecked(self.data.get_unchecked(1..)) }
     }
 
-    /// # Safety
-    /// This reads data without checking boundaries.
-    /// If self.data.len() < self.encoded_size() then this is safe.
-    pub unsafe fn mask(&self) -> Option<&'data [u8]> {
+    pub fn mask(&self) -> Option<&'data [u8]> {
         if self.mask_flag() {
             let WithByteSize {
                 item: compare_length,
                 byte_size: compare_length_size,
             } = self.compare_length().complete_decoding();
-            let mask = core::slice::from_raw_parts(
-                self.data.get_unchecked(1 + compare_length_size),
-                compare_length.u32() as usize,
-            );
+            let mask = unsafe {
+                core::slice::from_raw_parts(
+                    self.data.get_unchecked(1 + compare_length_size),
+                    compare_length.u32() as usize,
+                )
+            };
             Some(mask)
         } else {
             None
         }
     }
 
-    /// # Safety
-    /// This reads data without checking boundaries.
-    /// If self.data.len() < self.encoded_size() then this is safe.
-    pub unsafe fn value(&self) -> EncodableDataRef<'data> {
+    pub fn value(&self) -> EncodableDataRef<'data> {
         let WithByteSize {
             item: compare_length,
             byte_size: compare_length_size,
@@ -156,40 +142,39 @@ impl<'data> EncodedComparisonWithValue<'data> {
         if self.mask_flag() {
             offset += compare_length.u32() as usize;
         }
-        EncodableDataRef::new_unchecked(core::slice::from_raw_parts(
-            self.data.get_unchecked(offset),
-            compare_length.u32() as usize,
-        ))
+        unsafe {
+            EncodableDataRef::new_unchecked(core::slice::from_raw_parts(
+                self.data.get_unchecked(offset),
+                compare_length.u32() as usize,
+            ))
+        }
     }
 
-    /// # Safety
-    /// This reads data without checking boundaries.
-    /// If self.data.len() < self.encoded_size() then this is safe.
-    pub unsafe fn compare_value(&self) -> MaskedValueRef<'data> {
+    pub fn compare_value(&self) -> MaskedValueRef<'data> {
         let WithByteSize {
             item: compare_length,
             byte_size: compare_length_size,
         } = self.compare_length().complete_decoding();
         let compare_length = compare_length.u32() as usize;
         let mut offset = 1 + compare_length_size;
-        let mask = if self.mask_flag() {
-            let mask = core::slice::from_raw_parts(self.data.get_unchecked(offset), compare_length);
-            offset += compare_length;
-            Some(mask)
-        } else {
-            None
-        };
-        let value = EncodableDataRef::new_unchecked(core::slice::from_raw_parts(
-            self.data.get_unchecked(offset),
-            compare_length,
-        ));
-        MaskedValueRef::new_unchecked(value, mask)
+        unsafe {
+            let mask = if self.mask_flag() {
+                let mask =
+                    core::slice::from_raw_parts(self.data.get_unchecked(offset), compare_length);
+                offset += compare_length;
+                Some(mask)
+            } else {
+                None
+            };
+            let value = EncodableDataRef::new_unchecked(core::slice::from_raw_parts(
+                self.data.get_unchecked(offset),
+                compare_length,
+            ));
+            MaskedValueRef::new_unchecked(value, mask)
+        }
     }
 
-    /// # Safety
-    /// This reads data without checking boundaries.
-    /// If self.data.len() < self.encoded_size() then this is safe.
-    pub unsafe fn file_id(&self) -> FileId {
+    pub fn file_id(&self) -> FileId {
         let WithByteSize {
             item: compare_length,
             byte_size: compare_length_size,
@@ -200,13 +185,10 @@ impl<'data> EncodedComparisonWithValue<'data> {
         } else {
             1 + compare_length_size + compare_length
         };
-        FileId(*self.data.get_unchecked(value_offset))
+        unsafe { FileId(*self.data.get_unchecked(value_offset)) }
     }
 
-    /// # Safety
-    /// This reads data without checking boundaries.
-    /// If self.data.len() < self.encoded_size() then this is safe.
-    pub unsafe fn offset(&self) -> EncodedVarint {
+    pub fn offset(&self) -> EncodedVarint {
         let WithByteSize {
             item: compare_length,
             byte_size: compare_length_size,
@@ -217,13 +199,14 @@ impl<'data> EncodedComparisonWithValue<'data> {
         } else {
             1 + compare_length_size + compare_length
         };
-        Varint::start_decoding_unchecked(self.data.get_unchecked(value_offset + 1..))
+        unsafe { Varint::start_decoding_unchecked(self.data.get_unchecked(value_offset + 1..)) }
     }
 
     /// # Safety
-    /// You are to warrant, somehow, that the input byte array contains a complete item.
-    /// Else this might result in out of bound reads, and absurd results.
-    pub unsafe fn size_unchecked(&self) -> usize {
+    /// You have to warrant that somehow that there is enough byte to decode the encoded size.
+    /// If you fail to do so, out of bound bytes will be read, and an absurd value will be
+    /// returned.
+    pub unsafe fn encoded_size_unchecked(&self) -> usize {
         let WithByteSize {
             item: compare_length,
             byte_size: compare_length_size,
@@ -236,13 +219,13 @@ impl<'data> EncodedComparisonWithValue<'data> {
         };
         let decodable_offset =
             Varint::start_decoding_unchecked(self.data.get_unchecked(value_offset + 1..));
-        value_offset + 1 + decodable_offset.size_unchecked()
+        value_offset + 1 + decodable_offset.encoded_size_unchecked()
     }
 }
 
 impl<'data> EncodedData<'data> for EncodedComparisonWithValue<'data> {
     type DecodedData = ComparisonWithValueRef<'data>;
-    fn new(data: &'data [u8]) -> Self {
+    unsafe fn new(data: &'data [u8]) -> Self {
         Self { data }
     }
 
@@ -254,7 +237,7 @@ impl<'data> EncodedData<'data> for EncodedComparisonWithValue<'data> {
                 return Err(SizeError::MissingBytes);
             }
             let compare_length = self.compare_length();
-            size += compare_length.size_unchecked();
+            size += compare_length.encoded_size_unchecked();
             if data_size < size {
                 return Err(SizeError::MissingBytes);
             }
@@ -269,7 +252,7 @@ impl<'data> EncodedData<'data> for EncodedComparisonWithValue<'data> {
             }
             let decodable_offset =
                 Varint::start_decoding_unchecked(self.data.get_unchecked(size - 1..));
-            size += decodable_offset.size_unchecked();
+            size += decodable_offset.encoded_size_unchecked();
             size -= 1;
             if data_size < size {
                 return Err(SizeError::MissingBytes);
@@ -278,42 +261,45 @@ impl<'data> EncodedData<'data> for EncodedComparisonWithValue<'data> {
         }
     }
 
-    unsafe fn complete_decoding(&self) -> WithByteSize<ComparisonWithValueRef<'data>> {
-        let WithByteSize {
-            item: compare_length,
-            byte_size: compare_length_size,
-        } = self.compare_length().complete_decoding();
-        let compare_length = compare_length.u32() as usize;
-        let mut size = 1 + compare_length_size;
-        let mask = if self.mask_flag() {
-            let mask = core::slice::from_raw_parts(self.data.get_unchecked(size), compare_length);
+    fn complete_decoding(&self) -> WithByteSize<ComparisonWithValueRef<'data>> {
+        unsafe {
+            let WithByteSize {
+                item: compare_length,
+                byte_size: compare_length_size,
+            } = self.compare_length().complete_decoding();
+            let compare_length = compare_length.u32() as usize;
+            let mut size = 1 + compare_length_size;
+            let mask = if self.mask_flag() {
+                let mask =
+                    core::slice::from_raw_parts(self.data.get_unchecked(size), compare_length);
+                size += compare_length;
+                Some(mask)
+            } else {
+                None
+            };
+            let value = EncodableDataRef::new_unchecked(core::slice::from_raw_parts(
+                self.data.get_unchecked(size),
+                compare_length,
+            ));
             size += compare_length;
-            Some(mask)
-        } else {
-            None
-        };
-        let value = EncodableDataRef::new_unchecked(core::slice::from_raw_parts(
-            self.data.get_unchecked(size),
-            compare_length,
-        ));
-        size += compare_length;
-        let file_id = FileId(*self.data.get_unchecked(size));
-        size += 1;
-        let WithByteSize {
-            item: offset,
-            byte_size: offset_size,
-        } = Varint::decode_unchecked(self.data.get_unchecked(size..));
-        size += offset_size;
+            let file_id = FileId(*self.data.get_unchecked(size));
+            size += 1;
+            let WithByteSize {
+                item: offset,
+                byte_size: offset_size,
+            } = Varint::decode_unchecked(self.data.get_unchecked(size..));
+            size += offset_size;
 
-        WithByteSize {
-            item: ComparisonWithValueRef {
-                signed_data: self.signed_data(),
-                comparison_type: self.comparison_type(),
-                compare_value: MaskedValueRef::new_unchecked(value, mask),
-                file_id,
-                offset,
-            },
-            byte_size: size,
+            WithByteSize {
+                item: ComparisonWithValueRef {
+                    signed_data: self.signed_data(),
+                    comparison_type: self.comparison_type(),
+                    compare_value: MaskedValueRef::new_unchecked(value, mask),
+                    file_id,
+                    offset,
+                },
+                byte_size: size,
+            }
         }
     }
 }
@@ -375,28 +361,26 @@ mod test {
                 item: decoder,
                 byte_size: expected_size,
             } = ComparisonWithValueRef::start_decoding(data).unwrap();
-            unsafe {
-                assert_eq!(ret.compare_value.mask().is_some(), decoder.mask_flag());
-                assert_eq!(
-                    ret.compare_value.len(),
-                    decoder.compare_length().complete_decoding().item.u32() as usize
-                );
-                assert_eq!(ret.compare_value.mask(), decoder.mask());
-                assert_eq!(ret.compare_value.value(), decoder.value().data());
-                assert_eq!(expected_size, size);
-                assert_eq!(decoder.size_unchecked(), size);
-                assert_eq!(decoder.encoded_size().unwrap(), size);
-                assert_eq!(
-                    op,
-                    ComparisonWithValueRef {
-                        signed_data: decoder.signed_data(),
-                        comparison_type: decoder.comparison_type(),
-                        compare_value: decoder.compare_value(),
-                        file_id: decoder.file_id(),
-                        offset: decoder.offset().complete_decoding().item,
-                    }
-                );
-            }
+            assert_eq!(ret.compare_value.mask().is_some(), decoder.mask_flag());
+            assert_eq!(
+                ret.compare_value.len(),
+                decoder.compare_length().complete_decoding().item.u32() as usize
+            );
+            assert_eq!(ret.compare_value.mask(), decoder.mask());
+            assert_eq!(ret.compare_value.value(), decoder.value().data());
+            assert_eq!(expected_size, size);
+            assert_eq!(unsafe { decoder.encoded_size_unchecked() }, size);
+            assert_eq!(decoder.encoded_size().unwrap(), size);
+            assert_eq!(
+                op,
+                ComparisonWithValueRef {
+                    signed_data: decoder.signed_data(),
+                    comparison_type: decoder.comparison_type(),
+                    compare_value: decoder.compare_value(),
+                    file_id: decoder.file_id(),
+                    offset: decoder.offset().complete_decoding().item,
+                }
+            );
         }
         test(
             ComparisonWithValueRef {

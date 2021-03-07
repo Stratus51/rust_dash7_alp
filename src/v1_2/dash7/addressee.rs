@@ -83,7 +83,7 @@ pub enum AddresseeIdentifierType {
 }
 
 impl AddresseeIdentifierType {
-    pub fn addressee_encoded_size(&self) -> usize {
+    pub fn encoded_size(&self) -> usize {
         match self {
             Self::Nbid => 1,
             Self::Noid => 0,
@@ -186,11 +186,11 @@ impl<'data> Encodable for AddresseeRef<'data> {
             AddresseeIdentifierRef::Vid(vid) => out.add(2).copy_from(vid.as_ptr(), vid.len()),
         }
 
-        2 + id_type.addressee_encoded_size()
+        2 + id_type.encoded_size()
     }
 
     fn encoded_size(&self) -> usize {
-        2 + self.identifier.id_type().addressee_encoded_size()
+        2 + self.identifier.id_type().encoded_size()
     }
 }
 
@@ -209,58 +209,49 @@ pub struct EncodedAddressee<'data> {
 }
 
 impl<'data> EncodedAddressee<'data> {
-    /// # Safety
-    /// This reads data without checking boundaries.
-    /// If self.data.len() < self.encoded_size() then this is safe.
-    pub unsafe fn id_type(&self) -> AddresseeIdentifierType {
-        AddresseeIdentifierType::from_unchecked(*self.data.get_unchecked(0) >> 4 & 0x07)
+    pub fn id_type(&self) -> AddresseeIdentifierType {
+        unsafe { AddresseeIdentifierType::from_unchecked(*self.data.get_unchecked(0) >> 4 & 0x07) }
     }
 
-    /// # Safety
-    /// This reads data without checking boundaries.
-    /// If self.data.len() < self.encoded_size() then this is safe.
-    pub unsafe fn nls_method(&self) -> NlsMethod {
-        NlsMethod::from_unchecked(*self.data.get_unchecked(0) & 0x0F)
+    pub fn nls_method(&self) -> NlsMethod {
+        unsafe { NlsMethod::from_unchecked(*self.data.get_unchecked(0) & 0x0F) }
     }
 
-    /// # Safety
-    /// This reads data without checking boundaries.
-    /// If self.data.len() < self.encoded_size() then this is safe.
-    pub unsafe fn access_class(&self) -> AccessClass {
-        AccessClass(*self.data.get_unchecked(1))
+    pub fn access_class(&self) -> AccessClass {
+        unsafe { AccessClass(*self.data.get_unchecked(1)) }
     }
 
-    /// # Safety
-    /// This reads data without checking boundaries.
-    /// If self.data.len() < self.encoded_size() then this is safe.
-    pub unsafe fn identifier(&self) -> AddresseeIdentifierRef<'data> {
-        match self.id_type() {
-            AddresseeIdentifierType::Nbid => {
-                AddresseeIdentifierRef::Nbid(*self.data.get_unchecked(2))
-            }
-            AddresseeIdentifierType::Noid => AddresseeIdentifierRef::Noid,
-            AddresseeIdentifierType::Uid => {
-                let data = &*(self.data.get_unchecked(2..).as_ptr() as *const [u8; 8]);
-                AddresseeIdentifierRef::Uid(data)
-            }
-            AddresseeIdentifierType::Vid => {
-                let data = &*(self.data.get_unchecked(2..).as_ptr() as *const [u8; 2]);
-                AddresseeIdentifierRef::Vid(data)
+    pub fn identifier(&self) -> AddresseeIdentifierRef<'data> {
+        unsafe {
+            match self.id_type() {
+                AddresseeIdentifierType::Nbid => {
+                    AddresseeIdentifierRef::Nbid(*self.data.get_unchecked(2))
+                }
+                AddresseeIdentifierType::Noid => AddresseeIdentifierRef::Noid,
+                AddresseeIdentifierType::Uid => {
+                    let data = &*(self.data.get_unchecked(2..).as_ptr() as *const [u8; 8]);
+                    AddresseeIdentifierRef::Uid(data)
+                }
+                AddresseeIdentifierType::Vid => {
+                    let data = &*(self.data.get_unchecked(2..).as_ptr() as *const [u8; 2]);
+                    AddresseeIdentifierRef::Vid(data)
+                }
             }
         }
     }
 
     /// # Safety
-    /// You are to warrant, somehow, that the input byte array contains a complete item.
-    /// Else this might result in out of bound reads, and absurd results.
-    pub unsafe fn size_unchecked(&self) -> usize {
-        2 + self.id_type().addressee_encoded_size()
+    /// You have to warrant that somehow that there is enough byte to decode the encoded size.
+    /// If you fail to do so, out of bound bytes will be read, and an absurd value will be
+    /// returned.
+    pub unsafe fn encoded_size_unchecked(&self) -> usize {
+        2 + self.id_type().encoded_size()
     }
 }
 
 impl<'data> EncodedData<'data> for EncodedAddressee<'data> {
     type DecodedData = AddresseeRef<'data>;
-    fn new(data: &'data [u8]) -> Self {
+    unsafe fn new(data: &'data [u8]) -> Self {
         Self { data }
     }
 
@@ -270,14 +261,14 @@ impl<'data> EncodedData<'data> for EncodedAddressee<'data> {
         if data_size < size {
             return Err(SizeError::MissingBytes);
         }
-        size = unsafe { self.size_unchecked() };
+        size = unsafe { self.encoded_size_unchecked() };
         if data_size < size {
             return Err(SizeError::MissingBytes);
         }
         Ok(size)
     }
 
-    unsafe fn complete_decoding(&self) -> WithByteSize<AddresseeRef<'data>> {
+    fn complete_decoding(&self) -> WithByteSize<AddresseeRef<'data>> {
         let identifier = self.identifier();
         WithByteSize {
             item: AddresseeRef {
@@ -340,20 +331,18 @@ mod test {
                 item: decoder,
                 byte_size: expected_size,
             } = AddresseeRef::start_decoding(data).unwrap();
-            unsafe {
-                assert_eq!(ret.identifier.id_type(), decoder.id_type());
-                assert_eq!(expected_size, size);
-                assert_eq!(decoder.size_unchecked(), size);
-                assert_eq!(decoder.encoded_size().unwrap(), size);
-                assert_eq!(
-                    op,
-                    AddresseeRef {
-                        nls_method: decoder.nls_method(),
-                        access_class: decoder.access_class(),
-                        identifier: decoder.identifier(),
-                    }
-                );
-            }
+            assert_eq!(ret.identifier.id_type(), decoder.id_type());
+            assert_eq!(expected_size, size);
+            assert_eq!(unsafe { decoder.encoded_size_unchecked() }, size);
+            assert_eq!(decoder.encoded_size().unwrap(), size);
+            assert_eq!(
+                op,
+                AddresseeRef {
+                    nls_method: decoder.nls_method(),
+                    access_class: decoder.access_class(),
+                    identifier: decoder.identifier(),
+                }
+            );
         }
         test(
             AddresseeRef {

@@ -30,7 +30,10 @@ impl<T> WithByteSize<T> {
 pub trait EncodedData<'data> {
     type DecodedData: Sized + 'data;
 
-    fn new(data: &'data [u8]) -> Self;
+    /// # Safety
+    /// This method was not made to be called directly. Please see the [Decodable](trait.Decodable)
+    /// API.
+    unsafe fn new(data: &'data [u8]) -> Self;
 
     /// Safely calculates what the size in bytes of the item we are decoding should be.
     ///
@@ -42,11 +45,7 @@ pub trait EncodedData<'data> {
     fn encoded_size(&self) -> Result<usize, SizeError>;
 
     /// Fully decodes the Item.
-    ///
-    /// # Safety
-    /// This method is unsafe because it does not check the size of the data.
-    /// Thus you are to insure that the size of the data is bigger than self.encoded_size().
-    unsafe fn complete_decoding(&self) -> WithByteSize<Self::DecodedData>;
+    fn complete_decoding(&self) -> WithByteSize<Self::DecodedData>;
 }
 
 /// Item that can always be decoded from bytes (provided there is enough data)
@@ -58,22 +57,22 @@ pub trait Decodable<'data>: Sized + 'data {
     /// # Safety
     /// You are to check that:
     /// - The decodable object fits in the given data:
-    /// [`decodable.smaller_than(data.len())`](struct.DecodableVarint.html#method.smaller_than)
+    /// [`decodable.encoded_size()`](trait.Decodable.html#method.size)
     ///
     /// Failing that might result in reading and interpreting data outside the given
     /// array (depending on what is done with the resulting object).
-    fn start_decoding_unchecked(data: &'data [u8]) -> Self::Data {
+    unsafe fn start_decoding_unchecked(data: &'data [u8]) -> Self::Data {
         Self::Data::new(data)
     }
 
     /// Returns an encoded item handle.
     ///
-    /// This decodable item allows each parts of the item to be decoded independently.
+    /// This encoded item handle allows each parts of the item to be decoded independently.
     ///
     /// # Errors
-    /// - Fails if data is smaller then the decoded expected size.
+    /// - Fails if data is smaller then the decoded item's expected size.
     fn start_decoding(data: &'data [u8]) -> Result<WithByteSize<Self::Data>, SizeError> {
-        let ret = Self::start_decoding_unchecked(data);
+        let ret = unsafe { Self::start_decoding_unchecked(data) };
         let size = ret.encoded_size()?;
         if size > data.len() {
             return Err(SizeError::MissingBytes);
@@ -91,7 +90,7 @@ pub trait Decodable<'data>: Sized + 'data {
     ///
     /// You are to check that:
     /// - The decodable object fits in the given data:
-    /// [`decodable.smaller_than(data.len())`](struct.DecodableVarint.html#method.smaller_than)
+    /// [`decodable.encoded_size()`](struct.Decodable.html#method.size)
     ///
     /// Failing that will result in reading and interpreting data outside the given
     /// array.
@@ -102,10 +101,9 @@ pub trait Decodable<'data>: Sized + 'data {
     /// Decodes an item from raw data.
     ///
     /// # Errors
-    /// Fails if the input data is too small to decode and requires the minimum
-    /// number of bytes required to continue decoding.
+    /// Fails if the input data is too small to decode.
     fn decode(data: &'data [u8]) -> Result<WithByteSize<Self>, SizeError> {
-        Self::start_decoding(data).map(|v| unsafe { v.item.complete_decoding() })
+        Self::start_decoding(data).map(|v| v.item.complete_decoding())
     }
 }
 
@@ -132,37 +130,29 @@ pub trait FailableEncodedData<'data> {
         + MissingByteErrorBuilder;
     type DecodedData: Sized + 'data;
 
-    /// Parse the first byte to check whether that data is parseable.
-    ///
     /// # Safety
-    /// Requires the data to contain at least one byte.
-    ///
-    /// # Errors
-    /// The data is not parseable.
-    fn new(data: &'data [u8]) -> Self
-    where
-        Self: Sized;
+    /// This method was not made to be called directly. Please see the [Decodable](trait.Decodable)
+    /// API.
+    unsafe fn new(data: &'data [u8]) -> Self;
 
-    /// Safely checks whether the given data_size is bigger than the decoded object expected size
-    /// and return the expected size.
+    /// Safely calculates what the size in bytes of the item we are decoding should be.
     ///
     /// # Errors
-    /// Fails if the data_size is smaller than the required data size to decode the object.
-    /// On error, returns the minimum bytes required to continue parsing the size of this item.
+    /// Fails if:
+    /// - The data is too small.
+    /// - The decoded item contains unsupported elements.
+    /// - The data is not coherent.
     fn encoded_size(&self) -> Result<usize, Self::SizeError>;
 
     /// Fully decodes the Item.
-    ///
-    /// # Safety
-    /// This method does not check data boundaries, as it assumes those have been previously done.
     ///
     /// # Errors
     /// Fails if the data is not decodable.
     /// This currently means that either the data is incoherent or it contains unsupported
     /// items.
-    unsafe fn complete_decoding(
-        &self,
-    ) -> Result<WithByteSize<Self::DecodedData>, Self::DecodeError>;
+    ///
+    /// This method does not check data boundaries, as it assumes those have been previously done.
+    fn complete_decoding(&self) -> Result<WithByteSize<Self::DecodedData>, Self::DecodeError>;
 }
 
 pub type FailableEncodedDataSizeError<'data, T> = <T as FailableEncodedData<'data>>::SizeError;
@@ -186,20 +176,20 @@ pub trait FailableDecodable<'data>: Sized + 'data {
     /// # Safety
     /// You are to check that:
     /// - The decodable object fits in the given data:
-    /// [`decodable.smaller_than(data.len())`](struct.DecodableVarint.html#method.smaller_than)
+    /// [`decodable.encoded_size()`](trait.Decodable.html#method.size)
     ///
     /// Failing that might result in reading and interpreting data outside the given
     /// array (depending on what is done with the resulting object).
     ///
     /// # Errors
     /// Fails if the data is not parseable.
-    fn start_decoding_unchecked(data: &'data [u8]) -> Self::Data {
+    unsafe fn start_decoding_unchecked(data: &'data [u8]) -> Self::Data {
         Self::Data::new(data)
     }
 
     /// Returns an encoded item handle.
     ///
-    /// This decodable item allows each parts of the item to be decoded independently.
+    /// This encoded item handle allows each parts of the item to be decoded independently.
     ///
     /// # Errors
     /// - Fails if data is smaller then the decoded expected size.
@@ -207,7 +197,7 @@ pub trait FailableDecodable<'data>: Sized + 'data {
     fn start_decoding(
         data: &'data [u8],
     ) -> Result<WithByteSize<Self::Data>, FailableEncodedDataSizeError<'data, Self::Data>> {
-        let ret = Self::start_decoding_unchecked(data);
+        let ret = unsafe { Self::start_decoding_unchecked(data) };
         let size = ret.encoded_size()?;
         if size > data.len() {
             return Err(<FailableEncodedDataSizeError<'data, Self::Data> as MissingByteErrorBuilder>::missing_bytes());
@@ -225,7 +215,7 @@ pub trait FailableDecodable<'data>: Sized + 'data {
     ///
     /// You are to check that:
     /// - The decodable object fits in the given data:
-    /// [`decodable.smaller_than(data.len())`](struct.DecodableVarint.html#method.smaller_than)
+    /// [`decodable.encoded_size()`](struct.Decodable.html#method.size)
     ///
     /// Failing that will result in reading and interpreting data outside the given
     /// array.
@@ -241,12 +231,11 @@ pub trait FailableDecodable<'data>: Sized + 'data {
     /// Decodes an item from raw data.
     ///
     /// # Errors
-    /// - Fails if the input data is too small to decode and requires the minimum
-    /// number of bytes required to continue decoding.
+    /// - Fails if the input data is too small to decode.
     /// - Fails if the data is not parseable.
     fn decode(data: &'data [u8]) -> Result<WithByteSize<Self>, Self::FullDecodeError> {
         Self::start_decoding(data)
             .map_err(|e| e.into())
-            .and_then(|v| unsafe { v.item.complete_decoding().map_err(|e| e.into()) })
+            .and_then(|v| v.item.complete_decoding().map_err(|e| e.into()))
     }
 }

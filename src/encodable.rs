@@ -9,7 +9,8 @@ pub trait Encodable {
     /// It is not meant to be used inside a Rust library/binary.
     ///
     /// # Safety
-    /// You are responsible for checking that `out.len()` >= [`self.size()`](#method.size).
+    /// You are responsible for checking that `out.len()` >=
+    /// [`self.encoded_size()`](#method.encoded_size).
     ///
     /// Failing that will result in the program writing out of bound in
     /// random parts of your memory.
@@ -19,7 +20,8 @@ pub trait Encodable {
     /// byte array.
     ///
     /// # Safety
-    /// You are responsible for checking that `out.len()` >= [`self.size()`](#method.size).
+    /// You are responsible for checking that `out.len()` >=
+    /// [`self.encoded_size()`](#method.encoded_size).
     ///
     /// Failing that will result in the program writing out of bound in
     /// random parts of your memory.
@@ -30,7 +32,7 @@ pub trait Encodable {
     /// Encodes the value into pre allocated array.
     ///
     /// # Errors
-    /// Fails if the pre allocated array is smaller than [`self.size()`](#method.size)
+    /// Fails if the pre allocated array is smaller than [`self.encoded_size()`](#method.encoded_size)
     /// returning the number of input bytes required.
     fn encode_in(&self, out: &mut [u8]) -> Result<usize, usize> {
         let size = self.encoded_size();

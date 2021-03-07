@@ -84,57 +84,45 @@ pub struct EncodedReadFileData<'data> {
 }
 
 impl<'data> EncodedReadFileData<'data> {
-    /// # Safety
-    /// This reads data without checking boundaries.
-    /// If self.data.len() < self.encoded_size() then this is safe.
-    pub unsafe fn group(&self) -> bool {
-        *self.data.get_unchecked(0) & flag::GROUP != 0
+    pub fn group(&self) -> bool {
+        unsafe { *self.data.get_unchecked(0) & flag::GROUP != 0 }
+    }
+
+    pub fn response(&self) -> bool {
+        unsafe { *self.data.get_unchecked(0) & flag::RESPONSE != 0 }
+    }
+
+    pub fn file_id(&self) -> FileId {
+        unsafe { FileId(*self.data.get_unchecked(1)) }
+    }
+
+    pub fn offset(&self) -> EncodedVarint {
+        unsafe { Varint::start_decoding_unchecked(self.data.get_unchecked(2..)) }
+    }
+
+    pub fn length(&self) -> EncodedVarint {
+        unsafe {
+            let offset_size = (((*self.data.get_unchecked(2) & 0xC0) >> 6) + 1) as usize;
+            Varint::start_decoding_unchecked(self.data.get_unchecked(2 + offset_size..))
+        }
     }
 
     /// # Safety
-    /// This reads data without checking boundaries.
-    /// If self.data.len() < self.encoded_size() then this is safe.
-    pub unsafe fn response(&self) -> bool {
-        *self.data.get_unchecked(0) & flag::RESPONSE != 0
-    }
-
-    /// # Safety
-    /// This reads data without checking boundaries.
-    /// If self.data.len() < self.encoded_size() then this is safe.
-    pub unsafe fn file_id(&self) -> FileId {
-        FileId(*self.data.get_unchecked(1))
-    }
-
-    /// # Safety
-    /// This reads data without checking boundaries.
-    /// If self.data.len() < self.encoded_size() then this is safe.
-    pub unsafe fn offset(&self) -> EncodedVarint {
-        Varint::start_decoding_unchecked(self.data.get_unchecked(2..))
-    }
-
-    /// # Safety
-    /// This reads data without checking boundaries.
-    /// If self.data.len() < self.encoded_size() then this is safe.
-    pub unsafe fn length(&self) -> EncodedVarint {
-        let offset_size = (((*self.data.get_unchecked(2) & 0xC0) >> 6) + 1) as usize;
-        Varint::start_decoding_unchecked(self.data.get_unchecked(2 + offset_size..))
-    }
-
-    /// # Safety
-    /// You are to warrant, somehow, that the input byte array contains a complete item.
-    /// Else this might result in out of bound reads, and absurd results.
-    pub unsafe fn size_unchecked(&self) -> usize {
-        let offset_size = self.offset().size_unchecked();
+    /// You have to warrant that somehow that there is enough byte to decode the encoded size.
+    /// If you fail to do so, out of bound bytes will be read, and an absurd value will be
+    /// returned.
+    pub unsafe fn encoded_size_unchecked(&self) -> usize {
+        let offset_size = self.offset().encoded_size_unchecked();
         let length_size =
             Varint::start_decoding_unchecked(self.data.get_unchecked(2 + offset_size..))
-                .size_unchecked();
+                .encoded_size_unchecked();
         2 + offset_size + length_size
     }
 }
 
 impl<'data> EncodedData<'data> for EncodedReadFileData<'data> {
     type DecodedData = ReadFileDataRef<'data>;
-    fn new(data: &'data [u8]) -> Self {
+    unsafe fn new(data: &'data [u8]) -> Self {
         Self { data }
     }
 
@@ -145,12 +133,12 @@ impl<'data> EncodedData<'data> for EncodedReadFileData<'data> {
             if data_size < size {
                 return Err(SizeError::MissingBytes);
             }
-            size += self.offset().size_unchecked();
+            size += self.offset().encoded_size_unchecked();
             if data_size < size {
                 return Err(SizeError::MissingBytes);
             }
             size += Varint::start_decoding_unchecked(self.data.get_unchecked(size - 1..))
-                .size_unchecked();
+                .encoded_size_unchecked();
             size -= 1;
             if data_size < size {
                 return Err(SizeError::MissingBytes);
@@ -159,7 +147,7 @@ impl<'data> EncodedData<'data> for EncodedReadFileData<'data> {
         }
     }
 
-    unsafe fn complete_decoding(&self) -> WithByteSize<ReadFileDataRef<'data>> {
+    fn complete_decoding(&self) -> WithByteSize<ReadFileDataRef<'data>> {
         let WithByteSize {
             item: offset,
             byte_size: offset_size,
@@ -167,7 +155,7 @@ impl<'data> EncodedData<'data> for EncodedReadFileData<'data> {
         let WithByteSize {
             item: length,
             byte_size: length_size,
-        } = Varint::decode_unchecked(self.data.get_unchecked(2 + offset_size..));
+        } = unsafe { Varint::decode_unchecked(self.data.get_unchecked(2 + offset_size..)) };
         WithByteSize {
             item: ReadFileDataRef {
                 group: self.group(),
@@ -247,21 +235,19 @@ mod test {
                 byte_size: expected_size,
             } = ReadFileDataRef::start_decoding(data).unwrap();
             assert_eq!(expected_size, size);
-            assert_eq!(unsafe { decoder.size_unchecked() }, size);
+            assert_eq!(unsafe { decoder.encoded_size_unchecked() }, size);
             assert_eq!(decoder.encoded_size().unwrap(), size);
-            unsafe {
-                assert_eq!(
-                    op,
-                    ReadFileDataRef {
-                        group: decoder.group(),
-                        response: decoder.response(),
-                        file_id: decoder.file_id(),
-                        offset: decoder.offset().complete_decoding().item,
-                        length: decoder.length().complete_decoding().item,
-                        phantom: core::marker::PhantomData,
-                    }
-                );
-            }
+            assert_eq!(
+                op,
+                ReadFileDataRef {
+                    group: decoder.group(),
+                    response: decoder.response(),
+                    file_id: decoder.file_id(),
+                    offset: decoder.offset().complete_decoding().item,
+                    length: decoder.length().complete_decoding().item,
+                    phantom: core::marker::PhantomData,
+                }
+            );
         }
         test(
             ReadFileDataRef {

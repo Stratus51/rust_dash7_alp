@@ -131,14 +131,15 @@ pub enum ValidEncodedQuery<'data> {
 #[cfg(feature = "decode_query")]
 impl<'data> ValidEncodedQuery<'data> {
     /// # Safety
-    /// You are to warrant, somehow, that the input byte array contains a complete item.
-    /// Else this might result in out of bound reads, and absurd results.
-    pub unsafe fn size_unchecked(&self) -> usize {
+    /// You have to warrant that somehow that there is enough byte to decode the encoded size.
+    /// If you fail to do so, out of bound bytes will be read, and an absurd value will be
+    /// returned.
+    pub unsafe fn encoded_size_unchecked(&self) -> usize {
         match self {
             #[cfg(feature = "decode_query_compare_with_value")]
-            Self::ComparisonWithValue(d) => d.size_unchecked(),
+            Self::ComparisonWithValue(d) => d.encoded_size_unchecked(),
             #[cfg(feature = "decode_query_compare_with_range")]
-            Self::ComparisonWithRange(d) => d.size_unchecked(),
+            Self::ComparisonWithRange(d) => d.encoded_size_unchecked(),
         }
     }
 }
@@ -150,47 +151,43 @@ pub struct EncodedQuery<'data> {
 
 #[cfg(feature = "decode_query")]
 impl<'data> EncodedQuery<'data> {
-    /// # Safety
-    /// This reads data without checking boundaries.
-    /// If self.data.len() < self.encoded_size() then this is safe.
-    ///
     /// # Errors
     /// Fails if the query code is unsupported.
-    pub unsafe fn query_code(&self) -> Result<QueryCode, UnsupportedQueryCode<'data>> {
-        let code = (*self.data.get_unchecked(0) >> 5) & 0x07;
-        QueryCode::from(code).map_err(|_| UnsupportedQueryCode {
-            code,
-            remaining_data: self.data.get_unchecked(1..),
-        })
+    pub fn query_code(&self) -> Result<QueryCode, UnsupportedQueryCode<'data>> {
+        unsafe {
+            let code = (*self.data.get_unchecked(0) >> 5) & 0x07;
+            QueryCode::from(code).map_err(|_| UnsupportedQueryCode {
+                code,
+                remaining_data: self.data.get_unchecked(1..),
+            })
+        }
     }
 
-    /// # Safety
-    /// This reads data without checking boundaries.
-    /// If self.data.len() < self.encoded_size() then this is safe.
-    ///
     /// # Errors
     /// Fails if the query code is unsupported.
-    pub unsafe fn query(&self) -> Result<ValidEncodedQuery<'data>, UnsupportedQueryCode<'data>> {
-        Ok(match self.query_code()? {
-            #[cfg(feature = "decode_query_compare_with_value")]
-            QueryCode::ComparisonWithValue => ValidEncodedQuery::ComparisonWithValue(
-                ComparisonWithValueRef::start_decoding_unchecked(self.data),
-            ),
-            #[cfg(feature = "decode_query_compare_with_range")]
-            QueryCode::ComparisonWithRange => ValidEncodedQuery::ComparisonWithRange(
-                ComparisonWithRangeRef::start_decoding_unchecked(self.data),
-            ),
-            #[cfg(not(all(
-                feature = "decode_query_compare_with_range",
-                feature = "decode_query_compare_with_value"
-            )))]
-            code => {
-                return Err(UnsupportedQueryCode {
-                    code: code as u8,
-                    remaining_data: self.data.get_unchecked(1..),
-                })
-            }
-        })
+    pub fn query(&self) -> Result<ValidEncodedQuery<'data>, UnsupportedQueryCode<'data>> {
+        unsafe {
+            Ok(match self.query_code()? {
+                #[cfg(feature = "decode_query_compare_with_value")]
+                QueryCode::ComparisonWithValue => ValidEncodedQuery::ComparisonWithValue(
+                    ComparisonWithValueRef::start_decoding_unchecked(self.data),
+                ),
+                #[cfg(feature = "decode_query_compare_with_range")]
+                QueryCode::ComparisonWithRange => ValidEncodedQuery::ComparisonWithRange(
+                    ComparisonWithRangeRef::start_decoding_unchecked(self.data),
+                ),
+                #[cfg(not(all(
+                    feature = "decode_query_compare_with_range",
+                    feature = "decode_query_compare_with_value"
+                )))]
+                code => {
+                    return Err(UnsupportedQueryCode {
+                        code: code as u8,
+                        remaining_data: self.data.get_unchecked(1..),
+                    })
+                }
+            })
+        }
     }
 }
 
@@ -200,15 +197,12 @@ impl<'data> FailableEncodedData<'data> for EncodedQuery<'data> {
     type DecodeError = UnsupportedQueryCode<'data>;
     type DecodedData = DecodedQueryRef<'data>;
 
-    fn new(data: &'data [u8]) -> Self {
+    unsafe fn new(data: &'data [u8]) -> Self {
         Self { data }
     }
 
     fn encoded_size(&self) -> Result<usize, Self::SizeError> {
-        if self.data.is_empty() {
-            return Err(QuerySizeError::MissingBytes);
-        }
-        match unsafe { self.query().map_err(QuerySizeError::UnsupportedQueryCode)? } {
+        match self.query().map_err(QuerySizeError::UnsupportedQueryCode)? {
             #[cfg(feature = "decode_query_compare_with_value")]
             ValidEncodedQuery::ComparisonWithValue(d) => d.encoded_size(),
             #[cfg(feature = "decode_query_compare_with_range")]
@@ -217,9 +211,7 @@ impl<'data> FailableEncodedData<'data> for EncodedQuery<'data> {
         .map_err(|_| QuerySizeError::MissingBytes)
     }
 
-    unsafe fn complete_decoding(
-        &self,
-    ) -> Result<WithByteSize<DecodedQueryRef<'data>>, Self::DecodeError> {
+    fn complete_decoding(&self) -> Result<WithByteSize<DecodedQueryRef<'data>>, Self::DecodeError> {
         Ok(match self.query()? {
             #[cfg(feature = "decode_query_compare_with_value")]
             ValidEncodedQuery::ComparisonWithValue(d) => {
@@ -319,7 +311,10 @@ mod test {
                 byte_size: expected_size,
             } = DecodedQueryRef::start_decoding(data).unwrap();
             assert_eq!(expected_size, size);
-            assert_eq!(unsafe { decoder.query().unwrap().size_unchecked() }, size);
+            assert_eq!(
+                unsafe { decoder.query().unwrap().encoded_size_unchecked() },
+                size
+            );
             assert_eq!(decoder.encoded_size().unwrap(), size);
         }
         #[cfg(feature = "decode_query_compare_with_value")]

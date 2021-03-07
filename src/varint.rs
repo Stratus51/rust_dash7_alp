@@ -165,16 +165,17 @@ pub struct EncodedVarint<'data> {
 
 impl<'data> EncodedVarint<'data> {
     /// # Safety
-    /// You are to warrant, somehow, that the input byte array contains a complete item.
-    /// Else this might result in out of bound reads, and absurd results.
-    pub unsafe fn size_unchecked(&self) -> usize {
+    /// You have to warrant that somehow that there is enough byte to decode the encoded size.
+    /// If you fail to do so, out of bound bytes will be read, and an absurd value will be
+    /// returned.
+    pub unsafe fn encoded_size_unchecked(&self) -> usize {
         ((self.data.get_unchecked(0) & 0xC0) >> 6) as usize + 1
     }
 }
 
 impl<'data> EncodedData<'data> for EncodedVarint<'data> {
     type DecodedData = Varint;
-    fn new(data: &'data [u8]) -> Self {
+    unsafe fn new(data: &'data [u8]) -> Self {
         Self { data }
     }
 
@@ -183,37 +184,41 @@ impl<'data> EncodedData<'data> for EncodedVarint<'data> {
         if self.data.len() < size {
             return Err(SizeError::MissingBytes);
         }
-        size = unsafe { self.size_unchecked() };
+        size = unsafe { self.encoded_size_unchecked() };
         if self.data.len() < size {
             return Err(SizeError::MissingBytes);
         }
         Ok(size)
     }
 
-    unsafe fn complete_decoding(&self) -> WithByteSize<Varint> {
-        let size = self.size_unchecked();
-        let data = &self.data;
-        let ret = Varint::new_unchecked(match size {
-            1 => (*data.get_unchecked(0) & 0x3F) as u32,
-            2 => (((*data.get_unchecked(0) & 0x3F) as u32) << 8) + *data.get_unchecked(1) as u32,
-            3 => {
-                (((*data.get_unchecked(0) & 0x3F) as u32) << 16)
-                    + ((*data.get_unchecked(1) as u32) << 8)
-                    + *data.get_unchecked(2) as u32
+    fn complete_decoding(&self) -> WithByteSize<Varint> {
+        unsafe {
+            let size = self.encoded_size_unchecked();
+            let data = &self.data;
+            let ret = Varint::new_unchecked(match size {
+                1 => (*data.get_unchecked(0) & 0x3F) as u32,
+                2 => {
+                    (((*data.get_unchecked(0) & 0x3F) as u32) << 8) + *data.get_unchecked(1) as u32
+                }
+                3 => {
+                    (((*data.get_unchecked(0) & 0x3F) as u32) << 16)
+                        + ((*data.get_unchecked(1) as u32) << 8)
+                        + *data.get_unchecked(2) as u32
+                }
+                4 => {
+                    (((*data.get_unchecked(0) & 0x3F) as u32) << 24)
+                        + ((*data.get_unchecked(1) as u32) << 16)
+                        + ((*data.get_unchecked(2) as u32) << 8)
+                        + *data.get_unchecked(3) as u32
+                }
+                // This is bad and incorrect. But size should mathematically never evaluate to this
+                // case. Let's just hope the size method is not broken.
+                _ => 0,
+            });
+            WithByteSize {
+                item: ret,
+                byte_size: size,
             }
-            4 => {
-                (((*data.get_unchecked(0) & 0x3F) as u32) << 24)
-                    + ((*data.get_unchecked(1) as u32) << 16)
-                    + ((*data.get_unchecked(2) as u32) << 8)
-                    + *data.get_unchecked(3) as u32
-            }
-            // This is bad and incorrect. But size should mathematically never evaluate to this
-            // case. Let's just hope the size method is not broken.
-            _ => 0,
-        });
-        WithByteSize {
-            item: ret,
-            byte_size: size,
         }
     }
 }
@@ -279,7 +284,7 @@ mod test {
             let part_size = decoder.encoded_size().unwrap();
             assert_eq!(expected_size, size);
             assert_eq!(part_size, size);
-            assert_eq!(unsafe { decoder.size_unchecked() }, size);
+            assert_eq!(unsafe { decoder.encoded_size_unchecked() }, size);
         }
         test_ok(&[0], 0x00, 1);
         test_ok(&hex!("3F"), 0x3F, 1);
