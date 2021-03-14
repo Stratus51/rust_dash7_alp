@@ -3,7 +3,7 @@ use crate::define::FileId;
 use crate::encodable::Encodable;
 use crate::v1_2::define::flag;
 use crate::v1_2::define::op_code;
-use crate::varint::{self, EncodedVarint, Varint};
+use crate::varint::{self, EncodedVarint, EncodedVarintMut, Varint};
 
 // TODO SPEC: Verify if the new ReadFileData successfull length overflow
 // is described in the specification, because it is not intuitive.
@@ -17,7 +17,7 @@ pub const MAX_SIZE: usize = 2 + 2 * varint::MAX_SIZE;
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct ReadFileDataRef<'item> {
+pub struct ReadFileDataRef<'item, 'data> {
     /// Group with next action
     pub group: bool,
     /// Ask for a response (read data via ReturnFileData)
@@ -31,10 +31,11 @@ pub struct ReadFileDataRef<'item> {
     /// Number of bytes to read after offset
     pub length: Varint,
     /// Empty data required for lifetime compilation.
-    pub phantom: core::marker::PhantomData<&'item ()>,
+    pub item_phantom: core::marker::PhantomData<&'item ()>,
+    pub data_phantom: core::marker::PhantomData<&'data ()>,
 }
 
-impl<'item> ReadFileDataRef<'item> {
+impl<'item, 'data> ReadFileDataRef<'item, 'data> {
     /// Most common builder `ReadFileData` builder.
     ///
     /// group = false
@@ -46,7 +47,8 @@ impl<'item> ReadFileDataRef<'item> {
             file_id,
             offset,
             length,
-            phantom: core::marker::PhantomData,
+            item_phantom: core::marker::PhantomData,
+            data_phantom: core::marker::PhantomData,
         }
     }
 
@@ -61,7 +63,7 @@ impl<'item> ReadFileDataRef<'item> {
     }
 }
 
-impl<'data> Encodable for ReadFileDataRef<'data> {
+impl<'item, 'data> Encodable for ReadFileDataRef<'item, 'data> {
     unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
         let mut size = 0;
         *out.add(0) = op_code::READ_FILE_DATA as u8
@@ -79,11 +81,11 @@ impl<'data> Encodable for ReadFileDataRef<'data> {
     }
 }
 
-pub struct EncodedReadFileData<'data> {
-    data: &'data [u8],
+pub struct EncodedReadFileData<'item, 'data> {
+    data: &'item &'data [u8],
 }
 
-impl<'data> EncodedReadFileData<'data> {
+impl<'item, 'data> EncodedReadFileData<'item, 'data> {
     pub fn group(&self) -> bool {
         unsafe { *self.data.get_unchecked(0) & flag::GROUP != 0 }
     }
@@ -120,9 +122,11 @@ impl<'data> EncodedReadFileData<'data> {
     }
 }
 
-impl<'data> EncodedData<'data> for EncodedReadFileData<'data> {
-    type DecodedData = ReadFileDataRef<'data>;
-    unsafe fn new(data: &'data [u8]) -> Self {
+impl<'item, 'data, 'result> EncodedData<'data, 'result> for EncodedReadFileData<'item, 'data> {
+    type SourceData = &'data [u8];
+    type DecodedData = ReadFileDataRef<'result, 'data>;
+
+    unsafe fn new(data: Self::SourceData) -> Self {
         Self { data }
     }
 
@@ -147,7 +151,7 @@ impl<'data> EncodedData<'data> for EncodedReadFileData<'data> {
         }
     }
 
-    fn complete_decoding(&self) -> WithByteSize<ReadFileDataRef<'data>> {
+    fn complete_decoding(&self) -> WithByteSize<Self::DecodedData> {
         let WithByteSize {
             item: offset,
             byte_size: offset_size,
@@ -170,8 +174,96 @@ impl<'data> EncodedData<'data> for EncodedReadFileData<'data> {
     }
 }
 
-impl<'data> Decodable<'data> for ReadFileDataRef<'data> {
-    type Data = EncodedReadFileData<'data>;
+// TODO Mutating methods test
+pub struct EncodedReadFileDataMut<'item, 'data> {
+    data: &'item mut &'data mut [u8],
+}
+
+impl<'item, 'data> EncodedReadFileDataMut<'item, 'data> {
+    pub fn as_ref<'result>(&self) -> EncodedReadFileData<'result, 'data> {
+        unsafe { EncodedReadFileData::new(self.data) }
+    }
+
+    pub fn group(&self) -> bool {
+        self.as_ref().group()
+    }
+
+    pub fn response(&self) -> bool {
+        self.as_ref().response()
+    }
+
+    pub fn file_id(&self) -> FileId {
+        self.as_ref().file_id()
+    }
+
+    pub fn offset<'result>(&'data self) -> EncodedVarint<'result, 'data> {
+        self.as_ref().offset()
+    }
+
+    pub fn length<'result>(&'data self) -> EncodedVarint<'result, 'data> {
+        self.as_ref().length()
+    }
+
+    /// # Safety
+    /// You have to warrant that somehow that there is enough byte to decode the encoded size.
+    /// If you fail to do so, out of bound bytes will be read, and an absurd value will be
+    /// returned.
+    pub unsafe fn encoded_size_unchecked(&self) -> usize {
+        self.as_ref().encoded_size_unchecked()
+    }
+
+    pub fn set_group(&mut self, group: bool) {
+        if group {
+            unsafe { *self.data.get_unchecked_mut(0) |= flag::GROUP }
+        } else {
+            unsafe { *self.data.get_unchecked_mut(0) &= !flag::GROUP }
+        }
+    }
+
+    pub fn set_response(&mut self, response: bool) {
+        if response {
+            unsafe { *self.data.get_unchecked_mut(0) |= flag::RESPONSE }
+        } else {
+            unsafe { *self.data.get_unchecked_mut(0) &= !flag::RESPONSE }
+        }
+    }
+
+    pub fn set_file_id(&mut self, file_id: FileId) {
+        unsafe { *self.data.get_unchecked_mut(1) = file_id.u8() }
+    }
+
+    pub fn offset_mut<'result>(&'data mut self) -> EncodedVarintMut<'result, 'data> {
+        unsafe { Varint::start_decoding_unchecked_mut(self.data.get_unchecked_mut(2..)) }
+    }
+
+    pub fn length_mut<'result>(&'data mut self) -> EncodedVarintMut<'result, 'data> {
+        unsafe {
+            let offset_size = self.offset().encoded_size_unchecked() as usize;
+            Varint::start_decoding_unchecked_mut(self.data.get_unchecked_mut(2 + offset_size..))
+        }
+    }
+}
+
+impl<'item, 'data, 'result> EncodedData<'data, 'result> for EncodedReadFileDataMut<'item, 'data> {
+    type SourceData = &'data mut [u8];
+    type DecodedData = ReadFileDataRef<'result, 'data>;
+
+    unsafe fn new(data: Self::SourceData) -> Self {
+        Self { data }
+    }
+
+    fn encoded_size(&self) -> Result<usize, SizeError> {
+        self.as_ref().encoded_size()
+    }
+
+    fn complete_decoding(&'item self) -> WithByteSize<Self::DecodedData> {
+        self.as_ref().complete_decoding()
+    }
+}
+
+impl<'item, 'data, 'result> Decodable<'data, 'result> for ReadFileDataRef<'item, 'data> {
+    type Data = EncodedReadFileData<'item, 'data>;
+    type DataMut = EncodedReadFileDataMut<'item, 'data>;
 }
 
 /// Read data from a file.

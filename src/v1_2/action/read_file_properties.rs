@@ -13,7 +13,7 @@ pub const SIZE: usize = 2;
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct ReadFilePropertiesRef<'item> {
+pub struct ReadFilePropertiesRef<'item, 'data> {
     /// Group with next action
     pub group: bool,
     /// Ask for a response (status)
@@ -21,16 +21,18 @@ pub struct ReadFilePropertiesRef<'item> {
     /// File ID of the file to read
     pub file_id: FileId,
     /// Empty data required for lifetime compilation.
-    phantom: core::marker::PhantomData<&'item ()>,
+    item_phantom: core::marker::PhantomData<&'item ()>,
+    data_phantom: core::marker::PhantomData<&'data ()>,
 }
 
-impl<'item> ReadFilePropertiesRef<'item> {
+impl<'item, 'data> ReadFilePropertiesRef<'item, 'data> {
     pub const fn new(group: bool, response: bool, file_id: FileId) -> Self {
         Self {
             group,
             response,
             file_id,
-            phantom: core::marker::PhantomData,
+            item_phantom: core::marker::PhantomData,
+            data_phantom: core::marker::PhantomData,
         }
     }
 
@@ -53,7 +55,7 @@ impl<'item> ReadFilePropertiesRef<'item> {
     }
 }
 
-impl<'data> Encodable for ReadFilePropertiesRef<'data> {
+impl<'item, 'data> Encodable for ReadFilePropertiesRef<'item, 'data> {
     unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
         *out.add(0) = op_code::READ_FILE_PROPERTIES
             | if self.group { flag::GROUP } else { 0 }
@@ -68,11 +70,11 @@ impl<'data> Encodable for ReadFilePropertiesRef<'data> {
     }
 }
 
-pub struct EncodedReadFileProperties<'data> {
-    data: &'data [u8],
+pub struct EncodedReadFileProperties<'item, 'data> {
+    data: &'item &'data [u8],
 }
 
-impl<'data> EncodedReadFileProperties<'data> {
+impl<'item, 'data> EncodedReadFileProperties<'item, 'data> {
     pub fn group(&self) -> bool {
         unsafe { *self.data.get_unchecked(0) & flag::GROUP != 0 }
     }
@@ -90,10 +92,11 @@ impl<'data> EncodedReadFileProperties<'data> {
     }
 }
 
-impl<'data> EncodedData<'data> for EncodedReadFileProperties<'data> {
-    type DecodedData = ReadFilePropertiesRef<'data>;
+impl<'item, 'data> EncodedData<'item, 'data> for EncodedReadFileProperties<'item, 'data> {
+    type SourceData = &'data [u8];
+    type DecodedData = ReadFilePropertiesRef<'item, 'data>;
 
-    unsafe fn new(data: &'data [u8]) -> Self {
+    unsafe fn new(data: Self::SourceData) -> Self {
         Self { data }
     }
 
@@ -101,7 +104,7 @@ impl<'data> EncodedData<'data> for EncodedReadFileProperties<'data> {
         Ok(SIZE)
     }
 
-    fn complete_decoding(&self) -> WithByteSize<ReadFilePropertiesRef<'data>> {
+    fn complete_decoding(&self) -> WithByteSize<Self::DecodedData> {
         WithByteSize {
             item: ReadFilePropertiesRef {
                 group: self.group(),
@@ -114,8 +117,66 @@ impl<'data> EncodedData<'data> for EncodedReadFileProperties<'data> {
     }
 }
 
-impl<'data> Decodable<'data> for ReadFilePropertiesRef<'data> {
-    type Data = EncodedReadFileProperties<'data>;
+pub struct EncodedReadFilePropertiesMut<'item, 'data> {
+    data: &'item mut &'data mut [u8],
+}
+
+impl<'item, 'data> EncodedReadFilePropertiesMut<'item, 'data> {
+    pub fn as_ref<'result>(&'data self) -> EncodedReadFileProperties<'result, 'data> {
+        unsafe { EncodedReadFileProperties::new(self.data) }
+    }
+
+    pub fn group(&self) -> bool {
+        self.as_ref().group()
+    }
+
+    pub fn response(&self) -> bool {
+        self.as_ref().response()
+    }
+
+    pub fn encoded_size_unchecked(&self) -> usize {
+        self.as_ref().encoded_size_unchecked()
+    }
+
+    pub fn set_group(&mut self, group: bool) {
+        if group {
+            unsafe { *self.data.get_unchecked_mut(0) |= flag::GROUP }
+        } else {
+            unsafe { *self.data.get_unchecked_mut(0) &= !flag::GROUP }
+        }
+    }
+
+    pub fn set_response(&mut self, response: bool) {
+        if response {
+            unsafe { *self.data.get_unchecked_mut(0) |= flag::RESPONSE }
+        } else {
+            unsafe { *self.data.get_unchecked_mut(0) &= !flag::RESPONSE }
+        }
+    }
+}
+
+impl<'item, 'data, 'result> EncodedData<'data, 'result>
+    for EncodedReadFilePropertiesMut<'item, 'data>
+{
+    type SourceData = &'data mut [u8];
+    type DecodedData = ReadFilePropertiesRef<'result, 'data>;
+
+    unsafe fn new(data: Self::SourceData) -> Self {
+        Self { data }
+    }
+
+    fn encoded_size(&self) -> Result<usize, SizeError> {
+        self.as_ref().encoded_size()
+    }
+
+    fn complete_decoding(&self) -> WithByteSize<Self::DecodedData> {
+        self.as_ref().complete_decoding()
+    }
+}
+
+impl<'item, 'data, 'result> Decodable<'data, 'result> for ReadFilePropertiesRef<'item, 'data> {
+    type Data = EncodedReadFileProperties<'item, 'data>;
+    type DataMut = EncodedReadFilePropertiesMut<'item, 'data>;
 }
 
 /// Reads the properties of a file

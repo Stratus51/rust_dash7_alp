@@ -108,14 +108,14 @@ impl AddresseeIdentifierType {
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub enum AddresseeIdentifierRef<'item> {
+pub enum AddresseeIdentifierRef<'item, 'data> {
     Nbid(u8),
     Noid,
-    Uid(&'item [u8; 8]),
-    Vid(&'item [u8; 2]),
+    Uid(&'item &'data [u8; 8]),
+    Vid(&'item &'data [u8; 2]),
 }
 
-impl<'item> AddresseeIdentifierRef<'item> {
+impl<'item, 'data> AddresseeIdentifierRef<'item, 'data> {
     pub fn id_type(&self) -> AddresseeIdentifierType {
         match self {
             Self::Nbid(_) => AddresseeIdentifierType::Nbid,
@@ -168,13 +168,13 @@ impl AddresseeIdentifier {
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct AddresseeRef<'item> {
+pub struct AddresseeRef<'item, 'data> {
     pub nls_method: NlsMethod,
     pub access_class: AccessClass,
-    pub identifier: AddresseeIdentifierRef<'item>,
+    pub identifier: AddresseeIdentifierRef<'item, 'data>,
 }
 
-impl<'data> Encodable for AddresseeRef<'data> {
+impl<'item, 'data> Encodable for AddresseeRef<'item, 'data> {
     unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
         let id_type = self.identifier.id_type();
         *out.add(0) = (id_type as u8) << 4 | (self.nls_method as u8);
@@ -194,7 +194,7 @@ impl<'data> Encodable for AddresseeRef<'data> {
     }
 }
 
-impl<'item> AddresseeRef<'item> {
+impl<'item, 'data> AddresseeRef<'item, 'data> {
     pub fn to_owned(&self) -> Addressee {
         Addressee {
             nls_method: self.nls_method,
@@ -204,11 +204,11 @@ impl<'item> AddresseeRef<'item> {
     }
 }
 
-pub struct EncodedAddressee<'data> {
-    data: &'data [u8],
+pub struct EncodedAddressee<'item, 'data> {
+    data: &'item &'data [u8],
 }
 
-impl<'data> EncodedAddressee<'data> {
+impl<'item, 'data> EncodedAddressee<'item, 'data> {
     pub fn id_type(&self) -> AddresseeIdentifierType {
         unsafe { AddresseeIdentifierType::from_unchecked(*self.data.get_unchecked(0) >> 4 & 0x07) }
     }
@@ -221,7 +221,7 @@ impl<'data> EncodedAddressee<'data> {
         unsafe { AccessClass(*self.data.get_unchecked(1)) }
     }
 
-    pub fn identifier(&self) -> AddresseeIdentifierRef<'data> {
+    pub fn identifier<'result>(&self) -> AddresseeIdentifierRef<'result, 'data> {
         unsafe {
             match self.id_type() {
                 AddresseeIdentifierType::Nbid => {
@@ -249,9 +249,11 @@ impl<'data> EncodedAddressee<'data> {
     }
 }
 
-impl<'data> EncodedData<'data> for EncodedAddressee<'data> {
-    type DecodedData = AddresseeRef<'data>;
-    unsafe fn new(data: &'data [u8]) -> Self {
+impl<'item, 'data, 'result> EncodedData<'data, 'result> for EncodedAddressee<'item, 'data> {
+    type SourceData = &'data [u8];
+    type DecodedData = AddresseeRef<'item, 'data>;
+
+    unsafe fn new(data: Self::SourceData) -> Self {
         Self { data }
     }
 
@@ -268,7 +270,7 @@ impl<'data> EncodedData<'data> for EncodedAddressee<'data> {
         Ok(size)
     }
 
-    fn complete_decoding(&self) -> WithByteSize<AddresseeRef<'data>> {
+    fn complete_decoding(&self) -> WithByteSize<Self::DecodedData> {
         let identifier = self.identifier();
         WithByteSize {
             item: AddresseeRef {
@@ -281,8 +283,110 @@ impl<'data> EncodedData<'data> for EncodedAddressee<'data> {
     }
 }
 
-impl<'data> Decodable<'data> for AddresseeRef<'data> {
-    type Data = EncodedAddressee<'data>;
+pub struct EncodedAddresseeMut<'item, 'data> {
+    data: &'item mut &'data mut [u8],
+}
+
+impl<'item, 'data> EncodedAddresseeMut<'item, 'data> {
+    pub const fn as_ref<'result>(&self) -> EncodedAddressee<'result, 'data> {
+        EncodedAddressee::new(self.data)
+    }
+
+    pub fn id_type(&self) -> AddresseeIdentifierType {
+        self.as_ref().id_type()
+    }
+
+    pub fn nls_method(&self) -> NlsMethod {
+        self.as_ref().nls_method()
+    }
+
+    pub fn access_class(&self) -> AccessClass {
+        self.as_ref().access_class()
+    }
+
+    pub fn identifier<'result>(&self) -> AddresseeIdentifierRef<'result, 'data> {
+        self.as_ref().identifier()
+    }
+
+    /// # Safety
+    /// You have to warrant that somehow that there is enough byte to decode the encoded size.
+    /// If you fail to do so, out of bound bytes will be read, and an absurd value will be
+    /// returned.
+    pub unsafe fn encoded_size_unchecked(&self) -> usize {
+        self.as_ref().encoded_size_unchecked()
+    }
+
+    /// # Safety
+    /// Changing this breaks the coherence of the data.
+    /// Make sure you change the identifier part accordingly.
+    pub unsafe fn set_id_type(&mut self, ty: AddresseeIdentifierType) {
+        *self.data.get_unchecked_mut(0) &= 0x0F;
+        *self.data.get_unchecked_mut(0) |= (ty as u8) << 4;
+    }
+
+    /// # Safety
+    /// Changing this can break the coherence of the data.
+    /// Make sure that the nls_state size stays the same whatever value you replace the nls method
+    /// with.
+    pub fn set_nls_method(&mut self, nls_method: NlsMethod) {
+        *self.data.get_unchecked_mut(0) &= 0xF0;
+        *self.data.get_unchecked_mut(0) |= nls_method as u8;
+    }
+
+    pub fn set_access_class(&mut self, access_class: AccessClass) {
+        *self.data.get_unchecked_mut(1) = access_class.u8();
+    }
+
+    pub unsafe fn set_identifier_unchecked<'param>(
+        &mut self,
+        identifier: AddresseeIdentifierRef<'param, 'data>,
+    ) {
+        match identifier {
+            AddresseeIdentifierRef::Nbid(n) => {
+                *self.data.get_unchecked_mut(2) = n;
+            }
+            AddresseeIdentifierRef::Noid => (),
+            AddresseeIdentifierRef::Uid(id) => {
+                self.data.get_unchecked_mut(2..).copy_from_slice(id);
+            }
+            AddresseeIdentifierRef::Vid(id) => {
+                self.data.get_unchecked_mut(2..).copy_from_slice(id);
+            }
+        }
+    }
+
+    pub fn set_identifier<'param>(
+        &mut self,
+        identifier: AddresseeIdentifierRef<'param, 'data>,
+    ) -> Result<(), ()> {
+        if self.id_type() != identifier.id_type() {
+            return Err(());
+        }
+        unsafe { self.set_identifier_unchecked(identifier) };
+        Ok(())
+    }
+}
+
+impl<'item, 'data, 'result> EncodedData<'data, 'result> for EncodedAddresseeMut<'data, 'result> {
+    type SourceData = &'data mut [u8];
+    type DecodedData = AddresseeRef<'result, 'data>;
+
+    unsafe fn new(data: Self::SourceData) -> Self {
+        Self { data }
+    }
+
+    fn encoded_size(&self) -> Result<usize, SizeError> {
+        self.as_ref().encoded_size()
+    }
+
+    fn complete_decoding(&self) -> WithByteSize<Self::DecodedData> {
+        self.as_ref().complete_decoding()
+    }
+}
+
+impl<'item, 'data, 'result> Decodable<'data, 'result> for AddresseeRef<'item, 'data> {
+    type Data = EncodedAddressee<'item, 'data>;
+    type DataMut = EncodedAddresseeMut<'item, 'data>;
 }
 
 #[cfg_attr(feature = "repr_c", repr(C))]

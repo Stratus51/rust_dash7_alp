@@ -4,9 +4,10 @@ use crate::decodable::{
 use crate::encodable::Encodable;
 use crate::v1_2::dash7::interface_status::{
     Dash7InterfaceStatus, Dash7InterfaceStatusRef, EncodedDash7InterfaceStatus,
+    EncodedDash7InterfaceStatusMut,
 };
 use crate::v1_2::error::{StatusInterfaceSizeError, UnsupportedInterfaceId};
-use crate::varint::{EncodedVarint, Varint};
+use crate::varint::{EncodedVarint, EncodedVarintMut, Varint};
 
 pub mod define;
 use define::InterfaceId;
@@ -60,16 +61,17 @@ use define::InterfaceId;
 // operand, I hardly think it is useful to keep this feature, which might just encourage
 // using it for the wrong reasons.
 
+// TODO Rename InterfaceStatus
 /// Details from the interface the command is coming from
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub enum StatusInterfaceRef<'item> {
+pub enum StatusInterfaceRef<'item, 'data> {
     Host,
-    Dash7(Dash7InterfaceStatusRef<'item>),
+    Dash7(Dash7InterfaceStatusRef<'item, 'data>),
 }
 
-impl<'data> Encodable for StatusInterfaceRef<'data> {
+impl<'item, 'data> Encodable for StatusInterfaceRef<'item, 'data> {
     unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
         let mut offset = 1;
         match self {
@@ -99,7 +101,7 @@ impl<'data> Encodable for StatusInterfaceRef<'data> {
     }
 }
 
-impl<'item> StatusInterfaceRef<'item> {
+impl<'item, 'data> StatusInterfaceRef<'item, 'data> {
     pub fn to_owned(&self) -> StatusInterface {
         match self {
             Self::Host => StatusInterface::Host,
@@ -108,19 +110,21 @@ impl<'item> StatusInterfaceRef<'item> {
     }
 }
 
-pub enum EncodedStatusInterfaceKind<'data> {
+pub enum ValidEncodedStatusInterface<'item, 'data> {
     Host,
-    Dash7(EncodedDash7InterfaceStatus<'data>),
+    Dash7(EncodedDash7InterfaceStatus<'item, 'data>),
 }
 
-pub struct EncodedStatusInterface<'data> {
-    data: &'data [u8],
+pub struct EncodedStatusInterface<'item, 'data> {
+    data: &'item &'data [u8],
 }
 
-impl<'data> EncodedStatusInterface<'data> {
+impl<'item, 'data> EncodedStatusInterface<'item, 'data> {
     /// # Errors
     /// Fails if the interface status id is unsupported.
-    pub fn interface_id(&self) -> Result<InterfaceId, UnsupportedInterfaceId<'data>> {
+    pub fn interface_id<'result>(
+        &self,
+    ) -> Result<InterfaceId, UnsupportedInterfaceId<'result, 'data>> {
         unsafe {
             let byte = self.data.get_unchecked(0);
             Ok(
@@ -132,20 +136,21 @@ impl<'data> EncodedStatusInterface<'data> {
         }
     }
 
-    pub fn len_field(&self) -> EncodedVarint<'data> {
+    pub fn len_field<'result>(&self) -> EncodedVarint<'result, 'data> {
         unsafe { Varint::start_decoding_unchecked(self.data.get_unchecked(1..)) }
     }
 
     /// # Errors
     /// Fails if the interface status id is unsupported.
-    pub fn status(
+    pub fn status<'result>(
         &self,
-    ) -> Result<EncodedStatusInterfaceKind<'data>, UnsupportedInterfaceId<'data>> {
+    ) -> Result<ValidEncodedStatusInterface<'result, 'data>, UnsupportedInterfaceId<'result, 'data>>
+    {
         unsafe {
             let offset = 1 + self.len_field().encoded_size_unchecked();
             Ok(match self.interface_id()? {
-                InterfaceId::Host => EncodedStatusInterfaceKind::Host,
-                InterfaceId::Dash7 => EncodedStatusInterfaceKind::Dash7(
+                InterfaceId::Host => ValidEncodedStatusInterface::Host,
+                InterfaceId::Dash7 => ValidEncodedStatusInterface::Dash7(
                     Dash7InterfaceStatusRef::start_decoding_unchecked(
                         self.data.get_unchecked(offset..),
                     ),
@@ -155,12 +160,15 @@ impl<'data> EncodedStatusInterface<'data> {
     }
 }
 
-impl<'data> FailableEncodedData<'data> for EncodedStatusInterface<'data> {
-    type SizeError = StatusInterfaceSizeError<'data>;
-    type DecodeError = UnsupportedInterfaceId<'data>;
-    type DecodedData = StatusInterfaceRef<'data>;
+impl<'item, 'data, 'result> FailableEncodedData<'data, 'result>
+    for EncodedStatusInterface<'item, 'data>
+{
+    type SourceData = &'data [u8];
+    type SizeError = StatusInterfaceSizeError<'result, 'data>;
+    type DecodeError = UnsupportedInterfaceId<'result, 'data>;
+    type DecodedData = StatusInterfaceRef<'result, 'data>;
 
-    unsafe fn new(data: &'data [u8]) -> Self {
+    unsafe fn new(data: Self::SourceData) -> Self {
         Self { data }
     }
 
@@ -178,8 +186,8 @@ impl<'data> FailableEncodedData<'data> for EncodedStatusInterface<'data> {
             .status()
             .map_err(StatusInterfaceSizeError::UnsupportedInterfaceId)?
         {
-            EncodedStatusInterfaceKind::Host => 0,
-            EncodedStatusInterfaceKind::Dash7(status) => match status.encoded_size() {
+            ValidEncodedStatusInterface::Host => 0,
+            ValidEncodedStatusInterface::Dash7(status) => match status.encoded_size() {
                 Ok(size) => size,
                 Err(_) => return Err(StatusInterfaceSizeError::MissingBytes),
             },
@@ -190,9 +198,7 @@ impl<'data> FailableEncodedData<'data> for EncodedStatusInterface<'data> {
         Ok(size)
     }
 
-    fn complete_decoding(
-        &self,
-    ) -> Result<WithByteSize<StatusInterfaceRef<'data>>, Self::DecodeError> {
+    fn complete_decoding(&self) -> Result<WithByteSize<Self::DecodedData>, Self::DecodeError> {
         let offset = 1 + unsafe { self.len_field().encoded_size_unchecked() };
         unsafe {
             Ok(match self.interface_id()? {
@@ -217,9 +223,104 @@ impl<'data> FailableEncodedData<'data> for EncodedStatusInterface<'data> {
     }
 }
 
-impl<'data> FailableDecodable<'data> for StatusInterfaceRef<'data> {
-    type Data = EncodedStatusInterface<'data>;
-    type FullDecodeError = StatusInterfaceSizeError<'data>;
+pub struct EncodedStatusInterfaceMut<'item, 'data> {
+    data: &'item mut &'data mut [u8],
+}
+
+pub enum ValidEncodedStatusInterfaceMut<'item, 'data> {
+    Host,
+    Dash7(EncodedDash7InterfaceStatusMut<'item, 'data>),
+}
+
+impl<'item, 'data> EncodedStatusInterfaceMut<'item, 'data> {
+    pub fn as_ref<'result>(&self) -> EncodedStatusInterface<'result, 'data> {
+        unsafe { EncodedStatusInterface::new(self.data) }
+    }
+
+    /// # Errors
+    /// Fails if the interface status id is unsupported.
+    pub fn interface_id<'result>(
+        &self,
+    ) -> Result<InterfaceId, UnsupportedInterfaceId<'result, 'data>> {
+        self.as_ref().interface_id()
+    }
+
+    pub fn len_field<'result>(&self) -> EncodedVarint<'result, 'data> {
+        self.as_ref().len_field()
+    }
+
+    /// # Errors
+    /// Fails if the interface status id is unsupported.
+    pub fn status<'result>(
+        &self,
+    ) -> Result<ValidEncodedStatusInterface<'result, 'data>, UnsupportedInterfaceId<'result, 'data>>
+    {
+        self.as_ref().status()
+    }
+
+    /// # Safety
+    /// This method method changes the interface id of the status.
+    /// This will probably make the payload incoherent unless you are sure that the payloads for
+    /// both those interface statuses are identical.
+    pub unsafe fn set_interface_id(&self, interface_id: u8) {
+        *self.data.get_unchecked_mut(0) = interface_id;
+    }
+
+    /// # Safety
+    /// Even though it is technically possible, changing the length field of the interface status
+    /// has a high chance of making it incoherent.
+    /// Be sure that you have adapted the payload somehow to match it.
+    pub unsafe fn len_field_mut<'result>(&self) -> EncodedVarintMut<'result, 'data> {
+        unsafe { Varint::start_decoding_unchecked_mut(self.data.get_unchecked_mut(1..)) }
+    }
+
+    /// # Errors
+    /// Fails if the interface status id is unsupported.
+    pub fn status_mut<'result>(
+        &self,
+    ) -> Result<
+        ValidEncodedStatusInterfaceMut<'result, 'data>,
+        UnsupportedInterfaceId<'result, 'data>,
+    > {
+        unsafe {
+            let offset = 1 + self.len_field().encoded_size_unchecked();
+            Ok(match self.interface_id()? {
+                InterfaceId::Host => ValidEncodedStatusInterfaceMut::Host,
+                InterfaceId::Dash7 => ValidEncodedStatusInterfaceMut::Dash7(
+                    Dash7InterfaceStatusRef::start_decoding_unchecked_mut(
+                        self.data.get_unchecked_mut(offset..),
+                    ),
+                ),
+            })
+        }
+    }
+}
+
+impl<'item, 'data, 'result> FailableEncodedData<'data, 'result>
+    for EncodedStatusInterfaceMut<'item, 'data>
+{
+    type SourceData = &'data mut [u8];
+    type SizeError = StatusInterfaceSizeError<'result, 'data>;
+    type DecodeError = UnsupportedInterfaceId<'result, 'data>;
+    type DecodedData = StatusInterfaceRef<'result, 'data>;
+
+    unsafe fn new(data: Self::SourceData) -> Self {
+        Self { data }
+    }
+
+    fn encoded_size(&self) -> Result<usize, Self::SizeError> {
+        self.as_ref().encoded_size()
+    }
+
+    fn complete_decoding(&self) -> Result<WithByteSize<Self::DecodedData>, Self::DecodeError> {
+        self.as_ref().complete_decoding()
+    }
+}
+
+impl<'item, 'data, 'result> FailableDecodable<'data, 'result> for StatusInterfaceRef<'item, 'data> {
+    type Data = EncodedStatusInterface<'item, 'data>;
+    type DataMut = EncodedStatusInterfaceMut<'item, 'data>;
+    type FullDecodeError = StatusInterfaceSizeError<'result, 'data>;
 }
 
 /// Details from the interface the command is coming from
@@ -277,8 +378,8 @@ mod test {
             assert_eq!(
                 op,
                 match decoder.status().unwrap() {
-                    EncodedStatusInterfaceKind::Host => StatusInterfaceRef::Host,
-                    EncodedStatusInterfaceKind::Dash7(status) =>
+                    ValidEncodedStatusInterface::Host => StatusInterfaceRef::Host,
+                    ValidEncodedStatusInterface::Dash7(status) =>
                         StatusInterfaceRef::Dash7(status.complete_decoding().item),
                 },
             );

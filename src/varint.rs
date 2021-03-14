@@ -19,8 +19,9 @@ pub const MAX_SIZE: usize = 4;
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct Varint {
+pub struct Varint<'item> {
     value: u32,
+    phantom: core::marker::PhantomData<&'item ()>,
 }
 
 #[cfg_attr(feature = "repr_c", repr(C))]
@@ -30,7 +31,7 @@ pub enum VarintError {
     ValueTooBig,
 }
 
-impl Varint {
+impl<'item> Varint<'item> {
     /// Create a struct representing a Varint
     ///
     /// # Safety
@@ -64,7 +65,7 @@ impl Varint {
         self.value
     }
 
-    pub const fn usize(&self) -> usize {
+    pub const unsafe fn usize(&self) -> usize {
         self.value as usize
     }
 
@@ -119,7 +120,7 @@ impl Varint {
     }
 }
 
-impl Encodable for Varint {
+impl<'item> Encodable for Varint<'item> {
     unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
         let size = self.encoded_size();
         match size {
@@ -159,11 +160,11 @@ impl Encodable for Varint {
     }
 }
 
-pub struct EncodedVarint<'data> {
-    data: &'data [u8],
+pub struct EncodedVarint<'item, 'data> {
+    data: &'item &'data [u8],
 }
 
-impl<'data> EncodedVarint<'data> {
+impl<'item, 'data> EncodedVarint<'item, 'data> {
     /// # Safety
     /// You have to warrant that somehow that there is enough byte to decode the encoded size.
     /// If you fail to do so, out of bound bytes will be read, and an absurd value will be
@@ -173,9 +174,10 @@ impl<'data> EncodedVarint<'data> {
     }
 }
 
-impl<'data> EncodedData<'data> for EncodedVarint<'data> {
-    type DecodedData = Varint;
-    unsafe fn new(data: &'data [u8]) -> Self {
+impl<'item, 'data, 'result> EncodedData<'data, 'result> for EncodedVarint<'item, 'data> {
+    type SourceData = &'data [u8];
+    type DecodedData = Varint<'result>;
+    unsafe fn new(data: Self::SourceData) -> Self {
         Self { data }
     }
 
@@ -223,8 +225,54 @@ impl<'data> EncodedData<'data> for EncodedVarint<'data> {
     }
 }
 
-impl<'data> Decodable<'data> for Varint {
-    type Data = EncodedVarint<'data>;
+pub struct EncodedVarintMut<'item, 'data> {
+    data: &'item mut &'data mut [u8],
+}
+
+impl<'item, 'data> EncodedVarintMut<'item, 'data> {
+    pub fn as_ref<'result>(&'data self) -> EncodedVarint<'result, 'data> {
+        unsafe { EncodedVarint::new(self.data) }
+    }
+
+    pub unsafe fn encoded_size_unchecked(&self) -> usize {
+        self.as_ref().encoded_size_unchecked()
+    }
+
+    /// Modify the value of the Varint in place.
+    ///
+    /// # Errors
+    /// Fails if the new value is encoded on a different size of array (if it requires more or less
+    /// bytes than the current value).
+    pub fn set_value(&mut self, value: &Varint) -> Result<(), ()> {
+        unsafe {
+            if self.encoded_size_unchecked() != value.encoded_size() {
+                return Err(());
+            }
+        }
+        value.encode_in(self.data);
+        Ok(())
+    }
+}
+
+impl<'item, 'data, 'result> EncodedData<'data, 'result> for EncodedVarintMut<'item, 'data> {
+    type SourceData = &'data mut [u8];
+    type DecodedData = Varint<'result>;
+    unsafe fn new(data: Self::SourceData) -> Self {
+        Self { data }
+    }
+
+    fn encoded_size(&self) -> Result<usize, SizeError> {
+        self.as_ref().encoded_size()
+    }
+
+    fn complete_decoding(&self) -> WithByteSize<Self::DecodedData> {
+        self.as_ref().complete_decoding()
+    }
+}
+
+impl<'item, 'data, 'result> Decodable<'data, 'result> for Varint<'item> {
+    type Data = EncodedVarint<'item, 'data>;
+    type DataMut = EncodedVarintMut<'item, 'data>;
 }
 
 #[cfg(test)]

@@ -12,34 +12,23 @@ pub const SIZE: usize = 1;
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct NopRef<'item> {
+pub struct NopRef<'item, 'data> {
     /// Group with next action
     pub group: bool,
     /// Ask for a response (status)
     pub response: bool,
     /// Empty data required for lifetime compilation.
-    phantom: core::marker::PhantomData<&'item ()>,
+    item_phantom: core::marker::PhantomData<&'item ()>,
+    data_phantom: core::marker::PhantomData<&'data ()>,
 }
 
-impl<'item> Default for NopRef<'item> {
-    /// Default Nop with group = false and response = true.
-    ///
-    /// Because that would be the most common use case: a ping command.
-    fn default() -> Self {
-        Self {
-            group: false,
-            response: true,
-            phantom: core::marker::PhantomData,
-        }
-    }
-}
-
-impl<'item> NopRef<'item> {
+impl<'item, 'data> NopRef<'item, 'data> {
     pub const fn new(group: bool, response: bool) -> Self {
         Self {
             group,
             response,
-            phantom: core::marker::PhantomData,
+            item_phantom: core::marker::PhantomData,
+            data_phantom: core::marker::PhantomData,
         }
     }
 
@@ -58,7 +47,7 @@ impl<'item> NopRef<'item> {
     }
 }
 
-impl<'data> Encodable for NopRef<'data> {
+impl<'item, 'data> Encodable for NopRef<'item, 'data> {
     unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
         *out.add(0) = op_code::NOP
             | if self.group { flag::GROUP } else { 0 }
@@ -71,11 +60,11 @@ impl<'data> Encodable for NopRef<'data> {
     }
 }
 
-pub struct EncodedNop<'data> {
-    data: &'data [u8],
+pub struct EncodedNop<'item, 'data> {
+    data: &'item &'data [u8],
 }
 
-impl<'data> EncodedNop<'data> {
+impl<'item, 'data> EncodedNop<'item, 'data> {
     pub fn group(&self) -> bool {
         unsafe { *self.data.get_unchecked(0) & flag::GROUP != 0 }
     }
@@ -84,15 +73,16 @@ impl<'data> EncodedNop<'data> {
         unsafe { *self.data.get_unchecked(0) & flag::RESPONSE != 0 }
     }
 
-    pub fn encoded_size_unchecked(&self) -> usize {
+    pub const fn encoded_size_unchecked(&self) -> usize {
         SIZE
     }
 }
 
-impl<'data> EncodedData<'data> for EncodedNop<'data> {
-    type DecodedData = NopRef<'data>;
+impl<'item, 'data, 'result> EncodedData<'data, 'result> for EncodedNop<'item, 'data> {
+    type SourceData = &'data [u8];
+    type DecodedData = NopRef<'result, 'data>;
 
-    unsafe fn new(data: &'data [u8]) -> Self {
+    unsafe fn new(data: Self::SourceData) -> Self {
         Self { data }
     }
 
@@ -100,7 +90,7 @@ impl<'data> EncodedData<'data> for EncodedNop<'data> {
         Ok(SIZE)
     }
 
-    fn complete_decoding(&self) -> WithByteSize<NopRef<'data>> {
+    fn complete_decoding(&self) -> WithByteSize<Self::DecodedData> {
         WithByteSize {
             item: NopRef {
                 group: self.group(),
@@ -112,8 +102,64 @@ impl<'data> EncodedData<'data> for EncodedNop<'data> {
     }
 }
 
-impl<'data> Decodable<'data> for NopRef<'data> {
-    type Data = EncodedNop<'data>;
+pub struct EncodedNopMut<'item, 'data> {
+    data: &'item mut &'data mut [u8],
+}
+
+impl<'item, 'data> EncodedNopMut<'item, 'data> {
+    pub fn as_ref<'result>(&self) -> EncodedNop<'result, 'data> {
+        unsafe { EncodedNop::new(self.data) }
+    }
+
+    pub fn group(&self) -> bool {
+        self.as_ref().group()
+    }
+
+    pub fn response(&self) -> bool {
+        self.as_ref().response()
+    }
+
+    pub fn encoded_size_unchecked(&self) -> usize {
+        self.as_ref().encoded_size_unchecked()
+    }
+
+    pub fn set_group(&mut self, group: bool) {
+        if group {
+            unsafe { *self.data.get_unchecked_mut(0) |= flag::GROUP }
+        } else {
+            unsafe { *self.data.get_unchecked_mut(0) &= !flag::GROUP }
+        }
+    }
+
+    pub fn set_response(&mut self, response: bool) {
+        if response {
+            unsafe { *self.data.get_unchecked_mut(0) |= flag::RESPONSE }
+        } else {
+            unsafe { *self.data.get_unchecked_mut(0) &= !flag::RESPONSE }
+        }
+    }
+}
+
+impl<'item, 'data, 'result> EncodedData<'data, 'result> for EncodedNopMut<'item, 'data> {
+    type SourceData = &'data mut [u8];
+    type DecodedData = NopRef<'result, 'data>;
+
+    unsafe fn new(data: Self::SourceData) -> Self {
+        Self { data }
+    }
+
+    fn encoded_size(&self) -> Result<usize, SizeError> {
+        self.as_ref().encoded_size()
+    }
+
+    fn complete_decoding(&self) -> WithByteSize<Self::DecodedData> {
+        self.as_ref().complete_decoding()
+    }
+}
+
+impl<'item, 'data, 'result> Decodable<'data, 'result> for NopRef<'item, 'data> {
+    type Data = EncodedNop<'item, 'data>;
+    type DataMut = EncodedNopMut<'item, 'data>;
 }
 
 /// Does nothing.

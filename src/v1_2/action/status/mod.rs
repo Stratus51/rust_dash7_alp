@@ -7,19 +7,21 @@ use crate::encodable::Encodable;
 use crate::v1_2::define::op_code;
 use crate::v1_2::error::{StatusDecodeError, StatusSizeError, UnsupportedExtension};
 pub use define::StatusExtension;
-pub use interface::{EncodedStatusInterface, StatusInterface, StatusInterfaceRef};
+pub use interface::{
+    EncodedStatusInterface, EncodedStatusInterfaceMut, StatusInterface, StatusInterfaceRef,
+};
 
 // TODO Add feature based sub types support (also in status_interface)
 
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub enum StatusRef<'item> {
+pub enum StatusRef<'item, 'data> {
     // Action(),
-    Interface(StatusInterfaceRef<'item>),
+    Interface(StatusInterfaceRef<'item, 'data>),
 }
 
-impl<'data> Encodable for StatusRef<'data> {
+impl<'item, 'data> Encodable for StatusRef<'item, 'data> {
     unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
         *out.add(0) = op_code::STATUS | ((self.extension() as u8) << 6);
         1 + match self {
@@ -34,7 +36,7 @@ impl<'data> Encodable for StatusRef<'data> {
     }
 }
 
-impl<'item> StatusRef<'item> {
+impl<'item, 'data> StatusRef<'item, 'data> {
     pub fn extension(&self) -> StatusExtension {
         match self {
             Self::Interface(_) => StatusExtension::Interface,
@@ -48,14 +50,20 @@ impl<'item> StatusRef<'item> {
     }
 }
 
-pub enum ValidEncodedStatus<'data> {
-    Interface(EncodedStatusInterface<'data>),
+pub struct EncodedStatus<'item, 'data> {
+    data: &'item &'data [u8],
 }
 
-impl<'data> EncodedStatus<'data> {
+pub enum ValidEncodedStatus<'item, 'data> {
+    Interface(EncodedStatusInterface<'item, 'data>),
+}
+
+impl<'item, 'data> EncodedStatus<'item, 'data> {
     /// # Errors
     /// Fails if the status extension is unsupported.
-    pub fn extension(&self) -> Result<StatusExtension, UnsupportedExtension<'data>> {
+    pub fn extension<'result>(
+        &self,
+    ) -> Result<StatusExtension, UnsupportedExtension<'result, 'data>> {
         unsafe {
             let byte = self.data.get_unchecked(0);
             let code = byte >> 6;
@@ -68,27 +76,26 @@ impl<'data> EncodedStatus<'data> {
 
     /// # Errors
     /// Fails if the status extension is unsupported.
-    pub fn status(&self) -> Result<ValidEncodedStatus<'data>, UnsupportedExtension<'data>> {
+    pub fn status<'result>(
+        &self,
+    ) -> Result<ValidEncodedStatus<'result, 'data>, UnsupportedExtension<'result, 'data>> {
         unsafe {
             Ok(match self.extension()? {
                 StatusExtension::Interface => ValidEncodedStatus::Interface(
-                    StatusInterfaceRef::start_decoding_unchecked(&self.data[1..]),
+                    StatusInterfaceRef::start_decoding_unchecked(self.data.get_unchecked(1..)),
                 ),
             })
         }
     }
 }
 
-pub struct EncodedStatus<'data> {
-    data: &'data [u8],
-}
+impl<'item, 'data, 'result> FailableEncodedData<'data, 'result> for EncodedStatus<'item, 'data> {
+    type SourceData = &'data [u8];
+    type SizeError = StatusSizeError<'result, 'data>;
+    type DecodeError = StatusDecodeError<'result, 'data>;
+    type DecodedData = StatusRef<'result, 'data>;
 
-impl<'data> FailableEncodedData<'data> for EncodedStatus<'data> {
-    type SizeError = StatusSizeError<'data>;
-    type DecodeError = StatusDecodeError<'data>;
-    type DecodedData = StatusRef<'data>;
-
-    unsafe fn new(data: &'data [u8]) -> Self {
+    unsafe fn new(data: Self::SourceData) -> Self {
         Self { data }
     }
 
@@ -100,7 +107,7 @@ impl<'data> FailableEncodedData<'data> for EncodedStatus<'data> {
         .map_err(|e| e.into())
     }
 
-    fn complete_decoding(&self) -> Result<WithByteSize<StatusRef<'data>>, Self::DecodeError> {
+    fn complete_decoding(&self) -> Result<WithByteSize<Self::DecodedData>, Self::DecodeError> {
         let mut ret = match &self.status()? {
             ValidEncodedStatus::Interface(interface) => {
                 let WithByteSize {
@@ -118,9 +125,67 @@ impl<'data> FailableEncodedData<'data> for EncodedStatus<'data> {
     }
 }
 
-impl<'data> FailableDecodable<'data> for StatusRef<'data> {
-    type Data = EncodedStatus<'data>;
-    type FullDecodeError = StatusSizeError<'data>;
+pub struct EncodedStatusMut<'item, 'data> {
+    data: &'item mut &'data mut [u8],
+}
+
+pub enum ValidEncodedStatusMut<'item, 'data> {
+    Interface(EncodedStatusInterfaceMut<'item, 'data>),
+}
+
+impl<'item, 'data> EncodedStatusMut<'item, 'data> {
+    pub fn as_ref<'result>(&self) -> EncodedStatus<'result, 'data> {
+        unsafe { EncodedStatus::new(self.data) }
+    }
+
+    /// # Errors
+    /// Fails if the status extension is unsupported.
+    pub fn extension<'result>(
+        &self,
+    ) -> Result<StatusExtension, UnsupportedExtension<'result, 'data>> {
+        self.as_ref().extension()
+    }
+
+    /// # Errors
+    /// Fails if the status extension is unsupported.
+    pub fn status<'result>(
+        &self,
+    ) -> Result<ValidEncodedStatusMut<'result, 'data>, UnsupportedExtension<'result, 'data>> {
+        unsafe {
+            Ok(match self.extension()? {
+                StatusExtension::Interface => ValidEncodedStatusMut::Interface(
+                    StatusInterfaceRef::start_decoding_unchecked_mut(
+                        self.data.get_unchecked_mut(1..),
+                    ),
+                ),
+            })
+        }
+    }
+}
+
+impl<'item, 'data, 'result> FailableEncodedData<'data, 'result> for EncodedStatusMut<'item, 'data> {
+    type SourceData = &'data mut [u8];
+    type SizeError = StatusSizeError<'result, 'data>;
+    type DecodeError = StatusDecodeError<'result, 'data>;
+    type DecodedData = StatusRef<'result, 'data>;
+
+    unsafe fn new(data: Self::SourceData) -> Self {
+        Self { data }
+    }
+
+    fn encoded_size(&self) -> Result<usize, Self::SizeError> {
+        self.as_ref().encoded_size()
+    }
+
+    fn complete_decoding(&self) -> Result<WithByteSize<Self::DecodedData>, Self::DecodeError> {
+        self.as_ref().complete_decoding()
+    }
+}
+
+impl<'item, 'data, 'result> FailableDecodable<'data, 'result> for StatusRef<'item, 'data> {
+    type Data = EncodedStatus<'item, 'data>;
+    type DataMut = EncodedStatusMut<'item, 'data>;
+    type FullDecodeError = StatusSizeError<'result, 'data>;
 }
 
 /// Details from the interface the command is coming from

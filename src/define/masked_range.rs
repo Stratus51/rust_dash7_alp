@@ -22,10 +22,10 @@ use alloc::prelude::v1::Box;
 /// if your goal is to transmit this payload over the air in an IoT context, chances are,
 /// you will have trouble transmitting anything bigger than 256 bytes.
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct MaskedRangeRef<'a> {
+pub struct MaskedRangeRef<'item, 'data> {
     start: usize,
     end: usize,
-    bitmap: Option<&'a [u8]>,
+    bitmap: Option<&'item &'data [u8]>,
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
@@ -33,10 +33,14 @@ pub enum MaskedRangeNewError {
     BadBitmapLength { expected: usize },
 }
 
-impl<'a> MaskedRangeRef<'a> {
+impl<'item, 'data> MaskedRangeRef<'item, 'data> {
     /// # Safety
     /// If bitmap is defined you are to warrant that bitmap.len() == `floor((end - start + 6)/8)`.
-    pub const unsafe fn new_unchecked(start: usize, end: usize, bitmap: Option<&'a [u8]>) -> Self {
+    pub const unsafe fn new_unchecked(
+        start: usize,
+        end: usize,
+        bitmap: Option<&'data [u8]>,
+    ) -> Self {
         Self { start, end, bitmap }
     }
 
@@ -49,7 +53,7 @@ impl<'a> MaskedRangeRef<'a> {
     pub fn new(
         start: usize,
         end: usize,
-        bitmap: Option<&'a [u8]>,
+        bitmap: Option<&'data [u8]>,
     ) -> Result<Self, MaskedRangeNewError> {
         if let Some(bitmap) = &bitmap {
             let bitmap_size = Self::bitmap_size(start, end);
@@ -70,7 +74,7 @@ impl<'a> MaskedRangeRef<'a> {
         self.end
     }
 
-    pub const fn bitmap(&self) -> Option<&'a [u8]> {
+    pub const fn bitmap(&self) -> Option<&'data [u8]> {
         self.bitmap
     }
 

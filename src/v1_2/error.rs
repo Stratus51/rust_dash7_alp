@@ -51,30 +51,33 @@ pub enum InterfaceIdError {
 // ============================================================
 // Operands
 // ============================================================
+// TODO These errors containing the data pointer are cool.
+// But they currently force a loss of mutability of mutable decode error.
+// That is sad, but fixing it requires quite some refactoring and some degree of code duplication.
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct UnsupportedQueryCode<'data> {
+pub struct UnsupportedQueryCode<'item, 'data> {
     /// Parsed query code
     pub code: u8,
     /// Remaining bytes starting with the byte containing the query code
     /// because it may contain some query specific data.
-    pub remaining_data: &'data [u8],
+    pub remaining_data: &'item &'data [u8],
 }
 
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub enum QuerySizeError<'data> {
+pub enum QuerySizeError<'item, 'data> {
     MissingBytes,
-    UnsupportedQueryCode(UnsupportedQueryCode<'data>),
+    UnsupportedQueryCode(UnsupportedQueryCode<'item, 'data>),
 }
-impl<'data> From<UnsupportedQueryCode<'data>> for QuerySizeError<'data> {
-    fn from(e: UnsupportedQueryCode<'data>) -> Self {
+impl<'item, 'data> From<UnsupportedQueryCode<'item, 'data>> for QuerySizeError<'item, 'data> {
+    fn from(e: UnsupportedQueryCode<'item, 'data>) -> Self {
         Self::UnsupportedQueryCode(e)
     }
 }
-impl<'data> MissingByteErrorBuilder for QuerySizeError<'data> {
+impl<'item, 'data> MissingByteErrorBuilder for QuerySizeError<'item, 'data> {
     fn missing_bytes() -> Self {
         Self::MissingBytes
     }
@@ -83,37 +86,39 @@ impl<'data> MissingByteErrorBuilder for QuerySizeError<'data> {
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct UnsupportedExtension<'data> {
+pub struct UnsupportedExtension<'item, 'data> {
     /// Parsed status extension field
     pub extension: u8,
     /// Remaining bytes starting after the ALP action opcode byte because
     /// there is nothing left to parse in the first byte.
-    pub remaining_data: &'data [u8],
+    pub remaining_data: &'item &'data [u8],
 }
 
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct UnsupportedInterfaceId<'data> {
+pub struct UnsupportedInterfaceId<'item, 'data> {
     /// Parsed status extension field
     pub id: u8,
     /// Remaining bytes starting after the interface ID byte
-    pub remaining_data: &'data [u8],
+    pub remaining_data: &'item &'data [u8],
 }
 
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub enum StatusInterfaceSizeError<'data> {
+pub enum StatusInterfaceSizeError<'item, 'data> {
     MissingBytes,
-    UnsupportedInterfaceId(UnsupportedInterfaceId<'data>),
+    UnsupportedInterfaceId(UnsupportedInterfaceId<'item, 'data>),
 }
-impl<'data> From<UnsupportedInterfaceId<'data>> for StatusInterfaceSizeError<'data> {
-    fn from(e: UnsupportedInterfaceId<'data>) -> Self {
+impl<'item, 'data> From<UnsupportedInterfaceId<'item, 'data>>
+    for StatusInterfaceSizeError<'item, 'data>
+{
+    fn from(e: UnsupportedInterfaceId<'item, 'data>) -> Self {
         Self::UnsupportedInterfaceId(e)
     }
 }
-impl<'data> MissingByteErrorBuilder for StatusInterfaceSizeError<'data> {
+impl<'item, 'data> MissingByteErrorBuilder for StatusInterfaceSizeError<'item, 'data> {
     fn missing_bytes() -> Self {
         Self::MissingBytes
     }
@@ -122,19 +127,19 @@ impl<'data> MissingByteErrorBuilder for StatusInterfaceSizeError<'data> {
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub enum StatusDecodeError<'data> {
+pub enum StatusDecodeError<'item, 'data> {
     /// The decoded query contains an unknown query code.
-    UnsupportedExtension(UnsupportedExtension<'data>),
+    UnsupportedExtension(UnsupportedExtension<'item, 'data>),
     /// The input data contains an unknown interface ID
-    UnsupportedInterfaceId(UnsupportedInterfaceId<'data>),
+    UnsupportedInterfaceId(UnsupportedInterfaceId<'item, 'data>),
 }
-impl<'data> From<UnsupportedExtension<'data>> for StatusDecodeError<'data> {
-    fn from(e: UnsupportedExtension<'data>) -> Self {
+impl<'item, 'data> From<UnsupportedExtension<'item, 'data>> for StatusDecodeError<'item, 'data> {
+    fn from(e: UnsupportedExtension<'item, 'data>) -> Self {
         Self::UnsupportedExtension(e)
     }
 }
-impl<'data> From<UnsupportedInterfaceId<'data>> for StatusDecodeError<'data> {
-    fn from(e: UnsupportedInterfaceId<'data>) -> Self {
+impl<'item, 'data> From<UnsupportedInterfaceId<'item, 'data>> for StatusDecodeError<'item, 'data> {
+    fn from(e: UnsupportedInterfaceId<'item, 'data>) -> Self {
         Self::UnsupportedInterfaceId(e)
     }
 }
@@ -142,36 +147,36 @@ impl<'data> From<UnsupportedInterfaceId<'data>> for StatusDecodeError<'data> {
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub enum StatusSizeError<'data> {
+pub enum StatusSizeError<'item, 'data> {
     MissingBytes,
     /// The decoded query contains an unknown query code.
-    UnsupportedExtension(UnsupportedExtension<'data>),
+    UnsupportedExtension(UnsupportedExtension<'item, 'data>),
     /// The input data contains an unknown interface ID
-    UnsupportedInterfaceId(UnsupportedInterfaceId<'data>),
+    UnsupportedInterfaceId(UnsupportedInterfaceId<'item, 'data>),
 }
 
-impl<'data> From<StatusInterfaceSizeError<'data>> for StatusSizeError<'data> {
-    fn from(e: StatusInterfaceSizeError<'data>) -> Self {
+impl<'item, 'data> From<StatusInterfaceSizeError<'item, 'data>> for StatusSizeError<'item, 'data> {
+    fn from(e: StatusInterfaceSizeError<'item, 'data>) -> Self {
         match e {
             StatusInterfaceSizeError::MissingBytes => Self::MissingBytes,
             StatusInterfaceSizeError::UnsupportedInterfaceId(e) => Self::UnsupportedInterfaceId(e),
         }
     }
 }
-impl<'data> From<StatusDecodeError<'data>> for StatusSizeError<'data> {
-    fn from(e: StatusDecodeError<'data>) -> Self {
+impl<'item, 'data> From<StatusDecodeError<'item, 'data>> for StatusSizeError<'item, 'data> {
+    fn from(e: StatusDecodeError<'item, 'data>) -> Self {
         match e {
             StatusDecodeError::UnsupportedExtension(e) => Self::UnsupportedExtension(e),
             StatusDecodeError::UnsupportedInterfaceId(e) => Self::UnsupportedInterfaceId(e),
         }
     }
 }
-impl<'data> From<UnsupportedExtension<'data>> for StatusSizeError<'data> {
-    fn from(e: UnsupportedExtension<'data>) -> Self {
+impl<'item, 'data> From<UnsupportedExtension<'item, 'data>> for StatusSizeError<'item, 'data> {
+    fn from(e: UnsupportedExtension<'item, 'data>) -> Self {
         Self::UnsupportedExtension(e)
     }
 }
-impl<'data> MissingByteErrorBuilder for StatusSizeError<'data> {
+impl<'item, 'data> MissingByteErrorBuilder for StatusSizeError<'item, 'data> {
     fn missing_bytes() -> Self {
         Self::MissingBytes
     }
@@ -183,36 +188,36 @@ impl<'data> MissingByteErrorBuilder for StatusSizeError<'data> {
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct UnsupportedOpCode<'data> {
+pub struct UnsupportedOpCode<'item, 'data> {
     /// Parsed op_code field
     pub op_code: u8,
     /// Remaining bytes starting with the op_code byte
-    pub remaining_data: &'data [u8],
+    pub remaining_data: &'item &'data [u8],
 }
 
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub enum ActionDecodeError<'data> {
-    UnsupportedOpCode(UnsupportedOpCode<'data>),
-    Query(UnsupportedQueryCode<'data>),
-    Status(StatusDecodeError<'data>),
+pub enum ActionDecodeError<'item, 'data> {
+    UnsupportedOpCode(UnsupportedOpCode<'item, 'data>),
+    Query(UnsupportedQueryCode<'item, 'data>),
+    Status(StatusDecodeError<'item, 'data>),
 }
 
-impl<'data> From<StatusDecodeError<'data>> for ActionDecodeError<'data> {
-    fn from(e: StatusDecodeError<'data>) -> Self {
+impl<'item, 'data> From<StatusDecodeError<'item, 'data>> for ActionDecodeError<'item, 'data> {
+    fn from(e: StatusDecodeError<'item, 'data>) -> Self {
         Self::Status(e)
     }
 }
 
-impl<'data> From<UnsupportedQueryCode<'data>> for ActionDecodeError<'data> {
-    fn from(e: UnsupportedQueryCode<'data>) -> Self {
+impl<'item, 'data> From<UnsupportedQueryCode<'item, 'data>> for ActionDecodeError<'item, 'data> {
+    fn from(e: UnsupportedQueryCode<'item, 'data>) -> Self {
         Self::Query(e)
     }
 }
 
-impl<'data> From<UnsupportedOpCode<'data>> for ActionDecodeError<'data> {
-    fn from(e: UnsupportedOpCode<'data>) -> Self {
+impl<'item, 'data> From<UnsupportedOpCode<'item, 'data>> for ActionDecodeError<'item, 'data> {
+    fn from(e: UnsupportedOpCode<'item, 'data>) -> Self {
         Self::UnsupportedOpCode(e)
     }
 }
@@ -220,27 +225,27 @@ impl<'data> From<UnsupportedOpCode<'data>> for ActionDecodeError<'data> {
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub enum ActionSizeError<'data> {
+pub enum ActionSizeError<'item, 'data> {
     MissingBytes,
-    UnsupportedOpCode(UnsupportedOpCode<'data>),
-    Query(UnsupportedQueryCode<'data>),
-    Status(StatusDecodeError<'data>),
+    UnsupportedOpCode(UnsupportedOpCode<'item, 'data>),
+    Query(UnsupportedQueryCode<'item, 'data>),
+    Status(StatusDecodeError<'item, 'data>),
 }
 
-impl<'data> From<StatusDecodeError<'data>> for ActionSizeError<'data> {
-    fn from(e: StatusDecodeError<'data>) -> Self {
+impl<'item, 'data> From<StatusDecodeError<'item, 'data>> for ActionSizeError<'item, 'data> {
+    fn from(e: StatusDecodeError<'item, 'data>) -> Self {
         Self::Status(e)
     }
 }
 
-impl<'data> From<UnsupportedQueryCode<'data>> for ActionSizeError<'data> {
-    fn from(e: UnsupportedQueryCode<'data>) -> Self {
+impl<'item, 'data> From<UnsupportedQueryCode<'item, 'data>> for ActionSizeError<'item, 'data> {
+    fn from(e: UnsupportedQueryCode<'item, 'data>) -> Self {
         Self::Query(e)
     }
 }
 
-impl<'data> From<StatusSizeError<'data>> for ActionSizeError<'data> {
-    fn from(e: StatusSizeError<'data>) -> Self {
+impl<'item, 'data> From<StatusSizeError<'item, 'data>> for ActionSizeError<'item, 'data> {
+    fn from(e: StatusSizeError<'item, 'data>) -> Self {
         match e {
             StatusSizeError::MissingBytes => Self::MissingBytes,
             StatusSizeError::UnsupportedExtension(e) => {
@@ -253,8 +258,8 @@ impl<'data> From<StatusSizeError<'data>> for ActionSizeError<'data> {
     }
 }
 
-impl<'data> From<QuerySizeError<'data>> for ActionSizeError<'data> {
-    fn from(e: QuerySizeError<'data>) -> Self {
+impl<'item, 'data> From<QuerySizeError<'item, 'data>> for ActionSizeError<'item, 'data> {
+    fn from(e: QuerySizeError<'item, 'data>) -> Self {
         match e {
             QuerySizeError::MissingBytes => Self::MissingBytes,
             QuerySizeError::UnsupportedQueryCode(e) => Self::Query(e),
@@ -262,20 +267,20 @@ impl<'data> From<QuerySizeError<'data>> for ActionSizeError<'data> {
     }
 }
 
-impl<'data> From<UnsupportedOpCode<'data>> for ActionSizeError<'data> {
-    fn from(e: UnsupportedOpCode<'data>) -> Self {
+impl<'item, 'data> From<UnsupportedOpCode<'item, 'data>> for ActionSizeError<'item, 'data> {
+    fn from(e: UnsupportedOpCode<'item, 'data>) -> Self {
         Self::UnsupportedOpCode(e)
     }
 }
 
-impl<'data> From<SizeError> for ActionSizeError<'data> {
+impl<'item, 'data> From<SizeError> for ActionSizeError<'item, 'data> {
     fn from(_: SizeError) -> Self {
         Self::MissingBytes
     }
 }
 
-impl<'data> From<ActionDecodeError<'data>> for ActionSizeError<'data> {
-    fn from(e: ActionDecodeError<'data>) -> Self {
+impl<'item, 'data> From<ActionDecodeError<'item, 'data>> for ActionSizeError<'item, 'data> {
+    fn from(e: ActionDecodeError<'item, 'data>) -> Self {
         match e {
             ActionDecodeError::UnsupportedOpCode(e) => Self::UnsupportedOpCode(e),
             ActionDecodeError::Query(e) => Self::Query(e),
@@ -284,7 +289,7 @@ impl<'data> From<ActionDecodeError<'data>> for ActionSizeError<'data> {
     }
 }
 
-impl<'data> MissingByteErrorBuilder for ActionSizeError<'data> {
+impl<'item, 'data> MissingByteErrorBuilder for ActionSizeError<'item, 'data> {
     fn missing_bytes() -> Self {
         Self::MissingBytes
     }
