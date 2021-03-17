@@ -1,5 +1,5 @@
 use super::define::{QueryCode, QueryComparisonType};
-use crate::decodable::{Decodable, EncodedData, SizeError, WithByteSize};
+use crate::decodable::{EncodedData, SizeError, WithByteSize};
 use crate::define::{EncodableDataRef, FileId, MaskedValueRef};
 use crate::encodable::Encodable;
 use crate::v1_2::define::flag;
@@ -223,17 +223,12 @@ impl<'item, 'data> EncodedComparisonWithValue<'item, 'data> {
     }
 }
 
-impl<'item, 'data, 'result> EncodedData<'data, 'result>
-    for EncodedComparisonWithValue<'item, 'data>
-{
-    type SourceData = &'data [u8];
-    type DecodedData = ComparisonWithValueRef<'result, 'data>;
-
-    unsafe fn new(data: Self::SourceData) -> Self {
+impl<'item, 'data> EncodedComparisonWithValue<'item, 'data> {
+    pub(crate) unsafe fn new(data: &'data [u8]) -> Self {
         Self { data }
     }
 
-    fn encoded_size(&self) -> Result<usize, SizeError> {
+    pub fn encoded_size(&self) -> Result<usize, SizeError> {
         unsafe {
             let mut size = 2;
             let data_size = self.data.len();
@@ -265,7 +260,9 @@ impl<'item, 'data, 'result> EncodedData<'data, 'result>
         }
     }
 
-    fn complete_decoding(&self) -> WithByteSize<Self::DecodedData> {
+    pub fn complete_decoding<'result>(
+        &self,
+    ) -> WithByteSize<ComparisonWithValueRef<'result, 'data>> {
         unsafe {
             let WithByteSize {
                 item: compare_length,
@@ -455,29 +452,27 @@ impl<'item, 'data> EncodedComparisonWithValueMut<'item, 'data> {
     }
 }
 
-impl<'item, 'data, 'result> EncodedData<'data, 'result>
-    for EncodedComparisonWithValueMut<'item, 'data>
-{
-    type SourceData = &'data mut [u8];
-    type DecodedData = ComparisonWithValueRef<'result, 'data>;
-
-    unsafe fn new(data: Self::SourceData) -> Self {
+impl<'item, 'data> EncodedComparisonWithValueMut<'item, 'data> {
+    pub(crate) unsafe fn new(data: &'data mut [u8]) -> Self {
         Self { data }
     }
 
-    fn encoded_size(&self) -> Result<usize, SizeError> {
+    pub fn encoded_size(&self) -> Result<usize, SizeError> {
         self.as_ref().encoded_size()
     }
 
-    fn complete_decoding(&self) -> WithByteSize<Self::DecodedData> {
+    pub fn complete_decoding<'result>(
+        &self,
+    ) -> WithByteSize<ComparisonWithValueRef<'result, 'data>> {
         self.as_ref().complete_decoding()
     }
 }
 
-impl<'item, 'data, 'result> Decodable<'data, 'result> for ComparisonWithValueRef<'item, 'data> {
-    type Data = EncodedComparisonWithValue<'item, 'data>;
-    type DataMut = EncodedComparisonWithValueMut<'item, 'data>;
-}
+crate::make_decodable!(
+    ComparisonWithValueRef,
+    EncodedComparisonWithValue,
+    EncodedComparisonWithValueMut
+);
 
 /// Compares data to a value.
 #[cfg_attr(feature = "repr_c", repr(C))]

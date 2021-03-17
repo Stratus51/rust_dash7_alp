@@ -1,6 +1,4 @@
-use crate::decodable::{
-    Decodable, EncodedData, FailableDecodable, FailableEncodedData, WithByteSize,
-};
+use crate::decodable::{EncodedData, FailableEncodedData, WithByteSize};
 use crate::encodable::Encodable;
 use crate::v1_2::dash7::interface_status::{
     Dash7InterfaceStatus, Dash7InterfaceStatusRef, EncodedDash7InterfaceStatus,
@@ -160,19 +158,12 @@ impl<'item, 'data> EncodedStatusInterface<'item, 'data> {
     }
 }
 
-impl<'item, 'data, 'result> FailableEncodedData<'data, 'result>
-    for EncodedStatusInterface<'item, 'data>
-{
-    type SourceData = &'data [u8];
-    type SizeError = StatusInterfaceSizeError<'result, 'data>;
-    type DecodeError = UnsupportedInterfaceId<'result, 'data>;
-    type DecodedData = StatusInterfaceRef<'result, 'data>;
-
-    unsafe fn new(data: Self::SourceData) -> Self {
+impl<'item, 'data> EncodedStatusInterface<'item, 'data> {
+    pub(crate) unsafe fn new(data: &'data [u8]) -> Self {
         Self { data }
     }
 
-    fn encoded_size(&self) -> Result<usize, Self::SizeError> {
+    pub fn encoded_size<'result>(&self) -> Result<usize, StatusInterfaceSizeError<'result, 'data>> {
         let mut size = 2;
         let data_size = self.data.len();
         if data_size < size {
@@ -198,7 +189,12 @@ impl<'item, 'data, 'result> FailableEncodedData<'data, 'result>
         Ok(size)
     }
 
-    fn complete_decoding(&self) -> Result<WithByteSize<Self::DecodedData>, Self::DecodeError> {
+    pub fn complete_decoding<'result>(
+        &self,
+    ) -> Result<
+        WithByteSize<StatusInterfaceRef<'result, 'data>>,
+        UnsupportedInterfaceId<'result, 'data>,
+    > {
         let offset = 1 + unsafe { self.len_field().encoded_size_unchecked() };
         unsafe {
             Ok(match self.interface_id()? {
@@ -296,32 +292,33 @@ impl<'item, 'data> EncodedStatusInterfaceMut<'item, 'data> {
     }
 }
 
-impl<'item, 'data, 'result> FailableEncodedData<'data, 'result>
-    for EncodedStatusInterfaceMut<'item, 'data>
-{
-    type SourceData = &'data mut [u8];
-    type SizeError = StatusInterfaceSizeError<'result, 'data>;
-    type DecodeError = UnsupportedInterfaceId<'result, 'data>;
-    type DecodedData = StatusInterfaceRef<'result, 'data>;
-
-    unsafe fn new(data: Self::SourceData) -> Self {
+impl<'item, 'data> EncodedStatusInterfaceMut<'item, 'data> {
+    pub(crate) unsafe fn new(data: &'data mut [u8]) -> Self {
         Self { data }
     }
 
-    fn encoded_size(&self) -> Result<usize, Self::SizeError> {
+    pub fn encoded_size<'result>(&self) -> Result<usize, StatusInterfaceSizeError<'result, 'data>> {
         self.as_ref().encoded_size()
     }
 
-    fn complete_decoding(&self) -> Result<WithByteSize<Self::DecodedData>, Self::DecodeError> {
+    pub fn complete_decoding<'result>(
+        &self,
+    ) -> Result<
+        WithByteSize<StatusInterfaceRef<'result, 'data>>,
+        UnsupportedInterfaceId<'result, 'data>,
+    > {
         self.as_ref().complete_decoding()
     }
 }
 
-impl<'item, 'data, 'result> FailableDecodable<'data, 'result> for StatusInterfaceRef<'item, 'data> {
-    type Data = EncodedStatusInterface<'item, 'data>;
-    type DataMut = EncodedStatusInterfaceMut<'item, 'data>;
-    type FullDecodeError = StatusInterfaceSizeError<'result, 'data>;
-}
+crate::make_failable_decodable!(
+    StatusInterfaceRef,
+    EncodedStatusInterface,
+    EncodedStatusInterfaceMut,
+    StatusInterfaceSizeError,
+    UnsupportedInterfaceId,
+    StatusInterfaceSizeError
+);
 
 /// Details from the interface the command is coming from
 #[cfg_attr(feature = "repr_c", repr(C))]

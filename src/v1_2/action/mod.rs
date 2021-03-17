@@ -61,17 +61,17 @@ use status::{Status, StatusRef};
 #[cfg(feature = "write_file_data")]
 use write_file_data::WriteFileDataRef;
 
-#[cfg(feature = "decode_action")]
-use crate::decodable::WithByteSize;
 #[cfg(any(
     feature = "decode_nop",
     feature = "decode_read_file_data",
     feature = "decode_read_file_properties",
     feature = "decode_write_file_data"
 ))]
-use crate::decodable::{Decodable, EncodedData};
+use crate::decodable::EncodedData;
 #[cfg(feature = "decode_action")]
-use crate::decodable::{FailableDecodable, FailableEncodedData};
+use crate::decodable::FailableEncodedData;
+#[cfg(feature = "decode_action")]
+use crate::decodable::WithByteSize;
 use crate::encodable::Encodable;
 
 // TODO SPEC: Why are some actions named "return". Removing that from the name would still
@@ -367,17 +367,12 @@ pub struct EncodedAction<'item, 'data> {
 }
 
 #[cfg(feature = "decode_action")]
-impl<'item, 'data, 'result> FailableEncodedData<'data, 'result> for EncodedAction<'item, 'data> {
-    type SourceData = &'data [u8];
-    type SizeError = ActionSizeError<'result, 'data>;
-    type DecodeError = ActionDecodeError<'result, 'data>;
-    type DecodedData = DecodedActionRef<'result, 'data>;
-
-    unsafe fn new(data: Self::SourceData) -> Self {
+impl<'item, 'data> EncodedAction<'item, 'data> {
+    pub(crate) unsafe fn new(data: &'data [u8]) -> Self {
         Self { data }
     }
 
-    fn encoded_size(&self) -> Result<usize, Self::SizeError> {
+    pub fn encoded_size<'result>(&self) -> Result<usize, ActionSizeError<'result, 'data>> {
         Ok(match self.action()? {
             #[cfg(feature = "decode_nop")]
             ValidEncodedAction::Nop(action) => action.encoded_size()?,
@@ -394,7 +389,10 @@ impl<'item, 'data, 'result> FailableEncodedData<'data, 'result> for EncodedActio
         })
     }
 
-    fn complete_decoding(&self) -> Result<WithByteSize<Self::DecodedData>, Self::DecodeError> {
+    pub fn complete_decoding<'result>(
+        &self,
+    ) -> Result<WithByteSize<DecodedActionRef<'result, 'data>>, ActionDecodeError<'result, 'data>>
+    {
         Ok(match self.action()? {
             #[cfg(feature = "decode_nop")]
             ValidEncodedAction::Nop(action) => {
@@ -508,7 +506,7 @@ impl<'item, 'data> EncodedActionMut<'item, 'data> {
                 op_code => {
                     return Err(UnsupportedOpCode {
                         op_code: op_code as u8,
-                        remaining_data: self.data,
+                        remaining_data: &&self.data[..],
                     })
                 }
             })
@@ -517,31 +515,32 @@ impl<'item, 'data> EncodedActionMut<'item, 'data> {
 }
 
 #[cfg(feature = "decode_action")]
-impl<'item, 'data, 'result> FailableEncodedData<'data, 'result> for EncodedActionMut<'item, 'data> {
-    type SourceData = &'data mut [u8];
-    type SizeError = ActionSizeError<'result, 'data>;
-    type DecodeError = ActionDecodeError<'result, 'data>;
-    type DecodedData = DecodedActionRef<'result, 'data>;
-
-    unsafe fn new(data: Self::SourceData) -> Self {
-        Self { data }
+impl<'item, 'data> EncodedActionMut<'item, 'data> {
+    pub(crate) unsafe fn new(data: &'data mut [u8]) -> Self {
+        Self { data: &mut data }
     }
 
-    fn encoded_size(&self) -> Result<usize, Self::SizeError> {
+    pub fn encoded_size<'result>(&self) -> Result<usize, ActionSizeError<'result, 'data>> {
         self.as_ref().encoded_size()
     }
 
-    fn complete_decoding(&self) -> Result<WithByteSize<Self::DecodedData>, Self::DecodeError> {
+    pub fn complete_decoding<'result>(
+        &self,
+    ) -> Result<WithByteSize<DecodedActionRef<'result, 'data>>, ActionDecodeError<'result, 'data>>
+    {
         self.as_ref().complete_decoding()
     }
 }
 
 #[cfg(feature = "decode_action")]
-impl<'item, 'data, 'result> FailableDecodable<'data, 'result> for DecodedActionRef<'item, 'data> {
-    type Data = EncodedAction<'item, 'data>;
-    type DataMut = EncodedActionMut<'item, 'data>;
-    type FullDecodeError = ActionSizeError<'result, 'data>;
-}
+crate::make_failable_decodable!(
+    DecodedActionRef,
+    EncodedAction,
+    EncodedActionMut,
+    ActionSizeError,
+    ActionDecodeError,
+    ActionSizeError
+);
 
 /// An Owned ALP Action
 #[cfg_attr(feature = "repr_c", repr(C))]
@@ -628,7 +627,7 @@ impl Action {
 mod test {
     #![allow(clippy::unwrap_in_result, clippy::panic, clippy::expect_used)]
     use super::*;
-    use crate::decodable::{FailableDecodable, FailableEncodedData, WithByteSize};
+    use crate::decodable::WithByteSize;
     #[cfg(any(
         all(
             feature = "decode_action_query",

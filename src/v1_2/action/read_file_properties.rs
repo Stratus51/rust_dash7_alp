@@ -1,4 +1,4 @@
-use crate::decodable::{Decodable, EncodedData, SizeError, WithByteSize};
+use crate::decodable::{EncodedData, SizeError, WithByteSize};
 use crate::define::FileId;
 use crate::encodable::Encodable;
 use crate::v1_2::define::{flag, op_code};
@@ -92,19 +92,18 @@ impl<'item, 'data> EncodedReadFileProperties<'item, 'data> {
     }
 }
 
-impl<'item, 'data> EncodedData<'item, 'data> for EncodedReadFileProperties<'item, 'data> {
-    type SourceData = &'data [u8];
-    type DecodedData = ReadFilePropertiesRef<'item, 'data>;
-
-    unsafe fn new(data: Self::SourceData) -> Self {
+impl<'item, 'data> EncodedReadFileProperties<'item, 'data> {
+    pub(crate) unsafe fn new(data: &'data [u8]) -> Self {
         Self { data }
     }
 
-    fn encoded_size(&self) -> Result<usize, SizeError> {
+    pub fn encoded_size(&self) -> Result<usize, SizeError> {
         Ok(SIZE)
     }
 
-    fn complete_decoding(&self) -> WithByteSize<Self::DecodedData> {
+    pub fn complete_decoding<'result>(
+        &self,
+    ) -> WithByteSize<ReadFilePropertiesRef<'result, 'data>> {
         WithByteSize {
             item: ReadFilePropertiesRef {
                 group: self.group(),
@@ -155,29 +154,27 @@ impl<'item, 'data> EncodedReadFilePropertiesMut<'item, 'data> {
     }
 }
 
-impl<'item, 'data, 'result> EncodedData<'data, 'result>
-    for EncodedReadFilePropertiesMut<'item, 'data>
-{
-    type SourceData = &'data mut [u8];
-    type DecodedData = ReadFilePropertiesRef<'result, 'data>;
-
-    unsafe fn new(data: Self::SourceData) -> Self {
+impl<'item, 'data> EncodedReadFilePropertiesMut<'item, 'data> {
+    pub(crate) unsafe fn new(data: &'data mut [u8]) -> Self {
         Self { data }
     }
 
-    fn encoded_size(&self) -> Result<usize, SizeError> {
+    pub fn encoded_size(&self) -> Result<usize, SizeError> {
         self.as_ref().encoded_size()
     }
 
-    fn complete_decoding(&self) -> WithByteSize<Self::DecodedData> {
+    pub fn complete_decoding<'result>(
+        &self,
+    ) -> WithByteSize<ReadFilePropertiesRef<'result, 'data>> {
         self.as_ref().complete_decoding()
     }
 }
 
-impl<'item, 'data, 'result> Decodable<'data, 'result> for ReadFilePropertiesRef<'item, 'data> {
-    type Data = EncodedReadFileProperties<'item, 'data>;
-    type DataMut = EncodedReadFilePropertiesMut<'item, 'data>;
-}
+crate::make_decodable!(
+    ReadFilePropertiesRef,
+    EncodedReadFileProperties,
+    EncodedReadFilePropertiesMut
+);
 
 /// Reads the properties of a file
 #[cfg_attr(feature = "repr_c", repr(C))]

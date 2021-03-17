@@ -1,9 +1,9 @@
-use crate::decodable::{Decodable, EncodedData, SizeError, WithByteSize};
+use crate::decodable::{EncodedData, SizeError, WithByteSize};
 use crate::define::FileId;
 use crate::encodable::Encodable;
 use crate::v1_2::define::flag;
 use crate::v1_2::define::op_code;
-use crate::varint::{self, EncodedVarint, EncodedVarintMut, Varint};
+use crate::varint::{self, EncodedVarint, EncodedVarintMut, Varint, VarintRef};
 
 // TODO SPEC: Verify if the new ReadFileData successfull length overflow
 // is described in the specification, because it is not intuitive.
@@ -27,9 +27,9 @@ pub struct ReadFileDataRef<'item, 'data> {
     /// File ID of the file to read
     pub file_id: FileId,
     /// Offset at which to start the reading
-    pub offset: Varint,
+    pub offset: VarintRef<'item, 'data>,
     /// Number of bytes to read after offset
-    pub length: Varint,
+    pub length: VarintRef<'item, 'data>,
     /// Empty data required for lifetime compilation.
     pub item_phantom: core::marker::PhantomData<&'item ()>,
     pub data_phantom: core::marker::PhantomData<&'data ()>,
@@ -40,7 +40,11 @@ impl<'item, 'data> ReadFileDataRef<'item, 'data> {
     ///
     /// group = false
     /// response = true
-    pub const fn new(file_id: FileId, offset: Varint, length: Varint) -> Self {
+    pub const fn new(
+        file_id: FileId,
+        offset: VarintRef<'item, 'data>,
+        length: VarintRef<'item, 'data>,
+    ) -> Self {
         Self {
             group: false,
             response: true,
@@ -57,8 +61,8 @@ impl<'item, 'data> ReadFileDataRef<'item, 'data> {
             group: self.group,
             response: self.response,
             file_id: self.file_id,
-            offset: self.offset,
-            length: self.length,
+            offset: self.offset.to_owned(),
+            length: self.length.to_owned(),
         }
     }
 }
@@ -99,13 +103,13 @@ impl<'item, 'data> EncodedReadFileData<'item, 'data> {
     }
 
     pub fn offset(&self) -> EncodedVarint {
-        unsafe { Varint::start_decoding_unchecked(self.data.get_unchecked(2..)) }
+        unsafe { VarintRef::start_decoding_unchecked(self.data.get_unchecked(2..)) }
     }
 
     pub fn length(&self) -> EncodedVarint {
         unsafe {
             let offset_size = (((*self.data.get_unchecked(2) & 0xC0) >> 6) + 1) as usize;
-            Varint::start_decoding_unchecked(self.data.get_unchecked(2 + offset_size..))
+            VarintRef::start_decoding_unchecked(self.data.get_unchecked(2 + offset_size..))
         }
     }
 
@@ -116,21 +120,18 @@ impl<'item, 'data> EncodedReadFileData<'item, 'data> {
     pub unsafe fn encoded_size_unchecked(&self) -> usize {
         let offset_size = self.offset().encoded_size_unchecked();
         let length_size =
-            Varint::start_decoding_unchecked(self.data.get_unchecked(2 + offset_size..))
+            VarintRef::start_decoding_unchecked(self.data.get_unchecked(2 + offset_size..))
                 .encoded_size_unchecked();
         2 + offset_size + length_size
     }
 }
 
-impl<'item, 'data, 'result> EncodedData<'data, 'result> for EncodedReadFileData<'item, 'data> {
-    type SourceData = &'data [u8];
-    type DecodedData = ReadFileDataRef<'result, 'data>;
-
-    unsafe fn new(data: Self::SourceData) -> Self {
+impl<'item, 'data> EncodedReadFileData<'item, 'data> {
+    pub(crate) unsafe fn new(data: &'data [u8]) -> Self {
         Self { data }
     }
 
-    fn encoded_size(&self) -> Result<usize, SizeError> {
+    pub fn encoded_size(&self) -> Result<usize, SizeError> {
         unsafe {
             let mut size = 3;
             let data_size = self.data.len();
@@ -141,7 +142,7 @@ impl<'item, 'data, 'result> EncodedData<'data, 'result> for EncodedReadFileData<
             if data_size < size {
                 return Err(SizeError::MissingBytes);
             }
-            size += Varint::start_decoding_unchecked(self.data.get_unchecked(size - 1..))
+            size += VarintRef::start_decoding_unchecked(self.data.get_unchecked(size - 1..))
                 .encoded_size_unchecked();
             size -= 1;
             if data_size < size {
@@ -151,7 +152,7 @@ impl<'item, 'data, 'result> EncodedData<'data, 'result> for EncodedReadFileData<
         }
     }
 
-    fn complete_decoding(&self) -> WithByteSize<Self::DecodedData> {
+    pub fn complete_decoding<'result>(&self) -> WithByteSize<ReadFileDataRef<'result, 'data>> {
         let WithByteSize {
             item: offset,
             byte_size: offset_size,
@@ -159,7 +160,7 @@ impl<'item, 'data, 'result> EncodedData<'data, 'result> for EncodedReadFileData<
         let WithByteSize {
             item: length,
             byte_size: length_size,
-        } = unsafe { Varint::decode_unchecked(self.data.get_unchecked(2 + offset_size..)) };
+        } = unsafe { VarintRef::decode_unchecked(self.data.get_unchecked(2 + offset_size..)) };
         WithByteSize {
             item: ReadFileDataRef {
                 group: self.group(),
@@ -167,7 +168,8 @@ impl<'item, 'data, 'result> EncodedData<'data, 'result> for EncodedReadFileData<
                 file_id: self.file_id(),
                 offset,
                 length,
-                phantom: core::marker::PhantomData,
+                item_phantom: core::marker::PhantomData,
+                data_phantom: core::marker::PhantomData,
             },
             byte_size: 2 + offset_size + length_size,
         }
@@ -233,38 +235,32 @@ impl<'item, 'data> EncodedReadFileDataMut<'item, 'data> {
     }
 
     pub fn offset_mut<'result>(&'data mut self) -> EncodedVarintMut<'result, 'data> {
-        unsafe { Varint::start_decoding_unchecked_mut(self.data.get_unchecked_mut(2..)) }
+        unsafe { VarintRef::start_decoding_unchecked_mut(self.data.get_unchecked_mut(2..)) }
     }
 
     pub fn length_mut<'result>(&'data mut self) -> EncodedVarintMut<'result, 'data> {
         unsafe {
             let offset_size = self.offset().encoded_size_unchecked() as usize;
-            Varint::start_decoding_unchecked_mut(self.data.get_unchecked_mut(2 + offset_size..))
+            VarintRef::start_decoding_unchecked_mut(self.data.get_unchecked_mut(2 + offset_size..))
         }
     }
 }
 
-impl<'item, 'data, 'result> EncodedData<'data, 'result> for EncodedReadFileDataMut<'item, 'data> {
-    type SourceData = &'data mut [u8];
-    type DecodedData = ReadFileDataRef<'result, 'data>;
-
-    unsafe fn new(data: Self::SourceData) -> Self {
+impl<'item, 'data> EncodedReadFileDataMut<'item, 'data> {
+    pub(crate) unsafe fn new(data: &'data mut [u8]) -> Self {
         Self { data }
     }
 
-    fn encoded_size(&self) -> Result<usize, SizeError> {
+    pub fn encoded_size(&self) -> Result<usize, SizeError> {
         self.as_ref().encoded_size()
     }
 
-    fn complete_decoding(&'item self) -> WithByteSize<Self::DecodedData> {
+    pub fn complete_decoding<'result>(&self) -> WithByteSize<ReadFileDataRef<'result, 'data>> {
         self.as_ref().complete_decoding()
     }
 }
 
-impl<'item, 'data, 'result> Decodable<'data, 'result> for ReadFileDataRef<'item, 'data> {
-    type Data = EncodedReadFileData<'item, 'data>;
-    type DataMut = EncodedReadFileDataMut<'item, 'data>;
-}
+crate::make_decodable!(ReadFileDataRef, EncodedReadFileData, EncodedReadFileDataMut);
 
 /// Read data from a file.
 #[cfg_attr(feature = "repr_c", repr(C))]
@@ -291,9 +287,10 @@ impl ReadFileData {
             group: self.group,
             response: self.response,
             file_id: self.file_id,
-            offset: self.offset,
-            length: self.length,
-            phantom: core::marker::PhantomData,
+            offset: self.offset.as_ref(),
+            length: self.length.as_ref(),
+            item_phantom: core::marker::PhantomData,
+            data_phantom: core::marker::PhantomData,
         }
     }
 }
@@ -302,7 +299,6 @@ impl ReadFileData {
 mod test {
     #![allow(clippy::unwrap_in_result, clippy::panic, clippy::expect_used)]
     use super::*;
-    use crate::decodable::{Decodable, EncodedData};
 
     #[test]
     fn known() {
@@ -337,7 +333,8 @@ mod test {
                     file_id: decoder.file_id(),
                     offset: decoder.offset().complete_decoding().item,
                     length: decoder.length().complete_decoding().item,
-                    phantom: core::marker::PhantomData,
+                    item_phantom: core::marker::PhantomData,
+                    data_phantom: core::marker::PhantomData,
                 }
             );
         }
@@ -346,9 +343,10 @@ mod test {
                 group: false,
                 response: true,
                 file_id: FileId::new(0),
-                offset: Varint::new(0).unwrap(),
-                length: Varint::new(0x3F_FF_FF_FF).unwrap(),
-                phantom: core::marker::PhantomData,
+                offset: VarintRef::new(0).unwrap(),
+                length: VarintRef::new(0x3F_FF_FF_FF).unwrap(),
+                item_phantom: core::marker::PhantomData,
+                data_phantom: core::marker::PhantomData,
             },
             &[0x41, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF],
         );
@@ -357,9 +355,10 @@ mod test {
                 group: true,
                 response: false,
                 file_id: FileId::new(1),
-                offset: Varint::new(0x3F_FF).unwrap(),
-                length: Varint::new(0x3F_FF_FF).unwrap(),
-                phantom: core::marker::PhantomData,
+                offset: VarintRef::new(0x3F_FF).unwrap(),
+                length: VarintRef::new(0x3F_FF_FF).unwrap(),
+                item_phantom: core::marker::PhantomData,
+                data_phantom: core::marker::PhantomData,
             },
             &[0x81, 0x01, 0x7F, 0xFF, 0xBF, 0xFF, 0xFF],
         );
@@ -368,9 +367,10 @@ mod test {
                 group: true,
                 response: true,
                 file_id: FileId::new(0x80),
-                offset: Varint::new(0).unwrap(),
-                length: Varint::new(0).unwrap(),
-                phantom: core::marker::PhantomData,
+                offset: VarintRef::new(0).unwrap(),
+                length: VarintRef::new(0).unwrap(),
+                item_phantom: core::marker::PhantomData,
+                data_phantom: core::marker::PhantomData,
             },
             &[0xC1, 0x80, 0x00, 0x00],
         );
@@ -379,9 +379,10 @@ mod test {
                 group: false,
                 response: false,
                 file_id: FileId::new(0xFF),
-                offset: Varint::new(0x3F_FF_FF_FF).unwrap(),
-                length: Varint::new(0x3F_FF_FF_FF).unwrap(),
-                phantom: core::marker::PhantomData,
+                offset: VarintRef::new(0x3F_FF_FF_FF).unwrap(),
+                length: VarintRef::new(0x3F_FF_FF_FF).unwrap(),
+                item_phantom: core::marker::PhantomData,
+                data_phantom: core::marker::PhantomData,
             },
             &[0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF],
         );
@@ -393,9 +394,10 @@ mod test {
             group: true,
             response: false,
             file_id: FileId::new(0x80),
-            offset: Varint::new(89).unwrap(),
-            length: Varint::new(0xFF_FF_FF).unwrap(),
-            phantom: core::marker::PhantomData,
+            offset: VarintRef::new(89).unwrap(),
+            length: VarintRef::new(0xFF_FF_FF).unwrap(),
+            item_phantom: core::marker::PhantomData,
+            data_phantom: core::marker::PhantomData,
         };
 
         // Test decode(op.encode_in()) == op

@@ -1,5 +1,5 @@
 use super::define::{QueryCode, QueryRangeComparisonType};
-use crate::decodable::{Decodable, EncodedData, SizeError, WithByteSize};
+use crate::decodable::{EncodedData, SizeError, WithByteSize};
 use crate::define::{FileId, MaskedRangeRef};
 use crate::encodable::Encodable;
 use crate::v1_2::define::flag;
@@ -41,7 +41,7 @@ impl<'item, 'data> Encodable for ComparisonWithRangeRef<'item, 'data> {
         size += 1;
 
         // Write compare_length
-        let boundaries_size = self.range.boundaries_size();
+        let boundaries_size = self.range.size;
         size += Varint::new_unchecked(boundaries_size).encode_in_ptr(out.add(size));
         let boundaries_size = boundaries_size as usize;
 
@@ -101,6 +101,7 @@ pub struct EncodedComparisonWithRange<'item, 'data> {
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct Range {
+    pub size: usize,
     pub start: usize,
     pub end: usize,
 }
@@ -150,6 +151,7 @@ impl<'item, 'data> EncodedComparisonWithRange<'item, 'data> {
         }
         (
             Range {
+                size: compare_length,
                 start: usize::from_le_bytes(start_slice),
                 end: usize::from_le_bytes(end_slice),
             },
@@ -164,7 +166,7 @@ impl<'item, 'data> EncodedComparisonWithRange<'item, 'data> {
     // TODO This method should fail if start > end. Thus the global decoding method should be failable.
     pub fn range<'result>(&self) -> MaskedRangeRef<'result, 'data> {
         unsafe {
-            let (Range { start, end }, offset) = self.range_boundaries_with_offset();
+            let (Range { size, start, end }, offset) = self.range_boundaries_with_offset();
 
             let bitmap = if self.mask_flag() {
                 let bitmap_size = MaskedRangeRef::bitmap_size(start, end);
@@ -176,13 +178,13 @@ impl<'item, 'data> EncodedComparisonWithRange<'item, 'data> {
             } else {
                 None
             };
-            MaskedRangeRef::new_unchecked(start, end, bitmap)
+            MaskedRangeRef::new_unchecked(size, start, end, bitmap)
         }
     }
 
     pub fn file_id_offset(&self) -> usize {
         if self.mask_flag() {
-            let (Range { start, end }, mut offset) = self.range_boundaries_with_offset();
+            let (Range { start, end, .. }, mut offset) = self.range_boundaries_with_offset();
             let bitmap_size = MaskedRangeRef::bitmap_size(start, end);
             offset += bitmap_size;
             offset
@@ -218,17 +220,12 @@ impl<'item, 'data> EncodedComparisonWithRange<'item, 'data> {
     }
 }
 
-impl<'item, 'data, 'result> EncodedData<'data, 'result>
-    for EncodedComparisonWithRange<'item, 'data>
-{
-    type SourceData = &'data [u8];
-    type DecodedData = ComparisonWithRangeRef<'result, 'data>;
-
-    unsafe fn new(data: Self::SourceData) -> Self {
+impl<'item, 'data> EncodedComparisonWithRange<'item, 'data> {
+    pub(crate) unsafe fn new(data: &'data [u8]) -> Self {
         Self { data }
     }
 
-    fn encoded_size(&self) -> Result<usize, SizeError> {
+    pub fn encoded_size(&self) -> Result<usize, SizeError> {
         unsafe {
             let mut size = 2;
             let data_size = self.data.len();
@@ -280,7 +277,9 @@ impl<'item, 'data, 'result> EncodedData<'data, 'result>
         }
     }
 
-    fn complete_decoding(&self) -> WithByteSize<Self::DecodedData> {
+    pub fn complete_decoding<'result>(
+        &self,
+    ) -> WithByteSize<ComparisonWithRangeRef<'result, 'data>> {
         unsafe {
             let WithByteSize {
                 item: compare_length,
@@ -309,7 +308,7 @@ impl<'item, 'data, 'result> EncodedData<'data, 'result>
             } else {
                 None
             };
-            let range = MaskedRangeRef::new_unchecked(start, end, bitmap);
+            let range = MaskedRangeRef::new_unchecked(compare_length.usize(), start, end, bitmap);
 
             let file_id = FileId(*self.data.get_unchecked(size));
             size += 1;
@@ -457,6 +456,7 @@ impl<'item, 'data> EncodedComparisonWithRangeMut<'item, 'data> {
         let bitmap_size = MaskedRangeRef::bitmap_size(range.start, range.end);
 
         let Range {
+            size,
             start: current_start,
             end: current_end,
         } = self.range_boundaries();
@@ -496,29 +496,27 @@ impl<'item, 'data> EncodedComparisonWithRangeMut<'item, 'data> {
     }
 }
 
-impl<'item, 'data, 'result> EncodedData<'data, 'result>
-    for EncodedComparisonWithRangeMut<'item, 'data>
-{
-    type SourceData = &'data mut [u8];
-    type DecodedData = ComparisonWithRangeRef<'result, 'data>;
-
-    unsafe fn new(data: Self::SourceData) -> Self {
+impl<'item, 'data> EncodedComparisonWithRangeMut<'item, 'data> {
+    pub(crate) unsafe fn new(data: &'data mut [u8]) -> Self {
         Self { data }
     }
 
-    fn encoded_size(&self) -> Result<usize, SizeError> {
+    pub fn encoded_size(&self) -> Result<usize, SizeError> {
         self.as_ref().encoded_size()
     }
 
-    fn complete_decoding(&self) -> WithByteSize<Self::DecodedData> {
+    pub fn complete_decoding<'result>(
+        &self,
+    ) -> WithByteSize<ComparisonWithRangeRef<'result, 'data>> {
         self.as_ref().complete_decoding()
     }
 }
 
-impl<'item, 'data, 'result> Decodable<'data, 'result> for ComparisonWithRangeRef<'item, 'data> {
-    type Data = EncodedComparisonWithRange<'item, 'data>;
-    type DataMut = EncodedComparisonWithRangeMut<'item, 'data>;
-}
+crate::make_decodable!(
+    ComparisonWithRangeRef,
+    EncodedComparisonWithRange,
+    EncodedComparisonWithRangeMut
+);
 
 /// Compares data to a range of data.
 #[cfg_attr(feature = "repr_c", repr(C))]

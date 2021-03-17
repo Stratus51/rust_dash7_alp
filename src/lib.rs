@@ -54,6 +54,7 @@
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
+#[macro_use]
 pub mod decodable;
 pub mod define;
 pub mod encodable;

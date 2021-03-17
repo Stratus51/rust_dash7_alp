@@ -1,4 +1,4 @@
-use crate::decodable::{Decodable, EncodedData, SizeError, WithByteSize};
+use crate::decodable::{EncodedData, SizeError, WithByteSize};
 #[cfg(feature = "alloc")]
 use crate::define::EncodableData;
 use crate::define::{EncodableDataRef, FileId};
@@ -132,15 +132,12 @@ impl<'item, 'data> EncodedWriteFileData<'item, 'data> {
     }
 }
 
-impl<'item, 'data, 'result> EncodedData<'data, 'result> for EncodedWriteFileData<'item, 'data> {
-    type SourceData = &'data [u8];
-    type DecodedData = WriteFileDataRef<'result, 'data>;
-
-    unsafe fn new(data: Self::SourceData) -> Self {
+impl<'item, 'data> EncodedWriteFileData<'item, 'data> {
+    pub(crate) unsafe fn new(data: &'data [u8]) -> Self {
         Self { data }
     }
 
-    fn encoded_size(&self) -> Result<usize, SizeError> {
+    pub fn encoded_size(&self) -> Result<usize, SizeError> {
         unsafe {
             let mut size = 3;
             let data_size = self.data.len();
@@ -163,7 +160,7 @@ impl<'item, 'data, 'result> EncodedData<'data, 'result> for EncodedWriteFileData
         }
     }
 
-    fn complete_decoding(&self) -> WithByteSize<Self::DecodedData> {
+    pub fn complete_decoding<'result>(&self) -> WithByteSize<WriteFileDataRef<'result, 'data>> {
         let WithByteSize {
             item: offset,
             byte_size: offset_size,
@@ -174,10 +171,10 @@ impl<'item, 'data, 'result> EncodedData<'data, 'result> for EncodedWriteFileData
                 byte_size: length_size,
             } = Varint::decode_unchecked(self.data.get_unchecked(2 + offset_size..));
             let data_offset = 2 + offset_size + length_size;
-            let data = core::slice::from_raw_parts(
-                self.data.get_unchecked(data_offset),
-                length.u32() as usize,
-            );
+            let data = self
+                .data
+                .get_unchecked(data_offset..)
+                .get_unchecked(..length.usize());
             (
                 EncodableDataRef::new_unchecked(data),
                 length_size,
@@ -279,27 +276,25 @@ impl<'item, 'data> EncodedWriteFileDataMut<'item, 'data> {
     }
 }
 
-impl<'item, 'data, 'result> EncodedData<'data, 'result> for EncodedWriteFileDataMut<'item, 'data> {
-    type SourceData = &'data mut [u8];
-    type DecodedData = WriteFileDataRef<'result, 'data>;
-
-    unsafe fn new(data: Self::SourceData) -> Self {
+impl<'item, 'data> EncodedWriteFileDataMut<'item, 'data> {
+    pub(crate) unsafe fn new(data: &'data mut [u8]) -> Self {
         Self { data }
     }
 
-    fn encoded_size(&self) -> Result<usize, SizeError> {
+    pub fn encoded_size(&self) -> Result<usize, SizeError> {
         self.as_ref().encoded_size()
     }
 
-    fn complete_decoding(&self) -> WithByteSize<Self::DecodedData> {
+    pub fn complete_decoding<'result>(&self) -> WithByteSize<WriteFileDataRef<'result, 'data>> {
         self.as_ref().complete_decoding()
     }
 }
 
-impl<'item, 'data, 'result> Decodable<'data, 'result> for WriteFileDataRef<'item, 'data> {
-    type Data = EncodedWriteFileData<'item, 'data>;
-    type DataMut = EncodedWriteFileDataMut<'item, 'data>;
-}
+crate::make_decodable!(
+    WriteFileDataRef,
+    EncodedWriteFileData,
+    EncodedWriteFileDataMut
+);
 
 /// Writes data to a file.
 #[cfg_attr(feature = "repr_c", repr(C))]

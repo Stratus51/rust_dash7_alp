@@ -1,7 +1,7 @@
 use super::addressee::{
     self, Addressee, AddresseeRef, EncodedAddressee, EncodedAddresseeMut, NlsMethod,
 };
-use crate::decodable::{Decodable, EncodedData, SizeError, WithByteSize};
+use crate::decodable::{EncodedData, SizeError, WithByteSize};
 use crate::encodable::Encodable;
 
 /// Maximum byte size of an encoded `ReadFileData`
@@ -127,13 +127,8 @@ impl<'item, 'data> EncodedAddresseeWithNlsState<'item, 'data> {
     }
 }
 
-impl<'item, 'data, 'result> EncodedData<'data, 'result>
-    for EncodedAddresseeWithNlsState<'item, 'data>
-{
-    type SourceData = &'data [u8];
-    type DecodedData = AddresseeWithNlsStateRef<'result, 'data>;
-
-    unsafe fn new(data: Self::SourceData) -> Self {
+impl<'item, 'data> EncodedAddresseeWithNlsState<'item, 'data> {
+    unsafe fn new(data: &'data [u8]) -> Self {
         Self { data }
     }
 
@@ -150,7 +145,7 @@ impl<'item, 'data, 'result> EncodedData<'data, 'result>
         Ok(size)
     }
 
-    fn complete_decoding(&self) -> WithByteSize<Self::DecodedData> {
+    fn complete_decoding<'result>(&self) -> WithByteSize<AddresseeWithNlsStateRef<'result, 'data>> {
         let WithByteSize {
             item: addressee,
             byte_size: addressee_size,
@@ -220,13 +215,8 @@ impl<'item, 'data> EncodedAddresseeWithNlsStateMut<'item, 'data> {
     }
 }
 
-impl<'item, 'data, 'result> EncodedData<'data, 'result>
-    for EncodedAddresseeWithNlsStateMut<'item, 'data>
-{
-    type SourceData = &'data mut [u8];
-    type DecodedData = AddresseeWithNlsStateRef<'result, 'data>;
-
-    unsafe fn new(data: Self::SourceData) -> Self {
+impl<'item, 'data> EncodedAddresseeWithNlsStateMut<'item, 'data> {
+    unsafe fn new(data: &'data mut [u8]) -> Self {
         Self { data }
     }
 
@@ -234,15 +224,16 @@ impl<'item, 'data, 'result> EncodedData<'data, 'result>
         self.as_ref().encoded_size()
     }
 
-    fn complete_decoding(&self) -> WithByteSize<Self::DecodedData> {
+    fn complete_decoding<'result>(&self) -> WithByteSize<AddresseeWithNlsStateRef<'result, 'data>> {
         self.as_ref().complete_decoding()
     }
 }
 
-impl<'item, 'data, 'result> Decodable<'data, 'result> for AddresseeWithNlsStateRef<'item, 'data> {
-    type Data = EncodedAddresseeWithNlsState<'item, 'data>;
-    type DataMut = EncodedAddresseeWithNlsStateMut<'item, 'data>;
-}
+crate::make_decodable!(
+    AddresseeWithNlsStateRef,
+    EncodedAddresseeWithNlsState,
+    EncodedAddresseeWithNlsStateMut
+);
 
 /// Writes data to a file.
 #[cfg_attr(feature = "repr_c", repr(C))]
@@ -368,17 +359,12 @@ impl<'item, 'data> EncodedDash7InterfaceStatus<'item, 'data> {
     }
 }
 
-impl<'item, 'data, 'result> EncodedData<'data, 'result>
-    for EncodedDash7InterfaceStatus<'item, 'data>
-{
-    type SourceData = &'data [u8];
-    type DecodedData = Dash7InterfaceStatusRef<'result, 'data>;
-
-    unsafe fn new(data: Self::SourceData) -> Self {
+impl<'item, 'data> EncodedDash7InterfaceStatus<'item, 'data> {
+    pub(crate) unsafe fn new(data: &'data [u8]) -> Self {
         Self { data }
     }
 
-    fn encoded_size(&self) -> Result<usize, SizeError> {
+    pub fn encoded_size(&self) -> Result<usize, SizeError> {
         let mut size = 11;
         let data_size = self.data.len();
         if data_size < size {
@@ -392,7 +378,9 @@ impl<'item, 'data, 'result> EncodedData<'data, 'result>
         Ok(size)
     }
 
-    fn complete_decoding(&self) -> WithByteSize<Self::DecodedData> {
+    pub fn complete_decoding<'result>(
+        &self,
+    ) -> WithByteSize<Dash7InterfaceStatusRef<'result, 'data>> {
         let WithByteSize {
             item: addressee_with_nls_state,
             byte_size: end_size,
@@ -509,29 +497,27 @@ impl<'item, 'data> EncodedDash7InterfaceStatusMut<'item, 'data> {
     }
 }
 
-impl<'item, 'data, 'result> EncodedData<'data, 'result>
-    for EncodedDash7InterfaceStatusMut<'item, 'data>
-{
-    type SourceData = &'data mut [u8];
-    type DecodedData = Dash7InterfaceStatusRef<'result, 'data>;
-
-    unsafe fn new(data: Self::SourceData) -> Self {
+impl<'item, 'data> EncodedDash7InterfaceStatusMut<'item, 'data> {
+    pub(crate) unsafe fn new(data: &'data mut [u8]) -> Self {
         Self { data }
     }
 
-    fn encoded_size(&self) -> Result<usize, SizeError> {
+    pub fn encoded_size(&self) -> Result<usize, SizeError> {
         self.as_ref().encoded_size()
     }
 
-    fn complete_decoding(&self) -> WithByteSize<Self::DecodedData> {
+    pub fn complete_decoding<'result>(
+        &self,
+    ) -> WithByteSize<Dash7InterfaceStatusRef<'result, 'data>> {
         self.as_ref().complete_decoding()
     }
 }
 
-impl<'item, 'data, 'result> Decodable<'data, 'result> for Dash7InterfaceStatusRef<'item, 'data> {
-    type Data = EncodedDash7InterfaceStatus<'item, 'data>;
-    type DataMut = EncodedDash7InterfaceStatusMut<'item, 'data>;
-}
+crate::make_decodable!(
+    Dash7InterfaceStatusRef,
+    EncodedDash7InterfaceStatus,
+    EncodedDash7InterfaceStatusMut
+);
 
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]

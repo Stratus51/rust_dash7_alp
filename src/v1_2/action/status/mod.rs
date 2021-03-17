@@ -2,7 +2,7 @@ pub mod action;
 pub mod define;
 pub mod interface;
 
-use crate::decodable::{FailableDecodable, FailableEncodedData, WithByteSize};
+use crate::decodable::{FailableEncodedData, WithByteSize};
 use crate::encodable::Encodable;
 use crate::v1_2::define::op_code;
 use crate::v1_2::error::{StatusDecodeError, StatusSizeError, UnsupportedExtension};
@@ -89,17 +89,12 @@ impl<'item, 'data> EncodedStatus<'item, 'data> {
     }
 }
 
-impl<'item, 'data, 'result> FailableEncodedData<'data, 'result> for EncodedStatus<'item, 'data> {
-    type SourceData = &'data [u8];
-    type SizeError = StatusSizeError<'result, 'data>;
-    type DecodeError = StatusDecodeError<'result, 'data>;
-    type DecodedData = StatusRef<'result, 'data>;
-
-    unsafe fn new(data: Self::SourceData) -> Self {
+impl<'item, 'data> EncodedStatus<'item, 'data> {
+    pub(crate) unsafe fn new(data: &'data [u8]) -> Self {
         Self { data }
     }
 
-    fn encoded_size(&self) -> Result<usize, Self::SizeError> {
+    pub fn encoded_size<'result>(&self) -> Result<usize, StatusSizeError<'result, 'data>> {
         match self.status()? {
             ValidEncodedStatus::Interface(status) => status.encoded_size(),
         }
@@ -107,7 +102,9 @@ impl<'item, 'data, 'result> FailableEncodedData<'data, 'result> for EncodedStatu
         .map_err(|e| e.into())
     }
 
-    fn complete_decoding(&self) -> Result<WithByteSize<Self::DecodedData>, Self::DecodeError> {
+    pub fn complete_decoding<'result>(
+        &self,
+    ) -> Result<WithByteSize<StatusRef<'result, 'data>>, StatusDecodeError<'result, 'data>> {
         let mut ret = match &self.status()? {
             ValidEncodedStatus::Interface(interface) => {
                 let WithByteSize {
@@ -163,30 +160,30 @@ impl<'item, 'data> EncodedStatusMut<'item, 'data> {
     }
 }
 
-impl<'item, 'data, 'result> FailableEncodedData<'data, 'result> for EncodedStatusMut<'item, 'data> {
-    type SourceData = &'data mut [u8];
-    type SizeError = StatusSizeError<'result, 'data>;
-    type DecodeError = StatusDecodeError<'result, 'data>;
-    type DecodedData = StatusRef<'result, 'data>;
-
-    unsafe fn new(data: Self::SourceData) -> Self {
+impl<'item, 'data> EncodedStatusMut<'item, 'data> {
+    pub(crate) unsafe fn new(data: &'data mut [u8]) -> Self {
         Self { data }
     }
 
-    fn encoded_size(&self) -> Result<usize, Self::SizeError> {
+    pub fn encoded_size<'result>(&self) -> Result<usize, StatusSizeError<'result, 'data>> {
         self.as_ref().encoded_size()
     }
 
-    fn complete_decoding(&self) -> Result<WithByteSize<Self::DecodedData>, Self::DecodeError> {
+    pub fn complete_decoding<'result>(
+        &self,
+    ) -> Result<WithByteSize<StatusRef<'result, 'data>>, StatusDecodeError<'result, 'data>> {
         self.as_ref().complete_decoding()
     }
 }
 
-impl<'item, 'data, 'result> FailableDecodable<'data, 'result> for StatusRef<'item, 'data> {
-    type Data = EncodedStatus<'item, 'data>;
-    type DataMut = EncodedStatusMut<'item, 'data>;
-    type FullDecodeError = StatusSizeError<'result, 'data>;
-}
+crate::make_failable_decodable!(
+    StatusRef,
+    EncodedStatus,
+    EncodedStatusMut,
+    StatusSizeError,
+    StatusDecodeError,
+    StatusSizeError
+);
 
 /// Details from the interface the command is coming from
 #[cfg_attr(feature = "repr_c", repr(C))]

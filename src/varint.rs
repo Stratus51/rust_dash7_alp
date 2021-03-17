@@ -1,6 +1,6 @@
 // TODO ALP_SPEC: The encoding of the value is not specified!
 // Big endian at bit and byte level probably, but it has to be specified!
-use crate::decodable::{Decodable, EncodedData, SizeError, WithByteSize};
+use crate::decodable::{SizeError, WithByteSize};
 use crate::encodable::Encodable;
 
 /// Maximum value writable in a Varint encodable on 1 byte
@@ -19,9 +19,10 @@ pub const MAX_SIZE: usize = 4;
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct Varint<'item> {
+pub struct VarintRef<'item, 'data> {
     value: u32,
-    phantom: core::marker::PhantomData<&'item ()>,
+    item_phantom: core::marker::PhantomData<&'item ()>,
+    data_phantom: core::marker::PhantomData<&'data ()>,
 }
 
 #[cfg_attr(feature = "repr_c", repr(C))]
@@ -31,8 +32,8 @@ pub enum VarintError {
     ValueTooBig,
 }
 
-impl<'item> Varint<'item> {
-    /// Create a struct representing a Varint
+impl<'item, 'data> VarintRef<'item, 'data> {
+    /// Create a struct representing a VarintRef
     ///
     /// # Safety
     /// Only call this on u32 that are less than [`MAX`](constant.MAX.html).
@@ -42,10 +43,14 @@ impl<'item> Varint<'item> {
     /// wrong value will result in the encoding of another lower
     /// value (the value will be masked upon encoding).
     pub const unsafe fn new_unchecked(value: u32) -> Self {
-        Self { value }
+        Self {
+            value,
+            item_phantom: core::marker::PhantomData,
+            data_phantom: core::marker::PhantomData,
+        }
     }
 
-    /// Create a struct representing a Varint
+    /// Create a struct representing a VarintRef
     ///
     /// # Errors
     /// Fails if the value is bigger than [`MAX`](constant.MAX.html)
@@ -120,7 +125,7 @@ impl<'item> Varint<'item> {
     }
 }
 
-impl<'item> Encodable for Varint<'item> {
+impl<'item, 'data> Encodable for VarintRef<'item, 'data> {
     unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
         let size = self.encoded_size();
         match size {
@@ -174,14 +179,12 @@ impl<'item, 'data> EncodedVarint<'item, 'data> {
     }
 }
 
-impl<'item, 'data, 'result> EncodedData<'data, 'result> for EncodedVarint<'item, 'data> {
-    type SourceData = &'data [u8];
-    type DecodedData = Varint<'result>;
-    unsafe fn new(data: Self::SourceData) -> Self {
-        Self { data }
+impl<'item, 'data> EncodedVarint<'item, 'data> {
+    pub(crate) unsafe fn new(data: &'data [u8]) -> Self {
+        Self { data: &data }
     }
 
-    fn encoded_size(&self) -> Result<usize, SizeError> {
+    pub fn encoded_size(&self) -> Result<usize, SizeError> {
         let mut size = 1;
         if self.data.len() < size {
             return Err(SizeError::MissingBytes);
@@ -193,11 +196,11 @@ impl<'item, 'data, 'result> EncodedData<'data, 'result> for EncodedVarint<'item,
         Ok(size)
     }
 
-    fn complete_decoding(&self) -> WithByteSize<Varint> {
+    pub fn complete_decoding<'result>(&self) -> WithByteSize<VarintRef<'result, 'data>> {
         unsafe {
             let size = self.encoded_size_unchecked();
             let data = &self.data;
-            let ret = Varint::new_unchecked(match size {
+            let ret = VarintRef::new_unchecked(match size {
                 1 => (*data.get_unchecked(0) & 0x3F) as u32,
                 2 => {
                     (((*data.get_unchecked(0) & 0x3F) as u32) << 8) + *data.get_unchecked(1) as u32
@@ -230,7 +233,7 @@ pub struct EncodedVarintMut<'item, 'data> {
 }
 
 impl<'item, 'data> EncodedVarintMut<'item, 'data> {
-    pub fn as_ref<'result>(&'data self) -> EncodedVarint<'result, 'data> {
+    pub fn as_ref(&self) -> EncodedVarint<'item, 'item> {
         unsafe { EncodedVarint::new(self.data) }
     }
 
@@ -238,12 +241,12 @@ impl<'item, 'data> EncodedVarintMut<'item, 'data> {
         self.as_ref().encoded_size_unchecked()
     }
 
-    /// Modify the value of the Varint in place.
+    /// Modify the value of the VarintRef in place.
     ///
     /// # Errors
     /// Fails if the new value is encoded on a different size of array (if it requires more or less
     /// bytes than the current value).
-    pub fn set_value(&mut self, value: &Varint) -> Result<(), ()> {
+    pub fn set_value(&mut self, value: &VarintRef) -> Result<(), ()> {
         unsafe {
             if self.encoded_size_unchecked() != value.encoded_size() {
                 return Err(());
@@ -254,25 +257,38 @@ impl<'item, 'data> EncodedVarintMut<'item, 'data> {
     }
 }
 
-impl<'item, 'data, 'result> EncodedData<'data, 'result> for EncodedVarintMut<'item, 'data> {
-    type SourceData = &'data mut [u8];
-    type DecodedData = Varint<'result>;
-    unsafe fn new(data: Self::SourceData) -> Self {
-        Self { data }
+impl<'item, 'data> EncodedVarintMut<'item, 'data> {
+    pub(crate) unsafe fn new(data: &'data mut [u8]) -> Self {
+        Self { data: &mut data }
     }
 
-    fn encoded_size(&self) -> Result<usize, SizeError> {
+    pub fn encoded_size(&self) -> Result<usize, SizeError> {
         self.as_ref().encoded_size()
     }
 
-    fn complete_decoding(&self) -> WithByteSize<Self::DecodedData> {
+    pub fn complete_decoding<'result>(&self) -> WithByteSize<VarintRef<'result, 'data>> {
         self.as_ref().complete_decoding()
     }
 }
 
-impl<'item, 'data, 'result> Decodable<'data, 'result> for Varint<'item> {
-    type Data = EncodedVarint<'item, 'data>;
-    type DataMut = EncodedVarintMut<'item, 'data>;
+crate::make_decodable!(VarintRef, EncodedVarint, EncodedVarintMut);
+
+/// Represents a variable integer as described by the Dash7 ALP specification.
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+pub struct Varint {
+    value: u32,
+}
+
+impl Varint {
+    pub fn as_ref(&self) -> VarintRef {
+        VarintRef {
+            value: self.value,
+            item_phantom: core::marker::PhantomData,
+            data_phantom: core::marker::PhantomData,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -280,29 +296,31 @@ mod test {
     #![allow(clippy::unwrap_in_result, clippy::panic, clippy::expect_used)]
 
     use super::*;
-    use crate::decodable::{Decodable, EncodedData};
     use hex_literal::hex;
 
     #[test]
     fn test_is_valid() {
-        assert!(Varint::new(0x3F_FF_FF_FF).is_ok());
-        assert!(Varint::new(0x40_00_00_00).is_err());
+        assert!(VarintRef::new(0x3F_FF_FF_FF).is_ok());
+        assert!(VarintRef::new(0x40_00_00_00).is_err());
     }
 
     #[test]
     fn test_size() {
-        assert_eq!(Varint::new(0x00).unwrap().encoded_size(), 1);
-        assert_eq!(Varint::new(0x3F).unwrap().encoded_size(), 1);
-        assert_eq!(Varint::new(0x3F_FF).unwrap().encoded_size(), 2);
-        assert_eq!(Varint::new(0x3F_FF_FF).unwrap().encoded_size(), 3);
-        assert_eq!(Varint::new(0x3F_FF_FF_FF).unwrap().encoded_size(), 4);
+        assert_eq!(VarintRef::new(0x00).unwrap().encoded_size(), 1);
+        assert_eq!(VarintRef::new(0x3F).unwrap().encoded_size(), 1);
+        assert_eq!(VarintRef::new(0x3F_FF).unwrap().encoded_size(), 2);
+        assert_eq!(VarintRef::new(0x3F_FF_FF).unwrap().encoded_size(), 3);
+        assert_eq!(VarintRef::new(0x3F_FF_FF_FF).unwrap().encoded_size(), 4);
     }
 
     #[test]
     fn test_encode() {
         fn test(n: u32, truth: &[u8]) {
             let mut encoded = [0_u8; MAX_SIZE];
-            let size = Varint::new(n).unwrap().encode_in(&mut encoded[..]).unwrap();
+            let size = VarintRef::new(n)
+                .unwrap()
+                .encode_in(&mut encoded[..])
+                .unwrap();
             assert_eq!(truth.len(), size);
             assert_eq!(*truth, encoded[..truth.len()]);
         }
@@ -320,15 +338,15 @@ mod test {
             let WithByteSize {
                 item: ret,
                 byte_size: decode_size,
-            } = Varint::decode(data).unwrap();
+            } = VarintRef::decode(data).unwrap();
             assert_eq!(decode_size, size);
-            assert_eq!(ret, Varint::new(value).unwrap());
+            assert_eq!(ret, VarintRef::new(value).unwrap());
 
             // Check partial decoding
             let WithByteSize {
                 item: decoder,
                 byte_size: expected_size,
-            } = Varint::start_decoding(data).unwrap();
+            } = VarintRef::start_decoding(data).unwrap();
             let part_size = decoder.encoded_size().unwrap();
             assert_eq!(expected_size, size);
             assert_eq!(part_size, size);

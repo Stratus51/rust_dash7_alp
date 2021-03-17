@@ -1,4 +1,4 @@
-use crate::decodable::{Decodable, EncodedData, SizeError, WithByteSize};
+use crate::decodable::{EncodedData, SizeError, WithByteSize};
 use crate::encodable::Encodable;
 
 /// Maximum byte size of an encoded `an Addressee`
@@ -249,11 +249,8 @@ impl<'item, 'data> EncodedAddressee<'item, 'data> {
     }
 }
 
-impl<'item, 'data, 'result> EncodedData<'data, 'result> for EncodedAddressee<'item, 'data> {
-    type SourceData = &'data [u8];
-    type DecodedData = AddresseeRef<'item, 'data>;
-
-    unsafe fn new(data: Self::SourceData) -> Self {
+impl<'item, 'data> EncodedAddressee<'item, 'data> {
+    unsafe fn new(data: &'data [u8]) -> Self {
         Self { data }
     }
 
@@ -270,7 +267,7 @@ impl<'item, 'data, 'result> EncodedData<'data, 'result> for EncodedAddressee<'it
         Ok(size)
     }
 
-    fn complete_decoding(&self) -> WithByteSize<Self::DecodedData> {
+    fn complete_decoding<'result>(&self) -> WithByteSize<AddresseeRef<'result, 'data>> {
         let identifier = self.identifier();
         WithByteSize {
             item: AddresseeRef {
@@ -367,11 +364,8 @@ impl<'item, 'data> EncodedAddresseeMut<'item, 'data> {
     }
 }
 
-impl<'item, 'data, 'result> EncodedData<'data, 'result> for EncodedAddresseeMut<'data, 'result> {
-    type SourceData = &'data mut [u8];
-    type DecodedData = AddresseeRef<'result, 'data>;
-
-    unsafe fn new(data: Self::SourceData) -> Self {
+impl<'item, 'data> EncodedAddresseeMut<'item, 'data> {
+    unsafe fn new(data: &'data mut [u8]) -> Self {
         Self { data }
     }
 
@@ -379,15 +373,12 @@ impl<'item, 'data, 'result> EncodedData<'data, 'result> for EncodedAddresseeMut<
         self.as_ref().encoded_size()
     }
 
-    fn complete_decoding(&self) -> WithByteSize<Self::DecodedData> {
+    fn complete_decoding<'result>(&self) -> WithByteSize<AddresseeRef<'result, 'data>> {
         self.as_ref().complete_decoding()
     }
 }
 
-impl<'item, 'data, 'result> Decodable<'data, 'result> for AddresseeRef<'item, 'data> {
-    type Data = EncodedAddressee<'item, 'data>;
-    type DataMut = EncodedAddresseeMut<'item, 'data>;
-}
+crate::make_decodable!(AddresseeRef, EncodedAddressee, EncodedAddresseeMut);
 
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]

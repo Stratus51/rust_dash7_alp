@@ -99,18 +99,6 @@ impl<'item, 'data> MaskedRangeRef<'item, 'data> {
         self.bitmap
     }
 
-    pub const fn boundaries_size(&self) -> u32 {
-        if self.start > 0xFF_FF_FF || self.end > 0xFF_FF_FF {
-            4
-        } else if self.start > 0xFF_FF || self.end > 0xFF_FF {
-            3
-        } else if self.start > 0xFF || self.end > 0xFF {
-            2
-        } else {
-            1
-        }
-    }
-
     #[cfg(feature = "alloc")]
     pub fn to_owned(&self) -> MaskedRange {
         MaskedRange {

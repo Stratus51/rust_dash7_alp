@@ -24,9 +24,7 @@ use comparison_with_value::ComparisonWithValue;
 use define::QueryCode;
 
 #[cfg(feature = "decode_query")]
-use crate::decodable::{
-    Decodable, EncodedData, FailableDecodable, FailableEncodedData, WithByteSize,
-};
+use crate::decodable::{Decodable, EncodedData, WithByteSize};
 #[cfg(feature = "query")]
 use crate::encodable::Encodable;
 #[cfg(feature = "decode_query")]
@@ -194,17 +192,12 @@ impl<'item, 'data> EncodedQuery<'item, 'data> {
 }
 
 #[cfg(feature = "decode_query")]
-impl<'item, 'data, 'result> FailableEncodedData<'data, 'result> for EncodedQuery<'item, 'data> {
-    type SourceData = &'data [u8];
-    type SizeError = QuerySizeError<'result, 'data>;
-    type DecodeError = UnsupportedQueryCode<'result, 'data>;
-    type DecodedData = DecodedQueryRef<'result, 'data>;
-
-    unsafe fn new(data: Self::SourceData) -> Self {
+impl<'item, 'data> EncodedQuery<'item, 'data> {
+    pub(crate) unsafe fn new(data: &'data [u8]) -> Self {
         Self { data }
     }
 
-    fn encoded_size(&self) -> Result<usize, Self::SizeError> {
+    pub fn encoded_size<'result>(&self) -> Result<usize, QuerySizeError<'result, 'data>> {
         match self.query().map_err(QuerySizeError::UnsupportedQueryCode)? {
             #[cfg(feature = "decode_query_compare_with_value")]
             ValidEncodedQuery::ComparisonWithValue(d) => d.encoded_size(),
@@ -214,7 +207,10 @@ impl<'item, 'data, 'result> FailableEncodedData<'data, 'result> for EncodedQuery
         .map_err(|_| QuerySizeError::MissingBytes)
     }
 
-    fn complete_decoding(&self) -> Result<WithByteSize<Self::DecodedData>, Self::DecodeError> {
+    pub fn complete_decoding<'result>(
+        &self,
+    ) -> Result<WithByteSize<DecodedQueryRef<'result, 'data>>, UnsupportedQueryCode<'result, 'data>>
+    {
         Ok(match self.query()? {
             #[cfg(feature = "decode_query_compare_with_value")]
             ValidEncodedQuery::ComparisonWithValue(d) => {
@@ -327,31 +323,32 @@ impl<'item, 'data> EncodedQueryMut<'item, 'data> {
 }
 
 #[cfg(feature = "decode_query")]
-impl<'item, 'data, 'result> FailableEncodedData<'data, 'result> for EncodedQueryMut<'item, 'data> {
-    type SourceData = &'data mut [u8];
-    type SizeError = QuerySizeError<'result, 'data>;
-    type DecodeError = UnsupportedQueryCode<'result, 'data>;
-    type DecodedData = DecodedQueryRef<'result, 'data>;
-
-    unsafe fn new(data: Self::SourceData) -> Self {
+impl<'item, 'data> EncodedQueryMut<'item, 'data> {
+    pub(crate) unsafe fn new(data: &'data mut [u8]) -> Self {
         Self { data }
     }
 
-    fn encoded_size(&self) -> Result<usize, Self::SizeError> {
+    pub fn encoded_size<'result>(&self) -> Result<usize, QuerySizeError<'result, 'data>> {
         self.as_ref().encoded_size()
     }
 
-    fn complete_decoding(&self) -> Result<WithByteSize<Self::DecodedData>, Self::DecodeError> {
+    pub fn complete_decoding<'result>(
+        &self,
+    ) -> Result<WithByteSize<DecodedQueryRef<'result, 'data>>, UnsupportedQueryCode<'result, 'data>>
+    {
         self.as_ref().complete_decoding()
     }
 }
 
 #[cfg(feature = "decode_query")]
-impl<'item, 'data, 'result> FailableDecodable<'data, 'result> for DecodedQueryRef<'item, 'data> {
-    type Data = EncodedQuery<'item, 'data>;
-    type DataMut = EncodedQueryMut<'item, 'data>;
-    type FullDecodeError = QuerySizeError<'result, 'data>;
-}
+crate::make_failable_decodable!(
+    DecodedQueryRef,
+    EncodedQuery,
+    EncodedQueryMut,
+    QuerySizeError,
+    UnsupportedQueryCode,
+    QuerySizeError
+);
 
 // TODO This alloc condition could be lighter and be required only for query variants that really
 // need allocation.

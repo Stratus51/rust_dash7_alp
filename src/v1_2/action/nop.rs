@@ -1,4 +1,4 @@
-use crate::decodable::{Decodable, EncodedData, SizeError, WithByteSize};
+use crate::decodable::{SizeError, WithByteSize};
 use crate::encodable::Encodable;
 use crate::v1_2::define::{flag, op_code};
 
@@ -17,7 +17,6 @@ pub struct NopRef<'item, 'data> {
     pub group: bool,
     /// Ask for a response (status)
     pub response: bool,
-    /// Empty data required for lifetime compilation.
     item_phantom: core::marker::PhantomData<&'item ()>,
     data_phantom: core::marker::PhantomData<&'data ()>,
 }
@@ -78,24 +77,22 @@ impl<'item, 'data> EncodedNop<'item, 'data> {
     }
 }
 
-impl<'item, 'data, 'result> EncodedData<'data, 'result> for EncodedNop<'item, 'data> {
-    type SourceData = &'data [u8];
-    type DecodedData = NopRef<'result, 'data>;
-
-    unsafe fn new(data: Self::SourceData) -> Self {
-        Self { data }
+impl<'item, 'data> EncodedNop<'item, 'data> {
+    pub(crate) unsafe fn new(data: &'data [u8]) -> Self {
+        Self { data: &data }
     }
 
-    fn encoded_size(&self) -> Result<usize, SizeError> {
+    pub fn encoded_size(&self) -> Result<usize, SizeError> {
         Ok(SIZE)
     }
 
-    fn complete_decoding(&self) -> WithByteSize<Self::DecodedData> {
+    pub fn complete_decoding<'result>(&self) -> WithByteSize<NopRef<'result, 'data>> {
         WithByteSize {
             item: NopRef {
                 group: self.group(),
                 response: self.response(),
-                phantom: core::marker::PhantomData,
+                item_phantom: core::marker::PhantomData,
+                data_phantom: core::marker::PhantomData,
             },
             byte_size: 1,
         }
@@ -107,8 +104,8 @@ pub struct EncodedNopMut<'item, 'data> {
 }
 
 impl<'item, 'data> EncodedNopMut<'item, 'data> {
-    pub fn as_ref<'result>(&self) -> EncodedNop<'result, 'data> {
-        unsafe { EncodedNop::new(self.data) }
+    pub fn as_ref(&self) -> EncodedNop<'item, 'data> {
+        unsafe { EncodedNop::new(self.data.as_ref()) }
     }
 
     pub fn group(&self) -> bool {
@@ -140,27 +137,21 @@ impl<'item, 'data> EncodedNopMut<'item, 'data> {
     }
 }
 
-impl<'item, 'data, 'result> EncodedData<'data, 'result> for EncodedNopMut<'item, 'data> {
-    type SourceData = &'data mut [u8];
-    type DecodedData = NopRef<'result, 'data>;
-
-    unsafe fn new(data: Self::SourceData) -> Self {
+impl<'item, 'data> EncodedNopMut<'item, 'data> {
+    pub(crate) unsafe fn new(data: &'data mut [u8]) -> Self {
         Self { data }
     }
 
-    fn encoded_size(&self) -> Result<usize, SizeError> {
+    pub fn encoded_size(&self) -> Result<usize, SizeError> {
         self.as_ref().encoded_size()
     }
 
-    fn complete_decoding(&self) -> WithByteSize<Self::DecodedData> {
+    pub fn complete_decoding<'result>(&self) -> WithByteSize<NopRef<'result, 'data>> {
         self.as_ref().complete_decoding()
     }
 }
 
-impl<'item, 'data, 'result> Decodable<'data, 'result> for NopRef<'item, 'data> {
-    type Data = EncodedNop<'item, 'data>;
-    type DataMut = EncodedNopMut<'item, 'data>;
-}
+crate::make_decodable!(NopRef, EncodedNop, EncodedNopMut);
 
 /// Does nothing.
 #[cfg_attr(feature = "repr_c", repr(C))]

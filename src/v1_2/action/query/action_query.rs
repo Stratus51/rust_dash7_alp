@@ -1,5 +1,5 @@
 #[cfg(feature = "decode_query")]
-use crate::decodable::{FailableDecodable, FailableEncodedData, WithByteSize};
+use crate::decodable::{FailableEncodedData, WithByteSize};
 #[cfg(feature = "query")]
 use crate::encodable::Encodable;
 #[cfg(feature = "query")]
@@ -115,23 +115,21 @@ impl<'item, 'data> EncodedActionQuery<'item, 'data> {
 }
 
 #[cfg(feature = "decode_query")]
-impl<'item, 'data, 'result> FailableEncodedData<'data, 'result>
-    for EncodedActionQuery<'item, 'data>
-{
-    type SourceData = &'data [u8];
-    type SizeError = QuerySizeError<'result, 'data>;
-    type DecodeError = UnsupportedQueryCode<'result, 'data>;
-    type DecodedData = DecodedActionQueryRef<'result, 'data>;
-
-    unsafe fn new(data: Self::SourceData) -> Self {
+impl<'item, 'data> EncodedActionQuery<'item, 'data> {
+    pub(crate) unsafe fn new(data: &'data [u8]) -> Self {
         Self { data }
     }
 
-    fn encoded_size(&self) -> Result<usize, Self::SizeError> {
+    pub fn encoded_size<'result>(&self) -> Result<usize, QuerySizeError<'result, 'data>> {
         self.query().encoded_size().map(|size| 1 + size)
     }
 
-    fn complete_decoding(&self) -> Result<WithByteSize<Self::DecodedData>, Self::DecodeError> {
+    pub fn complete_decoding<'result>(
+        &self,
+    ) -> Result<
+        WithByteSize<DecodedActionQueryRef<'result, 'data>>,
+        UnsupportedQueryCode<'result, 'data>,
+    > {
         let WithByteSize {
             item: query,
             byte_size: query_size,
@@ -183,35 +181,35 @@ impl<'item, 'data> EncodedActionQueryMut<'item, 'data> {
     }
 }
 
-impl<'item, 'data, 'result> FailableEncodedData<'data, 'result>
-    for EncodedActionQueryMut<'item, 'data>
-{
-    type SourceData = &'data mut [u8];
-    type SizeError = QuerySizeError<'result, 'data>;
-    type DecodeError = UnsupportedQueryCode<'result, 'data>;
-    type DecodedData = DecodedActionQueryRef<'result, 'data>;
-
-    unsafe fn new(data: Self::SourceData) -> Self {
+#[cfg(feature = "decode_query")]
+impl<'item, 'data> EncodedActionQueryMut<'item, 'data> {
+    pub(crate) unsafe fn new(data: &'data mut [u8]) -> Self {
         Self { data }
     }
 
-    fn encoded_size(&self) -> Result<usize, Self::SizeError> {
+    pub fn encoded_size<'result>(&self) -> Result<usize, QuerySizeError<'result, 'data>> {
         self.as_ref().encoded_size()
     }
 
-    fn complete_decoding(&self) -> Result<WithByteSize<Self::DecodedData>, Self::DecodeError> {
+    pub fn complete_decoding<'result>(
+        &self,
+    ) -> Result<
+        WithByteSize<DecodedActionQueryRef<'result, 'data>>,
+        UnsupportedQueryCode<'result, 'data>,
+    > {
         self.as_ref().complete_decoding()
     }
 }
 
 #[cfg(feature = "decode_query")]
-impl<'item, 'data, 'result> FailableDecodable<'data, 'result>
-    for DecodedActionQueryRef<'item, 'data>
-{
-    type Data = EncodedActionQuery<'item, 'data>;
-    type DataMut = EncodedActionQueryMut<'item, 'data>;
-    type FullDecodeError = QuerySizeError<'result, 'data>;
-}
+crate::make_failable_decodable!(
+    DecodedActionQueryRef,
+    EncodedActionQuery,
+    EncodedActionQueryMut,
+    QuerySizeError,
+    UnsupportedQueryCode,
+    QuerySizeError
+);
 
 /// Executes next action group depending on a condition
 #[cfg(feature = "query")]
