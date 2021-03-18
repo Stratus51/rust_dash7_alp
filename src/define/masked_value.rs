@@ -11,9 +11,9 @@ use super::EncodableDataRef;
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct MaskedValueRef<'item, 'data> {
-    value: EncodableDataRef<'item, 'data>,
-    mask: Option<&'item &'data [u8]>,
+pub struct MaskedValueRef<'data> {
+    value: EncodableDataRef<'data>,
+    mask: Option<&'data [u8]>,
 }
 
 #[cfg_attr(feature = "repr_c", repr(C))]
@@ -23,12 +23,12 @@ pub enum MaskedValueNewError {
     IncoherentMaskDataSize,
 }
 
-impl<'item, 'data> MaskedValueRef<'item, 'data> {
+impl<'data> MaskedValueRef<'data> {
     /// # Safety
     /// If mask is defined you are to warrant that value.len() == mask.len().
     pub const unsafe fn new_unchecked(
-        value: EncodableDataRef<'item, 'data>,
-        mask: Option<&'item &'data [u8]>,
+        value: EncodableDataRef<'data>,
+        mask: Option<&'data [u8]>,
     ) -> Self {
         Self { value, mask }
     }
@@ -36,8 +36,8 @@ impl<'item, 'data> MaskedValueRef<'item, 'data> {
     /// # Errors
     /// Fails if the mask is defined and the mask and the value do not have the same size.
     pub fn new(
-        value: EncodableDataRef<'item, 'data>,
-        mask: Option<&'item &'data [u8]>,
+        value: EncodableDataRef<'data>,
+        mask: Option<&'data [u8]>,
     ) -> Result<Self, MaskedValueNewError> {
         if let Some(mask) = &mask {
             if mask.len() != value.len() {

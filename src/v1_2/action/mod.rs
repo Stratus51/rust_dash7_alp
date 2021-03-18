@@ -91,22 +91,22 @@ use crate::encodable::Encodable;
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub enum ActionRef<'item, 'data> {
+pub enum ActionRef<'data> {
     // Nop
     #[cfg(feature = "nop")]
-    Nop(NopRef<'item, 'data>),
+    Nop(NopRef<'data>),
     // Read
     #[cfg(feature = "read_file_data")]
-    ReadFileData(ReadFileDataRef<'item, 'data>),
+    ReadFileData(ReadFileDataRef<'data>),
     #[cfg(feature = "read_file_properties")]
-    ReadFileProperties(ReadFilePropertiesRef<'item, 'data>),
+    ReadFileProperties(ReadFilePropertiesRef<'data>),
 
     // Write
     #[cfg(feature = "write_file_data")]
-    WriteFileData(WriteFileDataRef<'item, 'data>),
+    WriteFileData(WriteFileDataRef<'data>),
     // WriteFileProperties(WriteFileProperties),
     #[cfg(feature = "action_query")]
-    ActionQuery(ActionQueryRef<'item, 'data>),
+    ActionQuery(ActionQueryRef<'data>),
     // BreakQuery(BreakQuery),
     // TODO
     // PermissionRequest(PermissionRequest),
@@ -125,7 +125,7 @@ pub enum ActionRef<'item, 'data> {
     // ReturnFileData(ReturnFileData),
     // ReturnFileProperties(ReturnFileProperties),
     #[cfg(feature = "status")]
-    Status(StatusRef<'item, 'data>),
+    Status(StatusRef<'data>),
     // ResponseTag(ResponseTag),
 
     // // Special
@@ -145,7 +145,7 @@ pub enum ActionToOwnedError {
     RequiresAllocation,
 }
 
-impl<'item, 'data> Encodable for ActionRef<'item, 'data> {
+impl<'data> Encodable for ActionRef<'data> {
     unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
         match self {
             #[cfg(feature = "nop")]
@@ -181,7 +181,7 @@ impl<'item, 'data> Encodable for ActionRef<'item, 'data> {
     }
 }
 
-impl<'item, 'data> ActionRef<'item, 'data> {
+impl<'data> ActionRef<'data> {
     /// Copies all the reference based data to create a fully self contained
     /// object.
     ///
@@ -217,22 +217,22 @@ impl<'item, 'data> ActionRef<'item, 'data> {
 #[cfg_attr(feature = "packed", repr(packed))]
 #[cfg(feature = "decode_action")]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub enum DecodedActionRef<'item, 'data> {
+pub enum DecodedActionRef<'data> {
     #[cfg(feature = "decode_nop")]
     // Nop
-    Nop(NopRef<'item, 'data>),
+    Nop(NopRef<'data>),
     // Read
     #[cfg(feature = "decode_read_file_data")]
-    ReadFileData(ReadFileDataRef<'item, 'data>),
+    ReadFileData(ReadFileDataRef<'data>),
     #[cfg(feature = "decode_read_file_properties")]
-    ReadFileProperties(ReadFilePropertiesRef<'item, 'data>),
+    ReadFileProperties(ReadFilePropertiesRef<'data>),
 
     // Write
     #[cfg(feature = "decode_write_file_data")]
-    WriteFileData(WriteFileDataRef<'item, 'data>),
+    WriteFileData(WriteFileDataRef<'data>),
     // WriteFileProperties(WriteFileProperties),
     #[cfg(feature = "decode_action_query")]
-    ActionQuery(DecodedActionQueryRef<'item, 'data>),
+    ActionQuery(DecodedActionQueryRef<'data>),
     // BreakQuery(BreakQuery),
     // TODO
     // PermissionRequest(PermissionRequest),
@@ -251,7 +251,7 @@ pub enum DecodedActionRef<'item, 'data> {
     // ReturnFileData(ReturnFileData),
     // ReturnFileProperties(ReturnFileProperties),
     #[cfg(feature = "decode_status")]
-    Status(StatusRef<'item, 'data>),
+    Status(StatusRef<'data>),
     // ResponseTag(ResponseTag),
 
     // // Special
@@ -267,15 +267,15 @@ pub enum DecodedActionRef<'item, 'data> {
 }
 
 #[cfg(feature = "decode_action")]
-impl<'item, 'data> DecodedActionRef<'item, 'data> {
-    pub fn as_encodable(self) -> ActionRef<'item, 'data> {
+impl<'data> DecodedActionRef<'data> {
+    pub fn as_encodable(self) -> ActionRef<'data> {
         self.into()
     }
 }
 
 #[cfg(feature = "decode_action")]
-impl<'item, 'data> From<DecodedActionRef<'item, 'data>> for ActionRef<'item, 'data> {
-    fn from(decoded: DecodedActionRef<'item, 'data>) -> Self {
+impl<'data> From<DecodedActionRef<'data>> for ActionRef<'data> {
+    fn from(decoded: DecodedActionRef<'data>) -> Self {
         match decoded {
             #[cfg(feature = "decode_nop")]
             DecodedActionRef::Nop(action) => ActionRef::Nop(action),
@@ -294,26 +294,26 @@ impl<'item, 'data> From<DecodedActionRef<'item, 'data>> for ActionRef<'item, 'da
 }
 
 #[cfg(feature = "decode_action")]
-pub enum ValidEncodedAction<'item, 'data> {
+pub enum ValidEncodedAction<'data> {
     #[cfg(feature = "decode_nop")]
-    Nop(EncodedNop<'item, 'data>),
+    Nop(EncodedNop<'data>),
     #[cfg(feature = "decode_read_file_data")]
-    ReadFileData(EncodedReadFileData<'item, 'data>),
+    ReadFileData(EncodedReadFileData<'data>),
     #[cfg(feature = "decode_read_file_properties")]
-    ReadFileProperties(EncodedReadFileProperties<'item, 'data>),
+    ReadFileProperties(EncodedReadFileProperties<'data>),
     #[cfg(feature = "decode_write_file_data")]
-    WriteFileData(EncodedWriteFileData<'item, 'data>),
+    WriteFileData(EncodedWriteFileData<'data>),
     #[cfg(feature = "decode_action_query")]
-    ActionQuery(EncodedActionQuery<'item, 'data>),
+    ActionQuery(EncodedActionQuery<'data>),
     #[cfg(feature = "decode_status")]
-    Status(EncodedStatus<'item, 'data>),
+    Status(EncodedStatus<'data>),
 }
 
 #[cfg(feature = "decode_action")]
-impl<'item, 'data> EncodedAction<'item, 'data> {
+impl<'data> EncodedAction<'data> {
     /// # Errors
     /// Fails if the op code is unsupported.
-    pub fn op_code<'result>(&self) -> Result<OpCode, UnsupportedOpCode<'result, 'data>> {
+    pub fn op_code(&self) -> Result<OpCode, UnsupportedOpCode<'data>> {
         let code = unsafe { *self.data.get_unchecked(0) & 0x3F };
         OpCode::from(code).map_err(|_| UnsupportedOpCode {
             op_code: code,
@@ -323,9 +323,7 @@ impl<'item, 'data> EncodedAction<'item, 'data> {
 
     /// # Errors
     /// Fails if the op code is unsupported.
-    pub fn action<'result>(
-        &self,
-    ) -> Result<ValidEncodedAction<'result, 'data>, UnsupportedOpCode<'result, 'data>> {
+    pub fn action(&self) -> Result<ValidEncodedAction<'data>, UnsupportedOpCode<'data>> {
         unsafe {
             Ok(match self.op_code()? {
                 #[cfg(feature = "decode_nop")]
@@ -362,16 +360,16 @@ impl<'item, 'data> EncodedAction<'item, 'data> {
 }
 
 #[cfg(feature = "decode_action")]
-pub struct EncodedAction<'item, 'data> {
-    data: &'item &'data [u8],
+pub struct EncodedAction<'data> {
+    data: &'data [u8],
 }
 
 #[cfg(feature = "decode_action")]
-impl<'item, 'data, 'result> FailableEncodedData<'data, 'result> for EncodedAction<'item, 'data> {
+impl<'data> FailableEncodedData<'data> for EncodedAction<'data> {
     type SourceData = &'data [u8];
-    type SizeError = ActionSizeError<'result, 'data>;
-    type DecodeError = ActionDecodeError<'result, 'data>;
-    type DecodedData = DecodedActionRef<'result, 'data>;
+    type SizeError = ActionSizeError<'data>;
+    type DecodeError = ActionDecodeError<'data>;
+    type DecodedData = DecodedActionRef<'data>;
 
     unsafe fn new(data: Self::SourceData) -> Self {
         Self { data }
@@ -425,43 +423,40 @@ impl<'item, 'data, 'result> FailableEncodedData<'data, 'result> for EncodedActio
 }
 
 #[cfg(feature = "decode_action")]
-pub struct EncodedActionMut<'item, 'data> {
-    data: &'item mut &'data mut [u8],
+pub struct EncodedActionMut<'data> {
+    data: &'data mut [u8],
 }
 
 #[cfg(feature = "decode_action")]
-pub enum ValidEncodedActionMut<'item, 'data> {
+pub enum ValidEncodedActionMut<'data> {
     #[cfg(feature = "decode_nop")]
-    Nop(EncodedNopMut<'item, 'data>),
+    Nop(EncodedNopMut<'data>),
     #[cfg(feature = "decode_read_file_data")]
-    ReadFileData(EncodedReadFileDataMut<'item, 'data>),
+    ReadFileData(EncodedReadFileDataMut<'data>),
     #[cfg(feature = "decode_read_file_properties")]
-    ReadFileProperties(EncodedReadFilePropertiesMut<'item, 'data>),
+    ReadFileProperties(EncodedReadFilePropertiesMut<'data>),
     #[cfg(feature = "decode_write_file_data")]
-    WriteFileData(EncodedWriteFileDataMut<'item, 'data>),
+    WriteFileData(EncodedWriteFileDataMut<'data>),
     #[cfg(feature = "decode_action_query")]
-    ActionQuery(EncodedActionQueryMut<'item, 'data>),
+    ActionQuery(EncodedActionQueryMut<'data>),
     #[cfg(feature = "decode_status")]
-    Status(EncodedStatusMut<'item, 'data>),
+    Status(EncodedStatusMut<'data>),
 }
 
 #[cfg(feature = "decode_action")]
-impl<'item, 'data> EncodedActionMut<'item, 'data> {
-    pub const fn as_ref<'result>(&self) -> EncodedAction<'result, 'data> {
-        EncodedAction::new(self.data)
-    }
+crate::make_downcastable!(EncodedActionMut, EncodedAction);
 
+#[cfg(feature = "decode_action")]
+impl<'data> EncodedActionMut<'data> {
     /// # Errors
     /// Fails if the op code is unsupported.
-    pub fn op_code<'result>(&self) -> Result<OpCode, UnsupportedOpCode<'result, 'data>> {
+    pub fn op_code(&self) -> Result<OpCode, UnsupportedOpCode<'data>> {
         self.as_ref().op_code()
     }
 
     /// # Errors
     /// Fails if the op code is unsupported.
-    pub fn action<'result>(
-        &self,
-    ) -> Result<ValidEncodedAction<'result, 'data>, UnsupportedOpCode<'result, 'data>> {
+    pub fn action(&self) -> Result<ValidEncodedAction<'data>, UnsupportedOpCode<'data>> {
         self.as_ref().action()
     }
 
@@ -476,9 +471,9 @@ impl<'item, 'data> EncodedActionMut<'item, 'data> {
 
     /// # Errors
     /// Fails if the op code is unsupported.
-    pub fn action_mut<'result>(
+    pub fn action_mut(
         &'data mut self,
-    ) -> Result<ValidEncodedActionMut<'result, 'data>, UnsupportedOpCode<'result, 'data>> {
+    ) -> Result<ValidEncodedActionMut<'data>, UnsupportedOpCode<'data>> {
         unsafe {
             Ok(match self.op_code()? {
                 #[cfg(feature = "decode_nop")]
@@ -517,11 +512,11 @@ impl<'item, 'data> EncodedActionMut<'item, 'data> {
 }
 
 #[cfg(feature = "decode_action")]
-impl<'item, 'data, 'result> FailableEncodedData<'data, 'result> for EncodedActionMut<'item, 'data> {
+impl<'data> FailableEncodedData<'data> for EncodedActionMut<'data> {
     type SourceData = &'data mut [u8];
-    type SizeError = ActionSizeError<'result, 'data>;
-    type DecodeError = ActionDecodeError<'result, 'data>;
-    type DecodedData = DecodedActionRef<'result, 'data>;
+    type SizeError = ActionSizeError<'data>;
+    type DecodeError = ActionDecodeError<'data>;
+    type DecodedData = DecodedActionRef<'data>;
 
     unsafe fn new(data: Self::SourceData) -> Self {
         Self { data }
@@ -537,10 +532,10 @@ impl<'item, 'data, 'result> FailableEncodedData<'data, 'result> for EncodedActio
 }
 
 #[cfg(feature = "decode_action")]
-impl<'item, 'data, 'result> FailableDecodable<'data, 'result> for DecodedActionRef<'item, 'data> {
-    type Data = EncodedAction<'item, 'data>;
-    type DataMut = EncodedActionMut<'item, 'data>;
-    type FullDecodeError = ActionSizeError<'result, 'data>;
+impl<'data> FailableDecodable<'data> for DecodedActionRef<'data> {
+    type Data = EncodedAction<'data>;
+    type DataMut = EncodedActionMut<'data>;
+    type FullDecodeError = ActionSizeError<'data>;
 }
 
 /// An Owned ALP Action

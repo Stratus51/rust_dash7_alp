@@ -11,7 +11,7 @@ use crate::varint;
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct EncodableDataRef<'item, 'data>(&'item &'data [u8]);
+pub struct EncodableDataRef<'data>(&'data [u8]);
 
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
@@ -20,16 +20,16 @@ pub enum EncodableDataNewError {
     DataSizeTooBig,
 }
 
-impl<'item, 'data> EncodableDataRef<'item, 'data> {
+impl<'data> EncodableDataRef<'data> {
     /// # Safety
     /// You are to warrant that data.len() <= [varint::MAX_SIZE](varint::MAX_SIZE)
-    pub const unsafe fn new_unchecked(data: &[u8]) -> Self {
+    pub const unsafe fn new_unchecked(data: &'data [u8]) -> Self {
         Self(data)
     }
 
     /// # Errors
     /// Fails if the length of the data is bigger than [varint::MAX_SIZE](varint::MAX_SIZE).
-    pub const fn new(data: &[u8]) -> Result<Self, EncodableDataNewError> {
+    pub const fn new(data: &'data [u8]) -> Result<Self, EncodableDataNewError> {
         if data.len() > varint::MAX_SIZE {
             Err(EncodableDataNewError::DataSizeTooBig)
         } else {

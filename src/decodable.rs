@@ -26,10 +26,24 @@ impl<T> WithByteSize<T> {
     }
 }
 
+#[macro_export]
+macro_rules! make_downcastable {
+    ($mut: ident, $ref: ident) => {
+        impl<'data> $mut<'data> {
+            pub fn as_ref(&self) -> $ref<'data> {
+                unsafe {
+                    let data: *const [u8] = self.data;
+                    $ref::new(&*data)
+                }
+            }
+        }
+    };
+}
+
 /// Array of bytes that represents an item (DecodedData)
-pub trait EncodedData<'data, 'result> {
+pub trait EncodedData<'data> {
     type SourceData: 'data;
-    type DecodedData: Sized + 'result;
+    type DecodedData: Sized;
 
     /// # Safety
     /// This method was not made to be called directly. Please see the [Decodable](trait.Decodable)
@@ -50,9 +64,9 @@ pub trait EncodedData<'data, 'result> {
 }
 
 /// Item that can always be decoded from bytes (provided there is enough data)
-pub trait Decodable<'data, 'result>: Sized + 'data {
-    type Data: EncodedData<'data, 'result, DecodedData = Self, SourceData = &'data [u8]>;
-    type DataMut: EncodedData<'data, 'result, DecodedData = Self, SourceData = &'data mut [u8]>;
+pub trait Decodable<'data>: Sized + 'data {
+    type Data: EncodedData<'data, DecodedData = Self, SourceData = &'data [u8]>;
+    type DataMut: EncodedData<'data, DecodedData = Self, SourceData = &'data mut [u8]>;
 
     /// Creates an encoded item handle without checking the data size.
     ///
@@ -105,9 +119,10 @@ pub trait Decodable<'data, 'result>: Sized + 'data {
     /// # Errors
     /// - Fails if data is smaller then the decoded item's expected size.
     fn start_decoding_mut(data: &'data mut [u8]) -> Result<WithByteSize<Self::DataMut>, SizeError> {
+        let data_len = data.len();
         let ret = unsafe { Self::start_decoding_unchecked_mut(data) };
         let size = ret.encoded_size()?;
-        if size > data.len() {
+        if size > data_len {
             return Err(SizeError::MissingBytes);
         }
         Ok(WithByteSize {
@@ -147,7 +162,7 @@ pub trait MissingByteErrorBuilder {
 }
 
 /// Array of bytes that represents an item (DecodedData)
-pub trait FailableEncodedData<'data, 'result> {
+pub trait FailableEncodedData<'data> {
     type DecodeError: Clone
         + Eq
         + PartialEq
@@ -164,7 +179,7 @@ pub trait FailableEncodedData<'data, 'result> {
         + core::fmt::Debug
         + MissingByteErrorBuilder;
     type SourceData: 'data;
-    type DecodedData: Sized + 'result;
+    type DecodedData: Sized;
 
     /// # Safety
     /// This method was not made to be called directly. Please see the [Decodable](trait.Decodable)
@@ -191,20 +206,13 @@ pub trait FailableEncodedData<'data, 'result> {
     fn complete_decoding(&self) -> Result<WithByteSize<Self::DecodedData>, Self::DecodeError>;
 }
 
-pub type FailableEncodedDataSizeError<'data, 'result, T> =
-    <T as FailableEncodedData<'data, 'result>>::SizeError;
-pub type FailableEncodedDataDecodeError<'data, 'result, T> =
-    <T as FailableEncodedData<'data, 'result>>::DecodeError;
+pub type FailableEncodedDataSizeError<'data, T> = <T as FailableEncodedData<'data>>::SizeError;
+pub type FailableEncodedDataDecodeError<'data, T> = <T as FailableEncodedData<'data>>::DecodeError;
 
 /// Item that may be decoded from coherent bytes.
-pub trait FailableDecodable<'data, 'result>: Sized + 'data {
-    type Data: FailableEncodedData<'data, 'result, DecodedData = Self, SourceData = &'data [u8]>;
-    type DataMut: FailableEncodedData<
-        'data,
-        'result,
-        DecodedData = Self,
-        SourceData = &'data mut [u8],
-    >;
+pub trait FailableDecodable<'data>: Sized + 'data {
+    type Data: FailableEncodedData<'data, DecodedData = Self, SourceData = &'data [u8]>;
+    type DataMut: FailableEncodedData<'data, DecodedData = Self, SourceData = &'data mut [u8]>;
     type FullDecodeError: Clone
         + Eq
         + PartialEq
@@ -212,8 +220,8 @@ pub trait FailableDecodable<'data, 'result>: Sized + 'data {
         + PartialOrd
         + core::hash::Hash
         + core::fmt::Debug
-        + From<FailableEncodedDataSizeError<'data, 'result, Self::Data>>
-        + From<FailableEncodedDataDecodeError<'data, 'result, Self::Data>>;
+        + From<FailableEncodedDataSizeError<'data, Self::Data>>
+        + From<FailableEncodedDataDecodeError<'data, Self::Data>>;
 
     /// Creates an encoded item handle without checking the data size.
     ///
@@ -240,8 +248,7 @@ pub trait FailableDecodable<'data, 'result>: Sized + 'data {
     /// - Fails if the data is not parseable.
     fn start_decoding(
         data: &'data [u8],
-    ) -> Result<WithByteSize<Self::Data>, FailableEncodedDataSizeError<'data, 'result, Self::Data>>
-    {
+    ) -> Result<WithByteSize<Self::Data>, FailableEncodedDataSizeError<'data, Self::Data>> {
         let ret = unsafe { Self::start_decoding_unchecked(data) };
         let size = ret.encoded_size()?;
         if size > data.len() {
@@ -274,13 +281,12 @@ pub trait FailableDecodable<'data, 'result>: Sized + 'data {
     /// - Fails if data is smaller then the decoded item's expected size.
     fn start_decoding_mut(
         data: &'data mut [u8],
-    ) -> Result<
-        WithByteSize<Self::DataMut>,
-        FailableEncodedDataSizeError<'data, 'result, Self::DataMut>,
-    > {
+    ) -> Result<WithByteSize<Self::DataMut>, FailableEncodedDataSizeError<'data, Self::DataMut>>
+    {
+        let data_len = data.len();
         let ret = unsafe { Self::start_decoding_unchecked_mut(data) };
         let size = ret.encoded_size()?;
-        if size > data.len() {
+        if size > data_len {
             return Err(<FailableEncodedDataSizeError<'data, Self::DataMut> as MissingByteErrorBuilder>::missing_bytes());
         }
         Ok(WithByteSize {
@@ -305,8 +311,7 @@ pub trait FailableDecodable<'data, 'result>: Sized + 'data {
     /// Fails if the data is not parseable.
     unsafe fn decode_unchecked(
         data: &'data [u8],
-    ) -> Result<WithByteSize<Self>, FailableEncodedDataDecodeError<'data, 'result, Self::Data>>
-    {
+    ) -> Result<WithByteSize<Self>, FailableEncodedDataDecodeError<'data, Self::Data>> {
         Self::start_decoding_unchecked(data).complete_decoding()
     }
 

@@ -24,17 +24,17 @@ use super::Query;
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct ActionQueryRef<'item, 'data> {
+pub struct ActionQueryRef<'data> {
     /// Group with next action
     pub group: bool,
     /// Ask for a response (a status)
     pub response: bool,
     /// Action condition
-    pub query: QueryRef<'item, 'data>,
+    pub query: QueryRef<'data>,
 }
 
 #[cfg(feature = "query")]
-impl<'item, 'data> Encodable for ActionQueryRef<'item, 'data> {
+impl<'data> Encodable for ActionQueryRef<'data> {
     unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
         let mut size = 0;
         *out.add(0) = op_code::ACTION_QUERY
@@ -51,7 +51,7 @@ impl<'item, 'data> Encodable for ActionQueryRef<'item, 'data> {
 }
 
 #[cfg(feature = "query")]
-impl<'item, 'data> ActionQueryRef<'item, 'data> {
+impl<'data> ActionQueryRef<'data> {
     // TODO This is not always required once non alloc query are implemented
     #[cfg(feature = "alloc")]
     pub fn to_owned(&self) -> ActionQuery {
@@ -67,25 +67,25 @@ impl<'item, 'data> ActionQueryRef<'item, 'data> {
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct DecodedActionQueryRef<'item, 'data> {
+pub struct DecodedActionQueryRef<'data> {
     /// Group with next action
     pub group: bool,
     /// Ask for a response (a status)
     pub response: bool,
     /// Action condition
-    pub query: DecodedQueryRef<'item, 'data>,
+    pub query: DecodedQueryRef<'data>,
 }
 
 #[cfg(feature = "decode_query")]
-impl<'item, 'data> DecodedActionQueryRef<'item, 'data> {
-    pub fn as_encodable<'result>(self) -> ActionQueryRef<'result, 'data> {
+impl<'data> DecodedActionQueryRef<'data> {
+    pub fn as_encodable(self) -> ActionQueryRef<'data> {
         self.into()
     }
 }
 
 #[cfg(feature = "decode_query")]
-impl<'item, 'data> From<DecodedActionQueryRef<'item, 'data>> for ActionQueryRef<'item, 'data> {
-    fn from(decoded: DecodedActionQueryRef<'item, 'data>) -> Self {
+impl<'data> From<DecodedActionQueryRef<'data>> for ActionQueryRef<'data> {
+    fn from(decoded: DecodedActionQueryRef<'data>) -> Self {
         Self {
             group: decoded.group,
             response: decoded.response,
@@ -95,12 +95,12 @@ impl<'item, 'data> From<DecodedActionQueryRef<'item, 'data>> for ActionQueryRef<
 }
 
 #[cfg(feature = "decode_query")]
-pub struct EncodedActionQuery<'item, 'data> {
-    data: &'item &'data [u8],
+pub struct EncodedActionQuery<'data> {
+    data: &'data [u8],
 }
 
 #[cfg(feature = "decode_query")]
-impl<'item, 'data> EncodedActionQuery<'item, 'data> {
+impl<'data> EncodedActionQuery<'data> {
     pub fn group(&self) -> bool {
         unsafe { *self.data.get_unchecked(0) & flag::GROUP != 0 }
     }
@@ -109,19 +109,17 @@ impl<'item, 'data> EncodedActionQuery<'item, 'data> {
         unsafe { *self.data.get_unchecked(0) & flag::RESPONSE != 0 }
     }
 
-    pub fn query<'result>(&self) -> EncodedQuery<'result, 'data> {
-        unsafe { DecodedQueryRef::start_decoding_unchecked(&self.data.get_unchecked(1..)) }
+    pub fn query(&self) -> EncodedQuery<'data> {
+        unsafe { DecodedQueryRef::start_decoding_unchecked(self.data.get_unchecked(1..)) }
     }
 }
 
 #[cfg(feature = "decode_query")]
-impl<'item, 'data, 'result> FailableEncodedData<'data, 'result>
-    for EncodedActionQuery<'item, 'data>
-{
+impl<'data> FailableEncodedData<'data> for EncodedActionQuery<'data> {
     type SourceData = &'data [u8];
-    type SizeError = QuerySizeError<'result, 'data>;
-    type DecodeError = UnsupportedQueryCode<'result, 'data>;
-    type DecodedData = DecodedActionQueryRef<'result, 'data>;
+    type SizeError = QuerySizeError<'data>;
+    type DecodeError = UnsupportedQueryCode<'data>;
+    type DecodedData = DecodedActionQueryRef<'data>;
 
     unsafe fn new(data: Self::SourceData) -> Self {
         Self { data }
@@ -148,16 +146,15 @@ impl<'item, 'data, 'result> FailableEncodedData<'data, 'result>
 }
 
 #[cfg(feature = "decode_query")]
-pub struct EncodedActionQueryMut<'item, 'data> {
-    data: &'item mut &'data mut [u8],
+pub struct EncodedActionQueryMut<'data> {
+    data: &'data mut [u8],
 }
 
 #[cfg(feature = "decode_query")]
-impl<'item, 'data> EncodedActionQueryMut<'item, 'data> {
-    pub fn as_ref<'result>(&self) -> EncodedActionQuery<'result, 'data> {
-        unsafe { EncodedActionQuery::new(self.data) }
-    }
+crate::make_downcastable!(EncodedActionQueryMut, EncodedActionQuery);
 
+#[cfg(feature = "decode_query")]
+impl<'data> EncodedActionQueryMut<'data> {
     pub fn group(&self) -> bool {
         self.as_ref().group()
     }
@@ -166,30 +163,37 @@ impl<'item, 'data> EncodedActionQueryMut<'item, 'data> {
         self.as_ref().response()
     }
 
-    pub fn query<'result>(&self) -> EncodedQuery<'result, 'data> {
+    pub fn query(&self) -> EncodedQuery<'data> {
         self.as_ref().query()
     }
 
     pub fn set_group(&mut self, group: bool) {
-        unsafe { *self.data.get_unchecked_mut(0) |= flag::GROUP }
+        if group {
+            unsafe { *self.data.get_unchecked_mut(0) |= flag::GROUP }
+        } else {
+            unsafe { *self.data.get_unchecked_mut(0) &= !flag::GROUP }
+        }
     }
 
-    pub fn set_response(&mut self, group: bool) {
-        unsafe { *self.data.get_unchecked_mut(0) |= flag::RESPONSE }
+    pub fn set_response(&mut self, response: bool) {
+        if response {
+            unsafe { *self.data.get_unchecked_mut(0) |= flag::RESPONSE }
+        } else {
+            unsafe { *self.data.get_unchecked_mut(0) &= !flag::RESPONSE }
+        }
     }
 
-    pub fn query_mut<'result>(&'data mut self) -> EncodedQueryMut<'result, 'data> {
+    pub fn query_mut(&mut self) -> EncodedQueryMut {
         unsafe { DecodedQueryRef::start_decoding_unchecked_mut(self.data.get_unchecked_mut(1..)) }
     }
 }
 
-impl<'item, 'data, 'result> FailableEncodedData<'data, 'result>
-    for EncodedActionQueryMut<'item, 'data>
-{
+#[cfg(feature = "decode_query")]
+impl<'data> FailableEncodedData<'data> for EncodedActionQueryMut<'data> {
     type SourceData = &'data mut [u8];
-    type SizeError = QuerySizeError<'result, 'data>;
-    type DecodeError = UnsupportedQueryCode<'result, 'data>;
-    type DecodedData = DecodedActionQueryRef<'result, 'data>;
+    type SizeError = QuerySizeError<'data>;
+    type DecodeError = UnsupportedQueryCode<'data>;
+    type DecodedData = DecodedActionQueryRef<'data>;
 
     unsafe fn new(data: Self::SourceData) -> Self {
         Self { data }
@@ -205,12 +209,10 @@ impl<'item, 'data, 'result> FailableEncodedData<'data, 'result>
 }
 
 #[cfg(feature = "decode_query")]
-impl<'item, 'data, 'result> FailableDecodable<'data, 'result>
-    for DecodedActionQueryRef<'item, 'data>
-{
-    type Data = EncodedActionQuery<'item, 'data>;
-    type DataMut = EncodedActionQueryMut<'item, 'data>;
-    type FullDecodeError = QuerySizeError<'result, 'data>;
+impl<'data> FailableDecodable<'data> for DecodedActionQueryRef<'data> {
+    type Data = EncodedActionQuery<'data>;
+    type DataMut = EncodedActionQueryMut<'data>;
+    type FullDecodeError = QuerySizeError<'data>;
 }
 
 /// Executes next action group depending on a condition

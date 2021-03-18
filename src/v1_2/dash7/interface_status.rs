@@ -10,9 +10,9 @@ pub const MAX_SIZE: usize = 10 + addressee::MAX_SIZE + 5;
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct AddresseeWithNlsStateRef<'item, 'data> {
-    addressee: AddresseeRef<'item, 'data>,
-    nls_state: Option<&'item &'data [u8; 5]>,
+pub struct AddresseeWithNlsStateRef<'data> {
+    addressee: AddresseeRef<'data>,
+    nls_state: Option<&'data [u8; 5]>,
 }
 
 #[cfg_attr(feature = "repr_c", repr(C))]
@@ -22,11 +22,11 @@ pub enum AddresseeWithNlsStateError {
     NlsMethodMismatchNlsStatePresence,
 }
 
-impl<'item, 'data> AddresseeWithNlsStateRef<'item, 'data> {
+impl<'data> AddresseeWithNlsStateRef<'data> {
     /// # Safety
     /// You are to make sure the nls_state exists if and only if the addressee nls_method is None.
-    pub unsafe fn new_unchecked<'source>(
-        addressee: AddresseeRef<'source, 'data>,
+    pub unsafe fn new_unchecked(
+        addressee: AddresseeRef<'data>,
         nls_state: Option<&'data [u8; 5]>,
     ) -> Self {
         Self {
@@ -38,8 +38,8 @@ impl<'item, 'data> AddresseeWithNlsStateRef<'item, 'data> {
     /// # Errors
     /// Fails if the nls_method is None and the nls_state is defined or if the nls_method is
     /// not None and the nls_state is None.
-    pub fn new<'source>(
-        addressee: AddresseeRef<'source, 'data>,
+    pub fn new(
+        addressee: AddresseeRef<'data>,
         nls_state: Option<&'data [u8; 5]>,
     ) -> Result<Self, AddresseeWithNlsStateError> {
         let security = addressee.nls_method != NlsMethod::None;
@@ -92,17 +92,17 @@ impl AddresseeWithNlsState {
     }
 }
 
-pub struct EncodedAddresseeWithNlsState<'item, 'data> {
-    data: &'item &'data [u8],
+pub struct EncodedAddresseeWithNlsState<'data> {
+    data: &'data [u8],
 }
 
-impl<'item, 'data> EncodedAddresseeWithNlsState<'item, 'data> {
+impl<'data> EncodedAddresseeWithNlsState<'data> {
     pub fn has_auth(&self) -> bool {
         self.addressee().nls_method() != NlsMethod::None
     }
 
-    pub fn addressee<'result>(&self) -> EncodedAddressee<'result, 'data> {
-        AddresseeRef::start_decoding_unchecked(self.data)
+    pub fn addressee(&self) -> EncodedAddressee<'data> {
+        unsafe { AddresseeRef::start_decoding_unchecked(self.data) }
     }
 
     pub fn nls_state(&self) -> Option<&'data [u8]> {
@@ -127,11 +127,9 @@ impl<'item, 'data> EncodedAddresseeWithNlsState<'item, 'data> {
     }
 }
 
-impl<'item, 'data, 'result> EncodedData<'data, 'result>
-    for EncodedAddresseeWithNlsState<'item, 'data>
-{
+impl<'data> EncodedData<'data> for EncodedAddresseeWithNlsState<'data> {
     type SourceData = &'data [u8];
-    type DecodedData = AddresseeWithNlsStateRef<'result, 'data>;
+    type DecodedData = AddresseeWithNlsStateRef<'data>;
 
     unsafe fn new(data: Self::SourceData) -> Self {
         Self { data }
@@ -173,20 +171,21 @@ impl<'item, 'data, 'result> EncodedData<'data, 'result>
     }
 }
 
-pub struct EncodedAddresseeWithNlsStateMut<'item, 'data> {
-    data: &'item mut &'data mut [u8],
+pub struct EncodedAddresseeWithNlsStateMut<'data> {
+    data: &'data mut [u8],
 }
 
-impl<'item, 'data> EncodedAddresseeWithNlsStateMut<'item, 'data> {
-    pub fn as_ref<'result>(&self) -> EncodedAddresseeWithNlsState<'result, 'data> {
-        unsafe { EncodedAddresseeWithNlsState::new(self.data) }
-    }
+crate::make_downcastable!(
+    EncodedAddresseeWithNlsStateMut,
+    EncodedAddresseeWithNlsState
+);
 
+impl<'data> EncodedAddresseeWithNlsStateMut<'data> {
     pub fn has_auth(&self) -> bool {
         self.as_ref().has_auth()
     }
 
-    pub fn addressee<'result>(&self) -> EncodedAddressee<'result, 'data> {
+    pub fn addressee(&self) -> EncodedAddressee<'data> {
         self.as_ref().addressee()
     }
 
@@ -202,29 +201,27 @@ impl<'item, 'data> EncodedAddresseeWithNlsStateMut<'item, 'data> {
         self.as_ref().encoded_size_unchecked()
     }
 
-    pub fn addressee_mut<'result>(&self) -> EncodedAddresseeMut<'result, 'data> {
-        AddresseeRef::start_decoding_unchecked_mut(self.data)
+    pub fn addressee_mut(&mut self) -> EncodedAddresseeMut {
+        unsafe { AddresseeRef::start_decoding_unchecked_mut(self.data) }
     }
 
-    pub fn nls_state_mut(&self) -> Option<&'data mut [u8]> {
+    pub fn nls_state_mut(&mut self) -> Option<&'data mut [u8]> {
         if self.addressee().nls_method() == NlsMethod::None {
             None
         } else {
             unsafe {
                 let size = self.addressee().encoded_size_unchecked();
-                let data =
-                    &*(self.data.get_unchecked(size..).get_unchecked(..5).as_ptr() as *mut [u8; 5]);
-                Some(&mut *data)
+                let data = &mut *(self.data.get_unchecked(size..).get_unchecked(..5).as_ptr()
+                    as *mut [u8; 5]);
+                Some(data)
             }
         }
     }
 }
 
-impl<'item, 'data, 'result> EncodedData<'data, 'result>
-    for EncodedAddresseeWithNlsStateMut<'item, 'data>
-{
+impl<'data> EncodedData<'data> for EncodedAddresseeWithNlsStateMut<'data> {
     type SourceData = &'data mut [u8];
-    type DecodedData = AddresseeWithNlsStateRef<'result, 'data>;
+    type DecodedData = AddresseeWithNlsStateRef<'data>;
 
     unsafe fn new(data: Self::SourceData) -> Self {
         Self { data }
@@ -239,16 +236,16 @@ impl<'item, 'data, 'result> EncodedData<'data, 'result>
     }
 }
 
-impl<'item, 'data, 'result> Decodable<'data, 'result> for AddresseeWithNlsStateRef<'item, 'data> {
-    type Data = EncodedAddresseeWithNlsState<'item, 'data>;
-    type DataMut = EncodedAddresseeWithNlsStateMut<'item, 'data>;
+impl<'data> Decodable<'data> for AddresseeWithNlsStateRef<'data> {
+    type Data = EncodedAddresseeWithNlsState<'data>;
+    type DataMut = EncodedAddresseeWithNlsStateMut<'data>;
 }
 
 /// Writes data to a file.
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct Dash7InterfaceStatusRef<'item, 'data> {
+pub struct Dash7InterfaceStatusRef<'data> {
     pub ch_header: u8,
     pub ch_idx: u16,
     pub rxlev: u8,
@@ -258,10 +255,10 @@ pub struct Dash7InterfaceStatusRef<'item, 'data> {
     pub token: u8,
     pub seq: u8,
     pub resp_to: u8,
-    pub addressee_with_nls_state: AddresseeWithNlsStateRef<'item, 'data>,
+    pub addressee_with_nls_state: AddresseeWithNlsStateRef<'data>,
 }
 
-impl<'item, 'data> Encodable for Dash7InterfaceStatusRef<'item, 'data> {
+impl<'data> Encodable for Dash7InterfaceStatusRef<'data> {
     unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
         let mut size = 10;
         *out.add(0) = self.ch_header;
@@ -294,7 +291,7 @@ impl<'item, 'data> Encodable for Dash7InterfaceStatusRef<'item, 'data> {
     }
 }
 
-impl<'item, 'data> Dash7InterfaceStatusRef<'item, 'data> {
+impl<'data> Dash7InterfaceStatusRef<'data> {
     pub fn to_owned(&self) -> Dash7InterfaceStatus {
         Dash7InterfaceStatus {
             ch_header: self.ch_header,
@@ -311,11 +308,11 @@ impl<'item, 'data> Dash7InterfaceStatusRef<'item, 'data> {
     }
 }
 
-pub struct EncodedDash7InterfaceStatus<'item, 'data> {
-    data: &'item &'data [u8],
+pub struct EncodedDash7InterfaceStatus<'data> {
+    data: &'data [u8],
 }
 
-impl<'item, 'data> EncodedDash7InterfaceStatus<'item, 'data> {
+impl<'data> EncodedDash7InterfaceStatus<'data> {
     pub fn ch_header(&self) -> u8 {
         unsafe { *self.data.get_unchecked(0) }
     }
@@ -349,13 +346,11 @@ impl<'item, 'data> EncodedDash7InterfaceStatus<'item, 'data> {
     pub fn resp_to(&self) -> u8 {
         unsafe { *self.data.get_unchecked(9) }
     }
-    pub fn addressee<'result>(&self) -> EncodedAddressee<'result, 'data> {
+    pub fn addressee(&self) -> EncodedAddressee<'data> {
         unsafe { AddresseeRef::start_decoding_unchecked(self.data.get_unchecked(10..)) }
     }
 
-    pub fn addressee_with_nls_state<'result>(
-        &self,
-    ) -> EncodedAddresseeWithNlsState<'result, 'data> {
+    pub fn addressee_with_nls_state(&self) -> EncodedAddresseeWithNlsState<'data> {
         unsafe { EncodedAddresseeWithNlsState::new(self.data.get_unchecked(10..)) }
     }
 
@@ -368,11 +363,9 @@ impl<'item, 'data> EncodedDash7InterfaceStatus<'item, 'data> {
     }
 }
 
-impl<'item, 'data, 'result> EncodedData<'data, 'result>
-    for EncodedDash7InterfaceStatus<'item, 'data>
-{
+impl<'data> EncodedData<'data> for EncodedDash7InterfaceStatus<'data> {
     type SourceData = &'data [u8];
-    type DecodedData = Dash7InterfaceStatusRef<'result, 'data>;
+    type DecodedData = Dash7InterfaceStatusRef<'data>;
 
     unsafe fn new(data: Self::SourceData) -> Self {
         Self { data }
@@ -415,15 +408,13 @@ impl<'item, 'data, 'result> EncodedData<'data, 'result>
     }
 }
 
-pub struct EncodedDash7InterfaceStatusMut<'item, 'data> {
-    data: &'item mut &'data mut [u8],
+pub struct EncodedDash7InterfaceStatusMut<'data> {
+    data: &'data mut [u8],
 }
 
-impl<'item, 'data> EncodedDash7InterfaceStatusMut<'item, 'data> {
-    pub const fn as_ref<'result>(&self) -> EncodedDash7InterfaceStatus<'result, 'data> {
-        EncodedDash7InterfaceStatus::new(self.data)
-    }
+crate::make_downcastable!(EncodedDash7InterfaceStatusMut, EncodedDash7InterfaceStatus);
 
+impl<'data> EncodedDash7InterfaceStatusMut<'data> {
     pub fn ch_header(&self) -> u8 {
         self.as_ref().ch_header()
     }
@@ -452,13 +443,11 @@ impl<'item, 'data> EncodedDash7InterfaceStatusMut<'item, 'data> {
     pub fn resp_to(&self) -> u8 {
         self.as_ref().resp_to()
     }
-    pub fn addressee<'result>(&self) -> EncodedAddressee<'result, 'data> {
+    pub fn addressee(&self) -> EncodedAddressee<'data> {
         self.as_ref().addressee()
     }
 
-    pub fn addressee_with_nls_state<'result>(
-        &self,
-    ) -> EncodedAddresseeWithNlsState<'result, 'data> {
+    pub fn addressee_with_nls_state(&self) -> EncodedAddresseeWithNlsState<'data> {
         self.as_ref().addressee_with_nls_state()
     }
 
@@ -498,22 +487,18 @@ impl<'item, 'data> EncodedDash7InterfaceStatusMut<'item, 'data> {
     pub fn set_resp_to(&mut self, resp_to: u8) {
         unsafe { *self.data.get_unchecked_mut(9) = resp_to }
     }
-    pub fn addressee_mut<'result>(&mut self) -> EncodedAddresseeMut<'result, 'data> {
+    pub fn addressee_mut(&mut self) -> EncodedAddresseeMut {
         unsafe { AddresseeRef::start_decoding_unchecked_mut(self.data.get_unchecked_mut(10..)) }
     }
 
-    pub fn addressee_with_nls_state_mut<'result>(
-        &mut self,
-    ) -> EncodedAddresseeWithNlsStateMut<'result, 'data> {
+    pub fn addressee_with_nls_state_mut(&mut self) -> EncodedAddresseeWithNlsStateMut {
         unsafe { EncodedAddresseeWithNlsStateMut::new(self.data.get_unchecked_mut(10..)) }
     }
 }
 
-impl<'item, 'data, 'result> EncodedData<'data, 'result>
-    for EncodedDash7InterfaceStatusMut<'item, 'data>
-{
+impl<'data> EncodedData<'data> for EncodedDash7InterfaceStatusMut<'data> {
     type SourceData = &'data mut [u8];
-    type DecodedData = Dash7InterfaceStatusRef<'result, 'data>;
+    type DecodedData = Dash7InterfaceStatusRef<'data>;
 
     unsafe fn new(data: Self::SourceData) -> Self {
         Self { data }
@@ -528,9 +513,9 @@ impl<'item, 'data, 'result> EncodedData<'data, 'result>
     }
 }
 
-impl<'item, 'data, 'result> Decodable<'data, 'result> for Dash7InterfaceStatusRef<'item, 'data> {
-    type Data = EncodedDash7InterfaceStatus<'item, 'data>;
-    type DataMut = EncodedDash7InterfaceStatusMut<'item, 'data>;
+impl<'data> Decodable<'data> for Dash7InterfaceStatusRef<'data> {
+    type Data = EncodedDash7InterfaceStatus<'data>;
+    type DataMut = EncodedDash7InterfaceStatusMut<'data>;
 }
 
 #[cfg_attr(feature = "repr_c", repr(C))]

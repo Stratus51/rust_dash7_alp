@@ -12,23 +12,21 @@ pub const SIZE: usize = 1;
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct NopRef<'item, 'data> {
+pub struct NopRef<'data> {
     /// Group with next action
     pub group: bool,
     /// Ask for a response (status)
     pub response: bool,
     /// Empty data required for lifetime compilation.
-    item_phantom: core::marker::PhantomData<&'item ()>,
-    data_phantom: core::marker::PhantomData<&'data ()>,
+    phantom: core::marker::PhantomData<&'data ()>,
 }
 
-impl<'item, 'data> NopRef<'item, 'data> {
+impl<'data> NopRef<'data> {
     pub const fn new(group: bool, response: bool) -> Self {
         Self {
             group,
             response,
-            item_phantom: core::marker::PhantomData,
-            data_phantom: core::marker::PhantomData,
+            phantom: core::marker::PhantomData,
         }
     }
 
@@ -47,7 +45,7 @@ impl<'item, 'data> NopRef<'item, 'data> {
     }
 }
 
-impl<'item, 'data> Encodable for NopRef<'item, 'data> {
+impl<'data> Encodable for NopRef<'data> {
     unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
         *out.add(0) = op_code::NOP
             | if self.group { flag::GROUP } else { 0 }
@@ -60,11 +58,11 @@ impl<'item, 'data> Encodable for NopRef<'item, 'data> {
     }
 }
 
-pub struct EncodedNop<'item, 'data> {
-    data: &'item &'data [u8],
+pub struct EncodedNop<'data> {
+    data: &'data [u8],
 }
 
-impl<'item, 'data> EncodedNop<'item, 'data> {
+impl<'data> EncodedNop<'data> {
     pub fn group(&self) -> bool {
         unsafe { *self.data.get_unchecked(0) & flag::GROUP != 0 }
     }
@@ -78,9 +76,9 @@ impl<'item, 'data> EncodedNop<'item, 'data> {
     }
 }
 
-impl<'item, 'data, 'result> EncodedData<'data, 'result> for EncodedNop<'item, 'data> {
+impl<'data, 'result> EncodedData<'data> for EncodedNop<'data> {
     type SourceData = &'data [u8];
-    type DecodedData = NopRef<'result, 'data>;
+    type DecodedData = NopRef<'data>;
 
     unsafe fn new(data: Self::SourceData) -> Self {
         Self { data }
@@ -102,15 +100,13 @@ impl<'item, 'data, 'result> EncodedData<'data, 'result> for EncodedNop<'item, 'd
     }
 }
 
-pub struct EncodedNopMut<'item, 'data> {
-    data: &'item mut &'data mut [u8],
+pub struct EncodedNopMut<'data> {
+    data: &'data mut [u8],
 }
 
-impl<'item, 'data> EncodedNopMut<'item, 'data> {
-    pub fn as_ref<'result>(&self) -> EncodedNop<'result, 'data> {
-        unsafe { EncodedNop::new(self.data) }
-    }
+crate::make_downcastable!(EncodedNopMut, EncodedNop);
 
+impl<'data> EncodedNopMut<'data> {
     pub fn group(&self) -> bool {
         self.as_ref().group()
     }
@@ -140,9 +136,9 @@ impl<'item, 'data> EncodedNopMut<'item, 'data> {
     }
 }
 
-impl<'item, 'data, 'result> EncodedData<'data, 'result> for EncodedNopMut<'item, 'data> {
+impl<'data> EncodedData<'data> for EncodedNopMut<'data> {
     type SourceData = &'data mut [u8];
-    type DecodedData = NopRef<'result, 'data>;
+    type DecodedData = NopRef<'data>;
 
     unsafe fn new(data: Self::SourceData) -> Self {
         Self { data }
@@ -157,9 +153,9 @@ impl<'item, 'data, 'result> EncodedData<'data, 'result> for EncodedNopMut<'item,
     }
 }
 
-impl<'item, 'data, 'result> Decodable<'data, 'result> for NopRef<'item, 'data> {
-    type Data = EncodedNop<'item, 'data>;
-    type DataMut = EncodedNopMut<'item, 'data>;
+impl<'data> Decodable<'data> for NopRef<'data> {
+    type Data = EncodedNop<'data>;
+    type DataMut = EncodedNopMut<'data>;
 }
 
 /// Does nothing.

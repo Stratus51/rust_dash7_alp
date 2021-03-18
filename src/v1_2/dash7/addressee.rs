@@ -108,14 +108,14 @@ impl AddresseeIdentifierType {
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub enum AddresseeIdentifierRef<'item, 'data> {
+pub enum AddresseeIdentifierRef<'data> {
     Nbid(u8),
     Noid,
-    Uid(&'item &'data [u8; 8]),
-    Vid(&'item &'data [u8; 2]),
+    Uid(&'data [u8; 8]),
+    Vid(&'data [u8; 2]),
 }
 
-impl<'item, 'data> AddresseeIdentifierRef<'item, 'data> {
+impl<'data> AddresseeIdentifierRef<'data> {
     pub fn id_type(&self) -> AddresseeIdentifierType {
         match self {
             Self::Nbid(_) => AddresseeIdentifierType::Nbid,
@@ -168,13 +168,13 @@ impl AddresseeIdentifier {
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct AddresseeRef<'item, 'data> {
+pub struct AddresseeRef<'data> {
     pub nls_method: NlsMethod,
     pub access_class: AccessClass,
-    pub identifier: AddresseeIdentifierRef<'item, 'data>,
+    pub identifier: AddresseeIdentifierRef<'data>,
 }
 
-impl<'item, 'data> Encodable for AddresseeRef<'item, 'data> {
+impl<'data> Encodable for AddresseeRef<'data> {
     unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
         let id_type = self.identifier.id_type();
         *out.add(0) = (id_type as u8) << 4 | (self.nls_method as u8);
@@ -194,7 +194,7 @@ impl<'item, 'data> Encodable for AddresseeRef<'item, 'data> {
     }
 }
 
-impl<'item, 'data> AddresseeRef<'item, 'data> {
+impl<'data> AddresseeRef<'data> {
     pub fn to_owned(&self) -> Addressee {
         Addressee {
             nls_method: self.nls_method,
@@ -204,11 +204,11 @@ impl<'item, 'data> AddresseeRef<'item, 'data> {
     }
 }
 
-pub struct EncodedAddressee<'item, 'data> {
-    data: &'item &'data [u8],
+pub struct EncodedAddressee<'data> {
+    data: &'data [u8],
 }
 
-impl<'item, 'data> EncodedAddressee<'item, 'data> {
+impl<'data> EncodedAddressee<'data> {
     pub fn id_type(&self) -> AddresseeIdentifierType {
         unsafe { AddresseeIdentifierType::from_unchecked(*self.data.get_unchecked(0) >> 4 & 0x07) }
     }
@@ -221,7 +221,7 @@ impl<'item, 'data> EncodedAddressee<'item, 'data> {
         unsafe { AccessClass(*self.data.get_unchecked(1)) }
     }
 
-    pub fn identifier<'result>(&self) -> AddresseeIdentifierRef<'result, 'data> {
+    pub fn identifier(&self) -> AddresseeIdentifierRef<'data> {
         unsafe {
             match self.id_type() {
                 AddresseeIdentifierType::Nbid => {
@@ -249,9 +249,9 @@ impl<'item, 'data> EncodedAddressee<'item, 'data> {
     }
 }
 
-impl<'item, 'data, 'result> EncodedData<'data, 'result> for EncodedAddressee<'item, 'data> {
+impl<'data> EncodedData<'data> for EncodedAddressee<'data> {
     type SourceData = &'data [u8];
-    type DecodedData = AddresseeRef<'item, 'data>;
+    type DecodedData = AddresseeRef<'data>;
 
     unsafe fn new(data: Self::SourceData) -> Self {
         Self { data }
@@ -283,15 +283,29 @@ impl<'item, 'data, 'result> EncodedData<'data, 'result> for EncodedAddressee<'it
     }
 }
 
-pub struct EncodedAddresseeMut<'item, 'data> {
-    data: &'item mut &'data mut [u8],
+pub struct EncodedAddresseeMut<'data> {
+    data: &'data mut [u8],
 }
 
-impl<'item, 'data> EncodedAddresseeMut<'item, 'data> {
-    pub const fn as_ref<'result>(&self) -> EncodedAddressee<'result, 'data> {
-        EncodedAddressee::new(self.data)
-    }
+crate::make_downcastable!(EncodedAddresseeMut, EncodedAddressee);
 
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+pub enum AddresseeSetNlsMethodError {
+    /// The requested nls method change implies an nls_state field size change. Thus is impossible.
+    NlsStateMismatch,
+}
+
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+pub enum AddresseeSetIdentifierError {
+    /// The given identifier byte size does not match the encoded identifier byte size.
+    IdMismatch,
+}
+
+impl<'data> EncodedAddresseeMut<'data> {
     pub fn id_type(&self) -> AddresseeIdentifierType {
         self.as_ref().id_type()
     }
@@ -304,7 +318,7 @@ impl<'item, 'data> EncodedAddresseeMut<'item, 'data> {
         self.as_ref().access_class()
     }
 
-    pub fn identifier<'result>(&self) -> AddresseeIdentifierRef<'result, 'data> {
+    pub fn identifier(&self) -> AddresseeIdentifierRef<'data> {
         self.as_ref().identifier()
     }
 
@@ -328,19 +342,40 @@ impl<'item, 'data> EncodedAddresseeMut<'item, 'data> {
     /// Changing this can break the coherence of the data.
     /// Make sure that the nls_state size stays the same whatever value you replace the nls method
     /// with.
-    pub fn set_nls_method(&mut self, nls_method: NlsMethod) {
+    pub unsafe fn set_nls_method_unchecked(&mut self, nls_method: NlsMethod) {
         *self.data.get_unchecked_mut(0) &= 0xF0;
         *self.data.get_unchecked_mut(0) |= nls_method as u8;
     }
 
-    pub fn set_access_class(&mut self, access_class: AccessClass) {
-        *self.data.get_unchecked_mut(1) = access_class.u8();
+    /// # Errors
+    /// Fails if the nls method change implies a nls_state field byte size change.
+    pub fn set_nls_method(
+        &mut self,
+        nls_method: NlsMethod,
+    ) -> Result<(), AddresseeSetNlsMethodError> {
+        match self.nls_method() {
+            NlsMethod::None => match nls_method {
+                NlsMethod::None => (),
+                _ => return Err(AddresseeSetNlsMethodError::NlsStateMismatch),
+            },
+            _ => {
+                if let NlsMethod::None = &nls_method {
+                    return Err(AddresseeSetNlsMethodError::NlsStateMismatch);
+                }
+            }
+        }
+        unsafe { self.set_nls_method_unchecked(nls_method) };
+        Ok(())
     }
 
-    pub unsafe fn set_identifier_unchecked<'param>(
-        &mut self,
-        identifier: AddresseeIdentifierRef<'param, 'data>,
-    ) {
+    pub fn set_access_class(&mut self, access_class: AccessClass) {
+        unsafe {
+            *self.data.get_unchecked_mut(1) = access_class.u8();
+        }
+    }
+
+    /// # Safety
+    pub unsafe fn set_identifier_unchecked(&mut self, identifier: AddresseeIdentifierRef<'data>) {
         match identifier {
             AddresseeIdentifierRef::Nbid(n) => {
                 *self.data.get_unchecked_mut(2) = n;
@@ -355,21 +390,24 @@ impl<'item, 'data> EncodedAddresseeMut<'item, 'data> {
         }
     }
 
-    pub fn set_identifier<'param>(
+    /// # Errors
+    /// Returns an error if the given identifier is not of the same type as the encoded one,
+    /// because it would imply an encoded size mismatch.
+    pub fn set_identifier(
         &mut self,
-        identifier: AddresseeIdentifierRef<'param, 'data>,
-    ) -> Result<(), ()> {
+        identifier: AddresseeIdentifierRef<'data>,
+    ) -> Result<(), AddresseeSetIdentifierError> {
         if self.id_type() != identifier.id_type() {
-            return Err(());
+            return Err(AddresseeSetIdentifierError::IdMismatch);
         }
         unsafe { self.set_identifier_unchecked(identifier) };
         Ok(())
     }
 }
 
-impl<'item, 'data, 'result> EncodedData<'data, 'result> for EncodedAddresseeMut<'data, 'result> {
+impl<'data> EncodedData<'data> for EncodedAddresseeMut<'data> {
     type SourceData = &'data mut [u8];
-    type DecodedData = AddresseeRef<'result, 'data>;
+    type DecodedData = AddresseeRef<'data>;
 
     unsafe fn new(data: Self::SourceData) -> Self {
         Self { data }
@@ -384,9 +422,9 @@ impl<'item, 'data, 'result> EncodedData<'data, 'result> for EncodedAddresseeMut<
     }
 }
 
-impl<'item, 'data, 'result> Decodable<'data, 'result> for AddresseeRef<'item, 'data> {
-    type Data = EncodedAddressee<'item, 'data>;
-    type DataMut = EncodedAddresseeMut<'item, 'data>;
+impl<'data> Decodable<'data> for AddresseeRef<'data> {
+    type Data = EncodedAddressee<'data>;
+    type DataMut = EncodedAddresseeMut<'data>;
 }
 
 #[cfg_attr(feature = "repr_c", repr(C))]

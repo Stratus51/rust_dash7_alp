@@ -13,7 +13,7 @@ pub const SIZE: usize = 2;
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct ReadFilePropertiesRef<'item, 'data> {
+pub struct ReadFilePropertiesRef<'data> {
     /// Group with next action
     pub group: bool,
     /// Ask for a response (status)
@@ -21,18 +21,16 @@ pub struct ReadFilePropertiesRef<'item, 'data> {
     /// File ID of the file to read
     pub file_id: FileId,
     /// Empty data required for lifetime compilation.
-    item_phantom: core::marker::PhantomData<&'item ()>,
-    data_phantom: core::marker::PhantomData<&'data ()>,
+    phantom: core::marker::PhantomData<&'data ()>,
 }
 
-impl<'item, 'data> ReadFilePropertiesRef<'item, 'data> {
+impl<'data> ReadFilePropertiesRef<'data> {
     pub const fn new(group: bool, response: bool, file_id: FileId) -> Self {
         Self {
             group,
             response,
             file_id,
-            item_phantom: core::marker::PhantomData,
-            data_phantom: core::marker::PhantomData,
+            phantom: core::marker::PhantomData,
         }
     }
 
@@ -55,7 +53,7 @@ impl<'item, 'data> ReadFilePropertiesRef<'item, 'data> {
     }
 }
 
-impl<'item, 'data> Encodable for ReadFilePropertiesRef<'item, 'data> {
+impl<'data> Encodable for ReadFilePropertiesRef<'data> {
     unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
         *out.add(0) = op_code::READ_FILE_PROPERTIES
             | if self.group { flag::GROUP } else { 0 }
@@ -70,11 +68,11 @@ impl<'item, 'data> Encodable for ReadFilePropertiesRef<'item, 'data> {
     }
 }
 
-pub struct EncodedReadFileProperties<'item, 'data> {
-    data: &'item &'data [u8],
+pub struct EncodedReadFileProperties<'data> {
+    data: &'data [u8],
 }
 
-impl<'item, 'data> EncodedReadFileProperties<'item, 'data> {
+impl<'data> EncodedReadFileProperties<'data> {
     pub fn group(&self) -> bool {
         unsafe { *self.data.get_unchecked(0) & flag::GROUP != 0 }
     }
@@ -92,9 +90,9 @@ impl<'item, 'data> EncodedReadFileProperties<'item, 'data> {
     }
 }
 
-impl<'item, 'data> EncodedData<'item, 'data> for EncodedReadFileProperties<'item, 'data> {
+impl<'data> EncodedData<'data> for EncodedReadFileProperties<'data> {
     type SourceData = &'data [u8];
-    type DecodedData = ReadFilePropertiesRef<'item, 'data>;
+    type DecodedData = ReadFilePropertiesRef<'data>;
 
     unsafe fn new(data: Self::SourceData) -> Self {
         Self { data }
@@ -117,15 +115,13 @@ impl<'item, 'data> EncodedData<'item, 'data> for EncodedReadFileProperties<'item
     }
 }
 
-pub struct EncodedReadFilePropertiesMut<'item, 'data> {
-    data: &'item mut &'data mut [u8],
+pub struct EncodedReadFilePropertiesMut<'data> {
+    data: &'data mut [u8],
 }
 
-impl<'item, 'data> EncodedReadFilePropertiesMut<'item, 'data> {
-    pub fn as_ref<'result>(&'data self) -> EncodedReadFileProperties<'result, 'data> {
-        unsafe { EncodedReadFileProperties::new(self.data) }
-    }
+crate::make_downcastable!(EncodedReadFilePropertiesMut, EncodedReadFileProperties);
 
+impl<'data> EncodedReadFilePropertiesMut<'data> {
     pub fn group(&self) -> bool {
         self.as_ref().group()
     }
@@ -155,11 +151,9 @@ impl<'item, 'data> EncodedReadFilePropertiesMut<'item, 'data> {
     }
 }
 
-impl<'item, 'data, 'result> EncodedData<'data, 'result>
-    for EncodedReadFilePropertiesMut<'item, 'data>
-{
+impl<'data> EncodedData<'data> for EncodedReadFilePropertiesMut<'data> {
     type SourceData = &'data mut [u8];
-    type DecodedData = ReadFilePropertiesRef<'result, 'data>;
+    type DecodedData = ReadFilePropertiesRef<'data>;
 
     unsafe fn new(data: Self::SourceData) -> Self {
         Self { data }
@@ -174,9 +168,9 @@ impl<'item, 'data, 'result> EncodedData<'data, 'result>
     }
 }
 
-impl<'item, 'data, 'result> Decodable<'data, 'result> for ReadFilePropertiesRef<'item, 'data> {
-    type Data = EncodedReadFileProperties<'item, 'data>;
-    type DataMut = EncodedReadFilePropertiesMut<'item, 'data>;
+impl<'data> Decodable<'data> for ReadFilePropertiesRef<'data> {
+    type Data = EncodedReadFileProperties<'data>;
+    type DataMut = EncodedReadFilePropertiesMut<'data>;
 }
 
 /// Reads the properties of a file

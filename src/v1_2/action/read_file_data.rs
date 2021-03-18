@@ -17,7 +17,7 @@ pub const MAX_SIZE: usize = 2 + 2 * varint::MAX_SIZE;
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct ReadFileDataRef<'item, 'data> {
+pub struct ReadFileDataRef<'data> {
     /// Group with next action
     pub group: bool,
     /// Ask for a response (read data via ReturnFileData)
@@ -31,11 +31,10 @@ pub struct ReadFileDataRef<'item, 'data> {
     /// Number of bytes to read after offset
     pub length: Varint,
     /// Empty data required for lifetime compilation.
-    pub item_phantom: core::marker::PhantomData<&'item ()>,
-    pub data_phantom: core::marker::PhantomData<&'data ()>,
+    pub phantom: core::marker::PhantomData<&'data ()>,
 }
 
-impl<'item, 'data> ReadFileDataRef<'item, 'data> {
+impl<'data> ReadFileDataRef<'data> {
     /// Most common builder `ReadFileData` builder.
     ///
     /// group = false
@@ -47,8 +46,7 @@ impl<'item, 'data> ReadFileDataRef<'item, 'data> {
             file_id,
             offset,
             length,
-            item_phantom: core::marker::PhantomData,
-            data_phantom: core::marker::PhantomData,
+            phantom: core::marker::PhantomData,
         }
     }
 
@@ -63,7 +61,7 @@ impl<'item, 'data> ReadFileDataRef<'item, 'data> {
     }
 }
 
-impl<'item, 'data> Encodable for ReadFileDataRef<'item, 'data> {
+impl<'data> Encodable for ReadFileDataRef<'data> {
     unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
         let mut size = 0;
         *out.add(0) = op_code::READ_FILE_DATA as u8
@@ -81,11 +79,11 @@ impl<'item, 'data> Encodable for ReadFileDataRef<'item, 'data> {
     }
 }
 
-pub struct EncodedReadFileData<'item, 'data> {
-    data: &'item &'data [u8],
+pub struct EncodedReadFileData<'data> {
+    data: &'data [u8],
 }
 
-impl<'item, 'data> EncodedReadFileData<'item, 'data> {
+impl<'data> EncodedReadFileData<'data> {
     pub fn group(&self) -> bool {
         unsafe { *self.data.get_unchecked(0) & flag::GROUP != 0 }
     }
@@ -98,11 +96,11 @@ impl<'item, 'data> EncodedReadFileData<'item, 'data> {
         unsafe { FileId(*self.data.get_unchecked(1)) }
     }
 
-    pub fn offset(&self) -> EncodedVarint {
+    pub fn offset(&self) -> EncodedVarint<'data> {
         unsafe { Varint::start_decoding_unchecked(self.data.get_unchecked(2..)) }
     }
 
-    pub fn length(&self) -> EncodedVarint {
+    pub fn length(&self) -> EncodedVarint<'data> {
         unsafe {
             let offset_size = (((*self.data.get_unchecked(2) & 0xC0) >> 6) + 1) as usize;
             Varint::start_decoding_unchecked(self.data.get_unchecked(2 + offset_size..))
@@ -122,9 +120,9 @@ impl<'item, 'data> EncodedReadFileData<'item, 'data> {
     }
 }
 
-impl<'item, 'data, 'result> EncodedData<'data, 'result> for EncodedReadFileData<'item, 'data> {
+impl<'data> EncodedData<'data> for EncodedReadFileData<'data> {
     type SourceData = &'data [u8];
-    type DecodedData = ReadFileDataRef<'result, 'data>;
+    type DecodedData = ReadFileDataRef<'data>;
 
     unsafe fn new(data: Self::SourceData) -> Self {
         Self { data }
@@ -175,15 +173,13 @@ impl<'item, 'data, 'result> EncodedData<'data, 'result> for EncodedReadFileData<
 }
 
 // TODO Mutating methods test
-pub struct EncodedReadFileDataMut<'item, 'data> {
-    data: &'item mut &'data mut [u8],
+pub struct EncodedReadFileDataMut<'data> {
+    data: &'data mut [u8],
 }
 
-impl<'item, 'data> EncodedReadFileDataMut<'item, 'data> {
-    pub fn as_ref<'result>(&self) -> EncodedReadFileData<'result, 'data> {
-        unsafe { EncodedReadFileData::new(self.data) }
-    }
+crate::make_downcastable!(EncodedReadFileDataMut, EncodedReadFileData);
 
+impl<'data> EncodedReadFileDataMut<'data> {
     pub fn group(&self) -> bool {
         self.as_ref().group()
     }
@@ -196,11 +192,11 @@ impl<'item, 'data> EncodedReadFileDataMut<'item, 'data> {
         self.as_ref().file_id()
     }
 
-    pub fn offset<'result>(&'data self) -> EncodedVarint<'result, 'data> {
+    pub fn offset(&self) -> EncodedVarint<'data> {
         self.as_ref().offset()
     }
 
-    pub fn length<'result>(&'data self) -> EncodedVarint<'result, 'data> {
+    pub fn length(&self) -> EncodedVarint<'data> {
         self.as_ref().length()
     }
 
@@ -232,11 +228,11 @@ impl<'item, 'data> EncodedReadFileDataMut<'item, 'data> {
         unsafe { *self.data.get_unchecked_mut(1) = file_id.u8() }
     }
 
-    pub fn offset_mut<'result>(&'data mut self) -> EncodedVarintMut<'result, 'data> {
+    pub fn offset_mut(&mut self) -> EncodedVarintMut {
         unsafe { Varint::start_decoding_unchecked_mut(self.data.get_unchecked_mut(2..)) }
     }
 
-    pub fn length_mut<'result>(&'data mut self) -> EncodedVarintMut<'result, 'data> {
+    pub fn length_mut(&mut self) -> EncodedVarintMut {
         unsafe {
             let offset_size = self.offset().encoded_size_unchecked() as usize;
             Varint::start_decoding_unchecked_mut(self.data.get_unchecked_mut(2 + offset_size..))
@@ -244,9 +240,9 @@ impl<'item, 'data> EncodedReadFileDataMut<'item, 'data> {
     }
 }
 
-impl<'item, 'data, 'result> EncodedData<'data, 'result> for EncodedReadFileDataMut<'item, 'data> {
+impl<'data> EncodedData<'data> for EncodedReadFileDataMut<'data> {
     type SourceData = &'data mut [u8];
-    type DecodedData = ReadFileDataRef<'result, 'data>;
+    type DecodedData = ReadFileDataRef<'data>;
 
     unsafe fn new(data: Self::SourceData) -> Self {
         Self { data }
@@ -256,14 +252,14 @@ impl<'item, 'data, 'result> EncodedData<'data, 'result> for EncodedReadFileDataM
         self.as_ref().encoded_size()
     }
 
-    fn complete_decoding(&'item self) -> WithByteSize<Self::DecodedData> {
+    fn complete_decoding(&self) -> WithByteSize<Self::DecodedData> {
         self.as_ref().complete_decoding()
     }
 }
 
-impl<'item, 'data, 'result> Decodable<'data, 'result> for ReadFileDataRef<'item, 'data> {
-    type Data = EncodedReadFileData<'item, 'data>;
-    type DataMut = EncodedReadFileDataMut<'item, 'data>;
+impl<'data> Decodable<'data> for ReadFileDataRef<'data> {
+    type Data = EncodedReadFileData<'data>;
+    type DataMut = EncodedReadFileDataMut<'data>;
 }
 
 /// Read data from a file.
