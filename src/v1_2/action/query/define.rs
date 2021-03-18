@@ -1,3 +1,5 @@
+use crate::v1_2::error::{QueryCodeError, QueryComparisonTypeError, QueryRangeComparisonTypeError};
+
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
@@ -32,7 +34,7 @@ impl QueryComparisonType {
 
     /// # Errors
     /// Returns an error if n > 7
-    pub const fn from(n: u8) -> Result<Self, ()> {
+    pub const fn from(n: u8) -> Result<Self, QueryComparisonTypeError> {
         Ok(match n {
             0 => Self::Inequal,
             1 => Self::Equal,
@@ -42,7 +44,7 @@ impl QueryComparisonType {
             5 => Self::GreaterThanOrEqual,
             6 => Self::Rfu6,
             7 => Self::Rfu7,
-            _ => return Err(()),
+            _ => return Err(QueryComparisonTypeError::Invalid),
         })
     }
 }
@@ -81,7 +83,7 @@ impl QueryRangeComparisonType {
 
     /// # Errors
     /// Returns an error if n > 7
-    pub const fn from(n: u8) -> Result<Self, ()> {
+    pub const fn from(n: u8) -> Result<Self, QueryRangeComparisonTypeError> {
         Ok(match n {
             0 => Self::NotInRange,
             1 => Self::InRange,
@@ -91,7 +93,7 @@ impl QueryRangeComparisonType {
             5 => Self::Rfu5,
             6 => Self::Rfu6,
             7 => Self::Rfu7,
-            _ => return Err(()),
+            _ => return Err(QueryRangeComparisonTypeError::Invalid),
         })
     }
 }
@@ -110,7 +112,7 @@ pub enum QueryCode {
 impl QueryCode {
     /// # Errors
     /// Returns an error if the query code is unknown
-    pub const fn from(n: u8) -> Result<Self, ()> {
+    pub const fn from(n: u8) -> Result<Self, QueryCodeError> {
         #[cfg_attr(not(feature = "decode_query"), allow(unreachable_code))]
         Ok(match n {
             // 0 => QueryCode::NonVoid,
@@ -123,8 +125,9 @@ impl QueryCode {
             // 7 => QueryCode::StringTokenSearch,
             // TODO This should be an enumeration of the queries instead of all_queries, in case
             // they are selected manually.
+            n if n <= 7 => return Err(QueryCodeError::Unsupported { code: n }),
             #[cfg_attr(not(feature = "all_queries"), allow(unreachable_patterns))]
-            _ => return Err(()),
+            _ => return Err(QueryCodeError::Invalid),
         })
     }
 }

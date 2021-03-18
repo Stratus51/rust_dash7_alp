@@ -1,52 +1,43 @@
-#[cfg(feature = "query")]
-use super::super::super::define::flag;
-#[cfg(feature = "query")]
-use super::super::super::define::op_code::OpCode;
 #[cfg(feature = "decode_query")]
-use super::super::super::error::{PtrUnknownQueryCode, QueryActionDecodeError, UnknownQueryCode};
+use crate::decodable::{FailableDecodable, FailableEncodedData, WithByteSize};
+#[cfg(feature = "query")]
+use crate::encodable::Encodable;
+#[cfg(feature = "query")]
+use crate::v1_2::define::flag;
+#[cfg(feature = "query")]
+use crate::v1_2::define::op_code;
+#[cfg(feature = "decode_query")]
+use crate::v1_2::error::{QuerySizeError, UnsupportedQueryCode};
 
 #[cfg(feature = "query")]
 use super::QueryRef;
 #[cfg(feature = "decode_query")]
-use super::{DecodableQuery, DecodedQueryRef};
+use super::{DecodedQueryRef, EncodedQuery, EncodedQueryMut};
 
 #[cfg(feature = "query")]
 #[cfg(feature = "alloc")]
 use super::Query;
 
+// TODO Rename to be more generic, and be reused in break_query
 /// Executes next action group depending on a condition
 #[cfg(feature = "query")]
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct ActionQueryRef<'item> {
+pub struct ActionQueryRef<'data> {
     /// Group with next action
     pub group: bool,
     /// Ask for a response (a status)
     pub response: bool,
     /// Action condition
-    pub query: QueryRef<'item>,
+    pub query: QueryRef<'data>,
 }
 
 #[cfg(feature = "query")]
-impl<'item> ActionQueryRef<'item> {
-    /// Encodes the Item into a data pointer without checking the size of the
-    /// receiving byte array.
-    ///
-    /// This method is meant to allow unchecked cross language wrapper libraries
-    /// to implement an unchecked call without having to build a fake slice with
-    /// a fake size.
-    ///
-    /// It is not meant to be used inside a Rust library/binary.
-    ///
-    /// # Safety
-    /// You are responsible for checking that `out.len()` >= [`self.size()`](#method.size).
-    ///
-    /// Failing that will result in the program writing out of bound in
-    /// random parts of your memory.
-    pub unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
+impl<'data> Encodable for ActionQueryRef<'data> {
+    unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
         let mut size = 0;
-        *out.add(0) = OpCode::ActionQuery as u8
+        *out.add(0) = op_code::ACTION_QUERY
             | if self.group { flag::GROUP } else { 0 }
             | if self.response { flag::RESPONSE } else { 0 };
         size += 1;
@@ -54,37 +45,13 @@ impl<'item> ActionQueryRef<'item> {
         size
     }
 
-    /// Encodes the Item without checking the size of the receiving
-    /// byte array.
-    ///
-    /// # Safety
-    /// You are responsible for checking that `out.len()` >= [`self.size()`](#method.size).
-    ///
-    /// Failing that will result in the program writing out of bound in
-    /// random parts of your memory.
-    pub unsafe fn encode_in_unchecked(&self, out: &mut [u8]) -> usize {
-        self.encode_in_ptr(out.as_mut_ptr())
+    fn encoded_size(&self) -> usize {
+        1 + self.query.encoded_size()
     }
+}
 
-    /// Encodes the value into pre allocated array.
-    ///
-    /// # Errors
-    /// Fails if the pre allocated array is smaller than [self.size()](#method.size)
-    /// returning the number of input bytes required.
-    pub fn encode_in(&self, out: &mut [u8]) -> Result<usize, usize> {
-        let size = self.size();
-        if out.len() >= size {
-            Ok(unsafe { self.encode_in_ptr(out.as_mut_ptr()) })
-        } else {
-            Err(size)
-        }
-    }
-
-    /// Size in bytes of the encoded equivalent of the item.
-    pub fn size(&self) -> usize {
-        1 + self.query.size()
-    }
-
+#[cfg(feature = "query")]
+impl<'data> ActionQueryRef<'data> {
     // TODO This is not always required once non alloc query are implemented
     #[cfg(feature = "alloc")]
     pub fn to_owned(&self) -> ActionQuery {
@@ -100,155 +67,25 @@ impl<'item> ActionQueryRef<'item> {
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct DecodedActionQueryRef<'item> {
+pub struct DecodedActionQueryRef<'data> {
     /// Group with next action
     pub group: bool,
     /// Ask for a response (a status)
     pub response: bool,
     /// Action condition
-    pub query: DecodedQueryRef<'item>,
+    pub query: DecodedQueryRef<'data>,
 }
 
 #[cfg(feature = "decode_query")]
-impl<'item> DecodedActionQueryRef<'item> {
-    /// Creates a decodable item from a data pointer without checking the data size.
-    ///
-    /// This method is meant to allow unchecked cross language wrapper libraries
-    /// to implement an unchecked call without having to build a fake slice with
-    /// a fake size.
-    ///
-    /// It is not meant to be used inside a Rust library/binary.
-    ///
-    /// # Errors
-    /// - Fails if the querycode is unknown.
-    ///
-    /// # Safety
-    /// You are to check that:
-    /// - The decodable object fits in the given data:
-    /// [`decodable.smaller_than(data.len())`](struct.DecodableActionQuery.html#method.smaller_than)
-    ///
-    /// Failing that might result in reading and interpreting data outside the given
-    /// array (depending on what is done with the resulting object).
-    pub unsafe fn start_decoding_ptr<'data>(
-        data: *const u8,
-    ) -> Result<DecodableActionQuery<'data>, PtrUnknownQueryCode<'data>> {
-        DecodableActionQuery::from_ptr(data).map_err(|code| PtrUnknownQueryCode {
-            code,
-            remaining_data: data.add(1),
-            phantom: core::marker::PhantomData,
-        })
-    }
-
-    /// Creates a decodable item without checking the data size.
-    ///
-    /// # Errors
-    /// - Fails if the querycode is unknown.
-    ///
-    /// # Safety
-    /// You are to check that:
-    /// - The decodable object fits in the given data:
-    /// [`decodable.smaller_than(data.len())`](struct.DecodableActionQuery.html#method.smaller_than)
-    ///
-    /// Failing that might result in reading and interpreting data outside the given
-    /// array (depending on what is done with the resulting object).
-    pub unsafe fn start_decoding_unchecked(
-        data: &[u8],
-    ) -> Result<DecodableActionQuery, UnknownQueryCode> {
-        DecodableActionQuery::new(data).map_err(|code| UnknownQueryCode {
-            code,
-            remaining_data: data.get_unchecked(1..),
-        })
-    }
-
-    /// Returns a Decodable object and its expected byte size.
-    ///
-    /// This decodable item allows each parts of the item to be decoded independently.
-    ///
-    /// # Errors
-    /// - Fails if data is smaller then the decoded expected size.
-    pub fn start_decoding(
-        data: &[u8],
-    ) -> Result<(DecodableActionQuery, usize), QueryActionDecodeError> {
-        if data.len() < 2 {
-            return Err(QueryActionDecodeError::MissingBytes(2));
-        }
-        let ret = unsafe {
-            Self::start_decoding_unchecked(data)
-                .map_err(QueryActionDecodeError::UnknownQueryCode)?
-        };
-        let size = ret
-            .smaller_than(data.len())
-            .map_err(QueryActionDecodeError::MissingBytes)?;
-        Ok((ret, size))
-    }
-
-    /// Decodes the Item from a data pointer.
-    ///
-    /// Returns the decoded data and the number of bytes consumed to produce it.
-    ///
-    /// This method is meant to allow unchecked cross language wrapper libraries
-    /// to implement an unchecked call without having to build a fake slice with
-    /// a fake size.
-    ///
-    /// It is not meant to be used inside a Rust library/binary.
-    ///
-    /// # Errors
-    /// Fails if the parsed data corresponds to an invalid querycode.
-    /// Returns the invalid querycode.
-    ///
-    /// # Safety
-    /// May attempt to read bytes after the end of the array.
-    ///
-    /// You are to check that:
-    /// - The resulting size of the data consumed is smaller than the size of the
-    /// decoded data.
-    ///
-    /// Failing that will result in reading and interpreting data outside the given
-    /// array.
-    pub unsafe fn decode_ptr(data: *const u8) -> Result<(Self, usize), PtrUnknownQueryCode<'item>> {
-        Ok(Self::start_decoding_ptr(data)?.complete_decoding())
-    }
-
-    /// Decodes the Item from bytes.
-    ///
-    /// Returns the decoded data and the number of bytes consumed to produce it.
-    ///
-    /// # Errors
-    /// Fails if the parsed data corresponds to an invalid querycode.
-    /// Returns the invalid querycode.
-    ///
-    /// # Safety
-    /// May attempt to read bytes after the end of the array.
-    ///
-    /// You are to check that:
-    /// - The resulting size of the data consumed is smaller than the size of the
-    /// decoded data.
-    ///
-    /// Failing that will result in reading and interpreting data outside the given
-    /// array.
-    pub unsafe fn decode_unchecked(data: &'item [u8]) -> Result<(Self, usize), UnknownQueryCode> {
-        Ok(Self::start_decoding_unchecked(data)?.complete_decoding())
-    }
-
-    /// Decodes the item from bytes.
-    ///
-    /// On success, returns the decoded data and the number of bytes consumed
-    /// to produce it.
-    ///
-    /// # Errors
-    /// - Fails if data is smaller then the decoded expected size.
-    pub fn decode(data: &'item [u8]) -> Result<(Self, usize), QueryActionDecodeError> {
-        Ok(Self::start_decoding(data)?.0.complete_decoding())
-    }
-
-    pub fn as_action_query(self) -> ActionQueryRef<'item> {
+impl<'data> DecodedActionQueryRef<'data> {
+    pub fn as_encodable(self) -> ActionQueryRef<'data> {
         self.into()
     }
 }
 
 #[cfg(feature = "decode_query")]
-impl<'item> From<DecodedActionQueryRef<'item>> for ActionQueryRef<'item> {
-    fn from(decoded: DecodedActionQueryRef<'item>) -> Self {
+impl<'data> From<DecodedActionQueryRef<'data>> for ActionQueryRef<'data> {
+    fn from(decoded: DecodedActionQueryRef<'data>) -> Self {
         Self {
             group: decoded.group,
             response: decoded.response,
@@ -258,78 +95,124 @@ impl<'item> From<DecodedActionQueryRef<'item>> for ActionQueryRef<'item> {
 }
 
 #[cfg(feature = "decode_query")]
-pub struct DecodableActionQuery<'data> {
-    data: *const u8,
-    data_life: core::marker::PhantomData<&'data ()>,
-    query: DecodableQuery<'data>,
+pub struct EncodedActionQuery<'data> {
+    data: &'data [u8],
 }
 
 #[cfg(feature = "decode_query")]
-impl<'data> DecodableActionQuery<'data> {
-    /// # Errors
-    /// - Fails if the querycode is unknown
-    fn new(data: &'data [u8]) -> Result<Self, u8> {
-        Self::from_ptr(data.as_ptr())
-    }
-
-    /// # Errors
-    /// - Fails if the querycode is unknown
-    fn from_ptr(data: *const u8) -> Result<Self, u8> {
-        let query = unsafe { DecodedQueryRef::start_decoding_ptr(data.add(1))? };
-        Ok(Self {
-            data,
-            data_life: core::marker::PhantomData,
-            query,
-        })
-    }
-
-    /// Decodes the size of the Item in bytes
-    ///
-    /// # Safety
-    /// This requires reading the data bytes that may be out of bound to be calculate.
-    pub unsafe fn expected_size(&self) -> usize {
-        1 + self.query.expected_size()
-    }
-
-    /// Checks whether the given data_size is bigger than the decoded object expected size.
-    ///
-    /// On success, returns the size of the decoded object.
-    ///
-    /// # Errors
-    /// - Fails if the data_size is smaller than the required data size to decode the object.
-    pub fn smaller_than(&self, data_size: usize) -> Result<usize, usize> {
-        self.query
-            .smaller_than(data_size - 1)
-            .map(|size| 1 + size)
-            .map_err(|size| 1 + size)
-    }
-
+impl<'data> EncodedActionQuery<'data> {
     pub fn group(&self) -> bool {
-        unsafe { *self.data.add(0) & flag::GROUP != 0 }
+        unsafe { *self.data.get_unchecked(0) & flag::GROUP != 0 }
     }
 
     pub fn response(&self) -> bool {
-        unsafe { *self.data.add(0) & flag::RESPONSE != 0 }
+        unsafe { *self.data.get_unchecked(0) & flag::RESPONSE != 0 }
     }
 
-    pub fn query(&self) -> &DecodableQuery<'data> {
-        &self.query
+    pub fn query(&self) -> EncodedQuery<'data> {
+        unsafe { DecodedQueryRef::start_decoding_unchecked(self.data.get_unchecked(1..)) }
+    }
+}
+
+#[cfg(feature = "decode_query")]
+impl<'data> FailableEncodedData<'data> for EncodedActionQuery<'data> {
+    type SourceData = &'data [u8];
+    type SizeError = QuerySizeError<'data>;
+    type DecodeError = UnsupportedQueryCode<'data>;
+    type DecodedData = DecodedActionQueryRef<'data>;
+
+    unsafe fn new(data: Self::SourceData) -> Self {
+        Self { data }
     }
 
-    /// Fully decode the Item
-    ///
-    /// Returns the decoded data and the number of bytes consumed to produce it.
-    pub fn complete_decoding(&self) -> (DecodedActionQueryRef<'data>, usize) {
-        let (query, query_size) = self.query.complete_decoding();
-        (
-            DecodedActionQueryRef {
+    fn encoded_size(&self) -> Result<usize, Self::SizeError> {
+        self.query().encoded_size().map(|size| 1 + size)
+    }
+
+    fn complete_decoding(&self) -> Result<WithByteSize<Self::DecodedData>, Self::DecodeError> {
+        let WithByteSize {
+            item: query,
+            byte_size: query_size,
+        } = self.query().complete_decoding()?;
+        Ok(WithByteSize {
+            item: DecodedActionQueryRef {
                 group: self.group(),
                 response: self.response(),
                 query,
             },
-            1 + query_size,
-        )
+            byte_size: 1 + query_size,
+        })
     }
+}
+
+#[cfg(feature = "decode_query")]
+pub struct EncodedActionQueryMut<'data> {
+    data: &'data mut [u8],
+}
+
+#[cfg(feature = "decode_query")]
+crate::make_downcastable!(EncodedActionQueryMut, EncodedActionQuery);
+
+#[cfg(feature = "decode_query")]
+impl<'data> EncodedActionQueryMut<'data> {
+    pub fn group(&self) -> bool {
+        self.as_ref().group()
+    }
+
+    pub fn response(&self) -> bool {
+        self.as_ref().response()
+    }
+
+    pub fn query(&self) -> EncodedQuery<'data> {
+        self.as_ref().query()
+    }
+
+    pub fn set_group(&mut self, group: bool) {
+        if group {
+            unsafe { *self.data.get_unchecked_mut(0) |= flag::GROUP }
+        } else {
+            unsafe { *self.data.get_unchecked_mut(0) &= !flag::GROUP }
+        }
+    }
+
+    pub fn set_response(&mut self, response: bool) {
+        if response {
+            unsafe { *self.data.get_unchecked_mut(0) |= flag::RESPONSE }
+        } else {
+            unsafe { *self.data.get_unchecked_mut(0) &= !flag::RESPONSE }
+        }
+    }
+
+    pub fn query_mut(&mut self) -> EncodedQueryMut {
+        unsafe { DecodedQueryRef::start_decoding_unchecked_mut(self.data.get_unchecked_mut(1..)) }
+    }
+}
+
+#[cfg(feature = "decode_query")]
+impl<'data> FailableEncodedData<'data> for EncodedActionQueryMut<'data> {
+    type SourceData = &'data mut [u8];
+    type SizeError = QuerySizeError<'data>;
+    type DecodeError = UnsupportedQueryCode<'data>;
+    type DecodedData = DecodedActionQueryRef<'data>;
+
+    unsafe fn new(data: Self::SourceData) -> Self {
+        Self { data }
+    }
+
+    fn encoded_size(&self) -> Result<usize, Self::SizeError> {
+        self.as_ref().encoded_size()
+    }
+
+    fn complete_decoding(&self) -> Result<WithByteSize<Self::DecodedData>, Self::DecodeError> {
+        self.as_ref().complete_decoding()
+    }
+}
+
+#[cfg(feature = "decode_query")]
+impl<'data> FailableDecodable<'data> for DecodedActionQueryRef<'data> {
+    type Data = EncodedActionQuery<'data>;
+    type DataMut = EncodedActionQueryMut<'data>;
+    type FullDecodeError = QuerySizeError<'data>;
 }
 
 /// Executes next action group depending on a condition
@@ -364,7 +247,9 @@ impl ActionQuery {
 #[cfg(test)]
 mod test {
     #![allow(clippy::unwrap_in_result, clippy::panic, clippy::expect_used)]
-    use super::super::define::QueryComparisonType;
+    use super::super::{
+        comparison_with_value::ComparisonWithValueRef, define::QueryComparisonType,
+    };
     use super::*;
     use crate::{
         define::{EncodableDataRef, FileId, MaskedValueRef},
@@ -381,19 +266,30 @@ mod test {
             assert_eq!(&encoded[..size], data);
 
             // Test decode(data) == op
-            let (ret, size) = DecodedActionQueryRef::decode(data).unwrap();
+            let WithByteSize {
+                item: ret,
+                byte_size: size,
+            } = DecodedActionQueryRef::decode(data).unwrap();
             assert_eq!(size, data.len());
-            assert_eq!(ret.as_action_query(), op);
+            assert_eq!(ret.as_encodable(), op);
 
             // Test partial_decode == op
-            let (decoder, expected_size) = DecodedActionQueryRef::start_decoding(data).unwrap();
+            let WithByteSize {
+                item: decoder,
+                byte_size: expected_size,
+            } = DecodedActionQueryRef::start_decoding(data).unwrap();
             assert_eq!(expected_size, size);
             assert_eq!(
                 op,
                 ActionQueryRef {
                     group: decoder.group(),
                     response: decoder.response(),
-                    query: decoder.query().complete_decoding().0.as_query(),
+                    query: decoder
+                        .query()
+                        .complete_decoding()
+                        .unwrap()
+                        .item
+                        .as_encodable(),
                 }
             );
         }
@@ -401,19 +297,17 @@ mod test {
             ActionQueryRef {
                 group: false,
                 response: true,
-                query: QueryRef::ComparisonWithValue(
-                    super::super::comparison_with_value::ComparisonWithValueRef {
-                        signed_data: true,
-                        comparison_type: QueryComparisonType::Equal,
-                        compare_value: MaskedValueRef::new(
-                            EncodableDataRef::new(&[0x00, 0x01, 0x02]).unwrap(),
-                            None,
-                        )
-                        .unwrap(),
-                        file_id: FileId::new(0x42),
-                        offset: Varint::new(0x40_00).unwrap(),
-                    },
-                ),
+                query: QueryRef::ComparisonWithValue(ComparisonWithValueRef {
+                    signed_data: true,
+                    comparison_type: QueryComparisonType::Equal,
+                    compare_value: MaskedValueRef::new(
+                        EncodableDataRef::new(&[0x00, 0x01, 0x02]).unwrap(),
+                        None,
+                    )
+                    .unwrap(),
+                    file_id: FileId::new(0x42),
+                    offset: Varint::new(0x40_00).unwrap(),
+                }),
             },
             &[
                 0x40 | 0x08,
@@ -436,27 +330,28 @@ mod test {
         let op = ActionQueryRef {
             group: true,
             response: false,
-            query: QueryRef::ComparisonWithValue(
-                super::super::comparison_with_value::ComparisonWithValueRef {
-                    signed_data: true,
-                    comparison_type: QueryComparisonType::Equal,
-                    compare_value: MaskedValueRef::new(
-                        EncodableDataRef::new(&[0x00, 0x01, 0x02]).unwrap(),
-                        None,
-                    )
-                    .unwrap(),
-                    file_id: FileId::new(0x42),
-                    offset: Varint::new(0x40_00).unwrap(),
-                },
-            ),
+            query: QueryRef::ComparisonWithValue(ComparisonWithValueRef {
+                signed_data: true,
+                comparison_type: QueryComparisonType::Equal,
+                compare_value: MaskedValueRef::new(
+                    EncodableDataRef::new(&[0x00, 0x01, 0x02]).unwrap(),
+                    None,
+                )
+                .unwrap(),
+                file_id: FileId::new(0x42),
+                offset: Varint::new(0x40_00).unwrap(),
+            }),
         };
 
         // Test decode(op.encode_in()) == op
         let mut encoded = [0_u8; TOT_SIZE];
         let size_encoded = op.encode_in(&mut encoded).unwrap();
-        let (ret, size_decoded) = DecodedActionQueryRef::decode(&encoded).unwrap();
+        let WithByteSize {
+            item: ret,
+            byte_size: size_decoded,
+        } = DecodedActionQueryRef::decode(&encoded).unwrap();
         assert_eq!(size_encoded, size_decoded);
-        assert_eq!(ret.as_action_query(), op);
+        assert_eq!(ret.as_encodable(), op);
 
         // Test decode(data).encode_in() == data
         let mut encoded2 = [0_u8; TOT_SIZE];

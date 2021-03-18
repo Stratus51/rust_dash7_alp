@@ -22,17 +22,38 @@ use alloc::prelude::v1::Box;
 /// if your goal is to transmit this payload over the air in an IoT context, chances are,
 /// you will have trouble transmitting anything bigger than 256 bytes.
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct MaskedRangeRef<'a> {
+pub struct MaskedRangeRef<'data> {
+    compare_length: usize,
     start: usize,
     end: usize,
-    bitmap: Option<&'a [u8]>,
+    bitmap: Option<&'data [u8]>,
 }
 
-impl<'a> MaskedRangeRef<'a> {
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+pub enum MaskedRangeNewError {
+    /// Bitmap length does not correspond to the start..end interval
+    BadBitmapLength { expected: usize },
+    /// End < Start
+    InvalidRange,
+    /// End is not encodable is `size` bytes.
+    BoundOverflowSize,
+}
+
+impl<'data> MaskedRangeRef<'data> {
     /// # Safety
     /// If bitmap is defined you are to warrant that bitmap.len() == `floor((end - start + 6)/8)`.
-    pub const unsafe fn new_unchecked(start: usize, end: usize, bitmap: Option<&'a [u8]>) -> Self {
-        Self { start, end, bitmap }
+    pub const unsafe fn new_unchecked(
+        compare_length: usize,
+        start: usize,
+        end: usize,
+        bitmap: Option<&'data [u8]>,
+    ) -> Self {
+        Self {
+            compare_length,
+            start,
+            end,
+            bitmap,
+        }
     }
 
     pub const fn bitmap_size(start: usize, end: usize) -> usize {
@@ -41,14 +62,31 @@ impl<'a> MaskedRangeRef<'a> {
 
     /// # Errors
     /// Fails if the bitmap is defined and bitmap.len() != `floor((end - start + 6)/8)`.
-    pub fn new(start: usize, end: usize, bitmap: Option<&'a [u8]>) -> Result<Self, usize> {
+    pub fn new(
+        compare_length: usize,
+        start: usize,
+        end: usize,
+        bitmap: Option<&'data [u8]>,
+    ) -> Result<Self, MaskedRangeNewError> {
         if let Some(bitmap) = &bitmap {
             let bitmap_size = Self::bitmap_size(start, end);
             if bitmap.len() != bitmap_size {
-                return Err(bitmap_size);
+                return Err(MaskedRangeNewError::BadBitmapLength {
+                    expected: bitmap_size,
+                });
             }
+        } else if end < start {
+            return Err(MaskedRangeNewError::InvalidRange);
+        } else if compare_length < core::mem::size_of::<usize>()
+            && end >= (1 << (8 * compare_length))
+        {
+            return Err(MaskedRangeNewError::BoundOverflowSize);
         }
-        Ok(unsafe { Self::new_unchecked(start, end, bitmap) })
+        Ok(unsafe { Self::new_unchecked(compare_length, start, end, bitmap) })
+    }
+
+    pub const fn compare_length(&self) -> usize {
+        self.compare_length
     }
 
     pub const fn start(&self) -> usize {
@@ -59,7 +97,7 @@ impl<'a> MaskedRangeRef<'a> {
         self.end
     }
 
-    pub const fn bitmap(&self) -> Option<&'a [u8]> {
+    pub const fn bitmap(&self) -> Option<&'data [u8]> {
         self.bitmap
     }
 
@@ -78,6 +116,7 @@ impl<'a> MaskedRangeRef<'a> {
     #[cfg(feature = "alloc")]
     pub fn to_owned(&self) -> MaskedRange {
         MaskedRange {
+            compare_length: self.compare_length,
             start: self.start,
             end: self.end,
             bitmap: self.bitmap.map(|bitmap| bitmap.into()),
@@ -88,6 +127,7 @@ impl<'a> MaskedRangeRef<'a> {
 #[cfg(feature = "alloc")]
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct MaskedRange {
+    compare_length: usize,
     start: usize,
     end: usize,
     bitmap: Option<Box<[u8]>>,
@@ -97,6 +137,7 @@ pub struct MaskedRange {
 impl MaskedRange {
     pub fn as_ref(&self) -> MaskedRangeRef {
         MaskedRangeRef {
+            compare_length: self.compare_length,
             start: self.start,
             end: self.end,
             bitmap: self.bitmap.as_ref().map(|bitmap| bitmap.as_ref()),

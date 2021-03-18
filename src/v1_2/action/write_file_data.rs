@@ -1,10 +1,10 @@
-use super::super::define::flag;
-use super::super::define::op_code::OpCode;
-use super::super::error::BasicDecodeError;
+use crate::decodable::{Decodable, EncodedData, SizeError, WithByteSize};
 #[cfg(feature = "alloc")]
 use crate::define::EncodableData;
 use crate::define::{EncodableDataRef, FileId};
-use crate::varint::{DecodableVarint, Varint};
+use crate::encodable::Encodable;
+use crate::v1_2::define::{flag, op_code};
+use crate::varint::{EncodedVarint, EncodedVarintMut, Varint};
 
 // TODO Is it the role of this library to teach the semantics of the protocol or should it just
 // focus on documenting its usage, based on the assumption that that semantic is already known?
@@ -12,7 +12,7 @@ use crate::varint::{DecodableVarint, Varint};
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct WriteFileDataRef<'item> {
+pub struct WriteFileDataRef<'data> {
     /// Group with next action
     pub group: bool,
     /// Ask for a response (a status)
@@ -22,190 +22,21 @@ pub struct WriteFileDataRef<'item> {
     /// Offset at which to start the reading
     pub offset: Varint,
     /// Data to write
-    pub data: EncodableDataRef<'item>,
+    pub data: EncodableDataRef<'data>,
 }
 
-impl<'item> WriteFileDataRef<'item> {
+impl<'data> WriteFileDataRef<'data> {
     /// Most common builder `WriteFileData` builder.
     ///
     /// group = false
     /// response = true
-    pub fn new(file_id: FileId, offset: Varint, data: EncodableDataRef<'item>) -> Self {
+    pub fn new(file_id: FileId, offset: Varint, data: EncodableDataRef<'data>) -> Self {
         Self {
             group: false,
             response: true,
             file_id,
             offset,
             data,
-        }
-    }
-
-    /// Encodes the Item into a data pointer without checking the size of the
-    /// receiving byte array.
-    ///
-    /// This method is meant to allow unchecked cross language wrapper libraries
-    /// to implement an unchecked call without having to build a fake slice with
-    /// a fake size.
-    ///
-    /// It is not meant to be used inside a Rust library/binary.
-    ///
-    /// # Safety
-    /// You are responsible for checking that `out.len()` >= [`self.size()`](#method.size).
-    ///
-    /// Failing that will result in the program writing out of bound in
-    /// random parts of your memory.
-    pub unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
-        let mut size = 0;
-        *out.add(0) = OpCode::WriteFileData as u8
-            | if self.group { flag::GROUP } else { 0 }
-            | if self.response { flag::RESPONSE } else { 0 };
-        *out.add(1) = self.file_id.u8();
-        size += 2;
-        size += self.offset.encode_in_ptr(out.add(size));
-        let length = Varint::new_unchecked(self.data.len() as u32);
-        size += length.encode_in_ptr(out.add(size));
-        out.add(size)
-            .copy_from(self.data.data().as_ptr(), length.u32() as usize);
-        size += length.u32() as usize;
-        size
-    }
-
-    /// Encodes the Item without checking the size of the receiving
-    /// byte array.
-    ///
-    /// # Safety
-    /// You are responsible for checking that `out.len()` >= [`self.size()`](#method.size).
-    ///
-    /// Failing that will result in the program writing out of bound in
-    /// random parts of your memory.
-    pub unsafe fn encode_in_unchecked(&self, out: &mut [u8]) -> usize {
-        self.encode_in_ptr(out.as_mut_ptr())
-    }
-
-    /// Encodes the value into pre allocated array.
-    ///
-    /// # Errors
-    /// Fails if the pre allocated array is smaller than [`self.size()`](#method.size)
-    /// returning the number of input bytes required.
-    pub fn encode_in(&self, out: &mut [u8]) -> Result<usize, usize> {
-        let size = self.size();
-        if out.len() >= size {
-            Ok(unsafe { self.encode_in_ptr(out.as_mut_ptr()) })
-        } else {
-            Err(size)
-        }
-    }
-
-    /// Size in bytes of the encoded equivalent of the item.
-    pub fn size(&self) -> usize {
-        let length = unsafe { Varint::new_unchecked(self.data.len() as u32) };
-        1 + 1 + self.offset.size() + length.size()
-    }
-
-    /// Creates a decodable item from a data pointer without checking the data size.
-    ///
-    /// This method is meant to allow unchecked cross language wrapper libraries
-    /// to implement an unchecked call without having to build a fake slice with
-    /// a fake size.
-    ///
-    /// It is not meant to be used inside a Rust library/binary.
-    ///
-    /// # Safety
-    /// You are to check that:
-    /// - The decodable object fits in the given data:
-    /// [`decodable.smaller_than(data.len())`](struct.DecodableWriteFileData.html#method.smaller_than)
-    ///
-    /// Failing that might result in reading and interpreting data outside the given
-    /// array (depending on what is done with the resulting object).
-    pub const unsafe fn start_decoding_ptr<'data>(
-        data: *const u8,
-    ) -> DecodableWriteFileData<'data> {
-        DecodableWriteFileData::from_ptr(data)
-    }
-
-    /// Creates a decodable item without checking the data size.
-    ///
-    /// # Safety
-    /// You are to check that:
-    /// - The decodable object fits in the given data:
-    /// [`decodable.smaller_than(data.len())`](struct.DecodableWriteFileData.html#method.smaller_than)
-    ///
-    /// Failing that might result in reading and interpreting data outside the given
-    /// array (depending on what is done with the resulting object).
-    pub const unsafe fn start_decoding_unchecked(data: &[u8]) -> DecodableWriteFileData {
-        DecodableWriteFileData::new(data)
-    }
-
-    /// Returns a Decodable object and its expected byte size.
-    ///
-    /// This decodable item allows each parts of the item to be decoded independently.
-    ///
-    /// # Errors
-    /// - Fails if data is smaller then the decoded expected size.
-    pub fn start_decoding(
-        data: &[u8],
-    ) -> Result<(DecodableWriteFileData, usize), BasicDecodeError> {
-        if data.is_empty() {
-            return Err(BasicDecodeError::MissingBytes(1));
-        }
-        let ret = unsafe { Self::start_decoding_unchecked(data) };
-        let size = ret
-            .smaller_than(data.len())
-            .map_err(BasicDecodeError::MissingBytes)?;
-        Ok((ret, size))
-    }
-
-    /// Decodes the Item from a data pointer.
-    ///
-    /// Returns the decoded data and the number of bytes consumed to produce it.
-    ///
-    /// This method is meant to allow unchecked cross language wrapper libraries
-    /// to implement an unchecked call without having to build a fake slice with
-    /// a fake size.
-    ///
-    /// It is not meant to be used inside a Rust library/binary.
-    ///
-    /// # Safety
-    /// May attempt to read bytes after the end of the array.
-    ///
-    /// You are to check that:
-    /// - The resulting size of the data consumed is smaller than the size of the
-    /// decoded data.
-    ///
-    /// Failing that will result in reading and interpreting data outside the given
-    /// array.
-    pub unsafe fn decode_ptr(data: *const u8) -> (Self, usize) {
-        Self::start_decoding_ptr(data).complete_decoding()
-    }
-
-    /// Decodes the Item from bytes.
-    ///
-    /// Returns the decoded data and the number of bytes consumed to produce it.
-    ///
-    /// # Safety
-    /// May attempt to read bytes after the end of the array.
-    ///
-    /// You are to check that:
-    /// - The resulting size of the data consumed is smaller than the size of the
-    /// decoded data.
-    ///
-    /// Failing that will result in reading and interpreting data outside the given
-    /// array.
-    pub unsafe fn decode_unchecked(data: &'item [u8]) -> (Self, usize) {
-        Self::start_decoding_unchecked(data).complete_decoding()
-    }
-
-    /// Decodes the item from bytes.
-    ///
-    /// On success, returns the decoded data and the number of bytes consumed
-    /// to produce it.
-    ///
-    /// # Errors
-    /// - Fails if data is smaller then the decoded expected size.
-    pub fn decode(data: &'item [u8]) -> Result<(Self, usize), BasicDecodeError> {
-        match Self::start_decoding(data) {
-            Ok(v) => Ok(v.0.complete_decoding()),
-            Err(e) => Err(e),
         }
     }
 
@@ -221,122 +52,257 @@ impl<'item> WriteFileDataRef<'item> {
     }
 }
 
-pub struct DecodableWriteFileData<'data> {
-    data: *const u8,
-    data_life: core::marker::PhantomData<&'data ()>,
-}
-
-impl<'data> DecodableWriteFileData<'data> {
-    const fn new(data: &'data [u8]) -> Self {
-        Self::from_ptr(data.as_ptr())
+impl<'data> Encodable for WriteFileDataRef<'data> {
+    unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
+        let mut size = 0;
+        *out.add(0) = op_code::WRITE_FILE_DATA
+            | if self.group { flag::GROUP } else { 0 }
+            | if self.response { flag::RESPONSE } else { 0 };
+        *out.add(1) = self.file_id.u8();
+        size += 2;
+        size += self.offset.encode_in_ptr(out.add(size));
+        let length = Varint::new_unchecked(self.data.len() as u32);
+        size += length.encode_in_ptr(out.add(size));
+        out.add(size)
+            .copy_from(self.data.data().as_ptr(), length.u32() as usize);
+        size += length.u32() as usize;
+        size
     }
 
-    const fn from_ptr(data: *const u8) -> Self {
-        Self {
-            data,
-            data_life: core::marker::PhantomData,
+    fn encoded_size(&self) -> usize {
+        let length = unsafe { Varint::new_unchecked(self.data.len() as u32) };
+        1 + 1 + self.offset.encoded_size() + length.encoded_size()
+    }
+}
+
+pub struct EncodedWriteFileData<'data> {
+    data: &'data [u8],
+}
+
+impl<'data> EncodedWriteFileData<'data> {
+    pub fn group(&self) -> bool {
+        unsafe { *self.data.get_unchecked(0) & flag::GROUP != 0 }
+    }
+
+    pub fn response(&self) -> bool {
+        unsafe { *self.data.get_unchecked(0) & flag::RESPONSE != 0 }
+    }
+
+    pub fn file_id(&self) -> FileId {
+        unsafe { FileId(*self.data.get_unchecked(1)) }
+    }
+
+    pub fn offset(&self) -> EncodedVarint<'data> {
+        unsafe { Varint::start_decoding_unchecked(self.data.get_unchecked(2..)) }
+    }
+
+    pub fn length(&self) -> EncodedVarint<'data> {
+        unsafe {
+            let offset_size = self.offset().encoded_size_unchecked() as usize;
+            Varint::start_decoding_unchecked(self.data.get_unchecked(2 + offset_size..))
         }
     }
 
-    /// Decodes the size of the Item in bytes
-    ///
-    /// # Safety
-    /// This requires reading the data bytes that may be out of bound to be calculate.
-    pub unsafe fn expected_size(&self) -> usize {
-        let offset_size = self.offset().expected_size();
-        let (length, length_size) = Varint::decode_ptr(self.data.add(2 + offset_size));
-        2 + offset_size + length_size + length.usize()
+    /// Return the payload
+    pub fn data(&self) -> &'data [u8] {
+        unsafe {
+            let offset_size = self.offset().encoded_size_unchecked() as usize;
+            let WithByteSize {
+                item: length,
+                byte_size: length_size,
+            } = Varint::decode_unchecked(self.data.get_unchecked(2 + offset_size..));
+            let data_offset = 2 + offset_size + length_size;
+            self.data
+                .get_unchecked(data_offset..)
+                .get_unchecked(..length.usize())
+        }
     }
 
-    /// Checks whether the given data_size is bigger than the decoded object expected size.
-    ///
-    /// On success, returns the size of the decoded object.
-    ///
-    /// # Errors
-    /// Fails if the data_size is smaller than the required data size to decode the object.
-    pub fn smaller_than(&self, data_size: usize) -> Result<usize, usize> {
+    /// # Safety
+    /// You have to warrant that somehow that there is enough byte to decode the encoded size.
+    /// If you fail to do so, out of bound bytes will be read, and an absurd value will be
+    /// returned.
+    pub unsafe fn encoded_size_unchecked(&self) -> usize {
+        let offset_size = self.offset().encoded_size_unchecked();
+        let WithByteSize {
+            item: length,
+            byte_size: length_size,
+        } = Varint::decode_unchecked(self.data.get_unchecked(2 + offset_size..));
+        2 + offset_size + length_size + length.usize()
+    }
+}
+
+impl<'data> EncodedData<'data> for EncodedWriteFileData<'data> {
+    type SourceData = &'data [u8];
+    type DecodedData = WriteFileDataRef<'data>;
+
+    unsafe fn new(data: Self::SourceData) -> Self {
+        Self { data }
+    }
+
+    fn encoded_size(&self) -> Result<usize, SizeError> {
         unsafe {
             let mut size = 3;
+            let data_size = self.data.len();
             if data_size < size {
-                return Err(size);
+                return Err(SizeError::MissingBytes);
             }
-            size += self.offset().expected_size();
+            size += self.offset().encoded_size_unchecked();
             if data_size < size {
-                return Err(size);
+                return Err(SizeError::MissingBytes);
             }
-            let (length, length_size) = Varint::decode_ptr(self.data.add(size - 1));
+            let WithByteSize {
+                item: length,
+                byte_size: length_size,
+            } = Varint::decode_unchecked(self.data.get_unchecked(size - 1..));
             size += length.usize() + length_size - 1;
             if data_size < size {
-                return Err(size);
+                return Err(SizeError::MissingBytes);
             }
             Ok(size)
         }
     }
 
-    pub fn group(&self) -> bool {
-        unsafe { *self.data.add(0) & flag::GROUP != 0 }
-    }
-
-    pub fn response(&self) -> bool {
-        unsafe { *self.data.add(0) & flag::RESPONSE != 0 }
-    }
-
-    pub fn file_id(&self) -> FileId {
-        unsafe { FileId(*self.data.add(1)) }
-    }
-
-    pub fn offset(&self) -> DecodableVarint {
-        unsafe { Varint::start_decoding_ptr(self.data.add(2)) }
-    }
-
-    pub fn length(&self) -> DecodableVarint {
-        unsafe {
-            let offset_size = (((*self.data.add(2) & 0xC0) >> 6) + 1) as usize;
-            Varint::start_decoding_ptr(self.data.add(2 + offset_size))
-        }
-    }
-
-    pub fn data(&self) -> (EncodableDataRef<'data>, usize) {
-        unsafe {
-            let offset_size = (((*self.data.add(2) & 0xC0) >> 6) + 1) as usize;
-            let (length, length_size) = Varint::decode_ptr(self.data.add(2 + offset_size));
-            let data_offset = 2 + offset_size + length_size;
-            let data =
-                core::slice::from_raw_parts(self.data.add(data_offset), length.u32() as usize);
-            (
-                EncodableDataRef::new_unchecked(data),
-                length_size + length.u32() as usize,
-            )
-        }
-    }
-
-    /// Fully decode the Item
-    ///
-    /// Returns the decoded data and the number of bytes consumed to produce it.
-    pub fn complete_decoding(&self) -> (WriteFileDataRef<'data>, usize) {
-        let (offset, offset_size) = self.offset().complete_decoding();
+    fn complete_decoding(&self) -> WithByteSize<Self::DecodedData> {
+        let WithByteSize {
+            item: offset,
+            byte_size: offset_size,
+        } = self.offset().complete_decoding();
         let (data, length_size, length) = unsafe {
-            let (length, length_size) = Varint::decode_ptr(self.data.add(2 + offset_size));
+            let WithByteSize {
+                item: length,
+                byte_size: length_size,
+            } = Varint::decode_unchecked(self.data.get_unchecked(2 + offset_size..));
             let data_offset = 2 + offset_size + length_size;
-            let data =
-                core::slice::from_raw_parts(self.data.add(data_offset), length.u32() as usize);
+            let data = core::slice::from_raw_parts(
+                self.data.get_unchecked(data_offset),
+                length.u32() as usize,
+            );
             (
                 EncodableDataRef::new_unchecked(data),
                 length_size,
                 length.u32(),
             )
         };
-        (
-            WriteFileDataRef {
+        WithByteSize {
+            item: WriteFileDataRef {
                 group: self.group(),
                 response: self.response(),
                 file_id: self.file_id(),
                 offset,
                 data,
             },
-            2 + offset_size + length_size + length as usize,
-        )
+            byte_size: 2 + offset_size + length_size + length as usize,
+        }
     }
+}
+
+pub struct EncodedWriteFileDataMut<'data> {
+    data: &'data mut [u8],
+}
+
+crate::make_downcastable!(EncodedWriteFileDataMut, EncodedWriteFileData);
+
+impl<'data> EncodedWriteFileDataMut<'data> {
+    pub fn group(&self) -> bool {
+        self.as_ref().group()
+    }
+
+    pub fn response(&self) -> bool {
+        self.as_ref().response()
+    }
+
+    pub fn file_id(&self) -> FileId {
+        self.as_ref().file_id()
+    }
+
+    pub fn offset(&self) -> EncodedVarint {
+        self.as_ref().offset()
+    }
+
+    pub fn length(&self) -> EncodedVarint {
+        self.as_ref().length()
+    }
+
+    pub fn data(&self) -> &'data [u8] {
+        self.as_ref().data()
+    }
+
+    /// # Safety
+    /// You have to warrant that somehow that there is enough byte to decode the encoded size.
+    /// If you fail to do so, out of bound bytes will be read, and an absurd value will be
+    /// returned.
+    pub unsafe fn encoded_size_unchecked(&self) -> usize {
+        self.as_ref().encoded_size_unchecked()
+    }
+
+    pub fn set_group(&mut self, group: bool) {
+        if group {
+            unsafe { *self.data.get_unchecked_mut(0) |= flag::GROUP }
+        } else {
+            unsafe { *self.data.get_unchecked_mut(0) &= !flag::GROUP }
+        }
+    }
+
+    pub fn set_response(&mut self, response: bool) {
+        if response {
+            unsafe { *self.data.get_unchecked_mut(0) |= flag::RESPONSE }
+        } else {
+            unsafe { *self.data.get_unchecked_mut(0) &= !flag::RESPONSE }
+        }
+    }
+
+    pub fn set_file_id(&mut self, file_id: FileId) {
+        unsafe { *self.data.get_unchecked_mut(1) = file_id.u8() }
+    }
+
+    pub fn offset_mut(&mut self) -> EncodedVarintMut {
+        unsafe { Varint::start_decoding_unchecked_mut(self.data.get_unchecked_mut(2..)) }
+    }
+
+    /// # Safety
+    /// You are not supposed to modify the length without changing the following data because it
+    /// indicates its size. Unless you know very well what you are doing.
+    pub unsafe fn length_mut(&mut self) -> EncodedVarintMut {
+        let offset_size = self.offset().encoded_size_unchecked() as usize;
+        Varint::start_decoding_unchecked_mut(self.data.get_unchecked_mut(2 + offset_size..))
+    }
+
+    pub fn data_mut(&mut self) -> &mut [u8] {
+        unsafe {
+            let offset_size = self.offset().encoded_size_unchecked() as usize;
+            let WithByteSize {
+                item: length,
+                byte_size: length_size,
+            } = Varint::decode_unchecked(self.data.get_unchecked(2 + offset_size..));
+            let data_offset = 2 + offset_size + length_size;
+            self.data
+                .get_unchecked_mut(data_offset..)
+                .get_unchecked_mut(..length.usize())
+        }
+    }
+}
+
+impl<'data> EncodedData<'data> for EncodedWriteFileDataMut<'data> {
+    type SourceData = &'data mut [u8];
+    type DecodedData = WriteFileDataRef<'data>;
+
+    unsafe fn new(data: Self::SourceData) -> Self {
+        Self { data }
+    }
+
+    fn encoded_size(&self) -> Result<usize, SizeError> {
+        self.as_ref().encoded_size()
+    }
+
+    fn complete_decoding(&self) -> WithByteSize<Self::DecodedData> {
+        self.as_ref().complete_decoding()
+    }
+}
+
+impl<'data> Decodable<'data> for WriteFileDataRef<'data> {
+    type Data = EncodedWriteFileData<'data>;
+    type DataMut = EncodedWriteFileDataMut<'data>;
 }
 
 /// Writes data to a file.
@@ -374,6 +340,7 @@ impl WriteFileData {
 mod test {
     #![allow(clippy::unwrap_in_result, clippy::panic, clippy::expect_used)]
     use super::*;
+    use crate::decodable::{Decodable, EncodedData};
 
     #[test]
     fn known() {
@@ -385,18 +352,24 @@ mod test {
             assert_eq!(&encoded[..size], data);
 
             // Test decode(data) == op
-            let (ret, size) = WriteFileDataRef::decode(data).unwrap();
+            let WithByteSize {
+                item: ret,
+                byte_size: size,
+            } = WriteFileDataRef::decode(data).unwrap();
             assert_eq!(size, data.len());
             assert_eq!(ret, op);
 
             // Test partial_decode == op
-            let (decoder, expected_size) = WriteFileDataRef::start_decoding(data).unwrap();
+            let WithByteSize {
+                item: decoder,
+                byte_size: expected_size,
+            } = WriteFileDataRef::start_decoding(data).unwrap();
             assert_eq!(expected_size, size);
-            assert_eq!(unsafe { decoder.expected_size() }, size);
-            assert_eq!(decoder.smaller_than(data.len()).unwrap(), size);
+            assert_eq!(unsafe { decoder.encoded_size_unchecked() }, size);
+            assert_eq!(decoder.encoded_size().unwrap(), size);
             assert_eq!(
                 op.data.len(),
-                decoder.length().complete_decoding().0.u32() as usize
+                decoder.length().complete_decoding().item.u32() as usize
             );
             assert_eq!(
                 op,
@@ -404,8 +377,8 @@ mod test {
                     group: decoder.group(),
                     response: decoder.response(),
                     file_id: decoder.file_id(),
-                    offset: decoder.offset().complete_decoding().0,
-                    data: decoder.data().0,
+                    offset: decoder.offset().complete_decoding().item,
+                    data: unsafe { EncodableDataRef::new_unchecked(decoder.data()) },
                 }
             );
         }
@@ -465,7 +438,10 @@ mod test {
         // Test decode(op.encode_in()) == op
         let mut encoded = [0_u8; TOT_SIZE];
         let size_encoded = op.encode_in(&mut encoded).unwrap();
-        let (ret, size_decoded) = WriteFileDataRef::decode(&encoded).unwrap();
+        let WithByteSize {
+            item: ret,
+            byte_size: size_decoded,
+        } = WriteFileDataRef::decode(&encoded).unwrap();
         assert_eq!(size_encoded, size_decoded);
         assert_eq!(ret, op);
 

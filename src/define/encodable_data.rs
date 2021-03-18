@@ -8,21 +8,30 @@ use crate::varint;
 ///
 /// To be valid, it needs to have a size encodable using a [Varint](varint::Varint),
 /// and thus must have a length <= [varint::MAX_SIZE](varint::MAX_SIZE)
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct EncodableDataRef<'a>(&'a [u8]);
+pub struct EncodableDataRef<'data>(&'data [u8]);
 
-impl<'a> EncodableDataRef<'a> {
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+pub enum EncodableDataNewError {
+    DataSizeTooBig,
+}
+
+impl<'data> EncodableDataRef<'data> {
     /// # Safety
     /// You are to warrant that data.len() <= [varint::MAX_SIZE](varint::MAX_SIZE)
-    pub const unsafe fn new_unchecked(data: &'a [u8]) -> Self {
+    pub const unsafe fn new_unchecked(data: &'data [u8]) -> Self {
         Self(data)
     }
 
     /// # Errors
     /// Fails if the length of the data is bigger than [varint::MAX_SIZE](varint::MAX_SIZE).
-    pub const fn new(data: &'a [u8]) -> Result<Self, ()> {
+    pub const fn new(data: &'data [u8]) -> Result<Self, EncodableDataNewError> {
         if data.len() > varint::MAX_SIZE {
-            Err(())
+            Err(EncodableDataNewError::DataSizeTooBig)
         } else {
             Ok(unsafe { Self::new_unchecked(data) })
         }
@@ -48,6 +57,8 @@ impl<'a> EncodableDataRef<'a> {
 }
 
 #[cfg(feature = "alloc")]
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct EncodableData(Box<[u8]>);
 

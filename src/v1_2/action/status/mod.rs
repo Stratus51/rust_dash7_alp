@@ -2,244 +2,45 @@ pub mod action;
 pub mod define;
 pub mod interface;
 
-use super::super::define::op_code::OpCode;
-use crate::v1_2::error::{
-    PtrUncheckedStatusDecodeError, PtrUnknownExtension, PtrUnknownInterfaceId, StatusDecodeError,
-    UncheckedStatusDecodeError, UnknownExtension, UnknownInterfaceId,
-};
+use crate::decodable::{FailableDecodable, FailableEncodedData, WithByteSize};
+use crate::encodable::Encodable;
+use crate::v1_2::define::op_code;
+use crate::v1_2::error::{StatusDecodeError, StatusSizeError, UnsupportedExtension};
 pub use define::StatusExtension;
-pub use interface::{DecodableStatusInterface, StatusInterface, StatusInterfaceRef};
+pub use interface::{
+    EncodedStatusInterface, EncodedStatusInterfaceMut, StatusInterface, StatusInterfaceRef,
+};
 
 // TODO Add feature based sub types support (also in status_interface)
 
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub enum StatusRef<'item> {
+pub enum StatusRef<'data> {
     // Action(),
-    Interface(StatusInterfaceRef<'item>),
+    Interface(StatusInterfaceRef<'data>),
 }
 
-impl<'item> StatusRef<'item> {
-    pub fn extension(&self) -> StatusExtension {
-        match self {
-            Self::Interface(_) => StatusExtension::Interface,
-        }
-    }
-
-    /// Encodes the Item into a data pointer without checking the size of the
-    /// receiving byte array.
-    ///
-    /// This method is meant to allow unchecked cross language wrapper libraries
-    /// to implement an unchecked call without having to build a fake slice with
-    /// a fake size.
-    ///
-    /// It is not meant to be used inside a Rust library/binary.
-    ///
-    /// # Safety
-    /// You are responsible for checking that `out.len()` >= [`self.size()`](#method.size).
-    ///
-    /// Failing that will result in the program writing out of bound in
-    /// random parts of your memory.
-    pub unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
-        *out.add(0) = OpCode::Status as u8 | ((self.extension() as u8) << 6);
+impl<'data> Encodable for StatusRef<'data> {
+    unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
+        *out.add(0) = op_code::STATUS | ((self.extension() as u8) << 6);
         1 + match self {
             Self::Interface(status) => status.encode_in_ptr(out.add(1)),
         }
     }
 
-    /// Encodes the Item without checking the size of the receiving
-    /// byte array.
-    ///
-    /// # Safety
-    /// You are responsible for checking that `out.len()` >= [`self.size()`](#method.size).
-    ///
-    /// Failing that will result in the program writing out of bound in
-    /// random parts of your memory.
-    pub unsafe fn encode_in_unchecked(&self, out: &mut [u8]) -> usize {
-        self.encode_in_ptr(out.as_mut_ptr())
-    }
-
-    /// Encodes the value into pre allocated array.
-    ///
-    /// # Errors
-    /// Fails if the pre allocated array is smaller than [self.size()](#method.size)
-    /// returning the number of input bytes required.
-    pub fn encode_in(&self, out: &mut [u8]) -> Result<usize, usize> {
-        let size = self.size();
-        if out.len() >= size {
-            Ok(unsafe { self.encode_in_ptr(out.as_mut_ptr()) })
-        } else {
-            Err(size)
-        }
-    }
-
-    /// Size in bytes of the encoded equivalent of the item.
-    pub fn size(&self) -> usize {
+    fn encoded_size(&self) -> usize {
         1 + match self {
-            Self::Interface(status) => status.size(),
+            Self::Interface(status) => status.encoded_size(),
         }
     }
+}
 
-    /// Creates a decodable item from a data pointer without checking the data size.
-    ///
-    /// This method is meant to allow unchecked cross language wrapper libraries
-    /// to implement an unchecked call without having to build a fake slice with
-    /// a fake size.
-    ///
-    /// It is not meant to be used inside a Rust library/binary.
-    ///
-    /// # Errors
-    /// - Fails if the status extension is unknown. Returns the status extension.
-    /// - Fails if the status is an interface status with an unknown interface ID.
-    ///
-    /// # Safety
-    /// You are to check that:
-    /// - The decodable object fits in the given data:
-    /// [`decodable.smaller_than(data.len())`](struct.DecodableStatus.html#method.smaller_than)
-    ///
-    /// Failing that might result in reading and interpreting data outside the given
-    /// array (depending on what is done with the resulting object).
-    pub unsafe fn start_decoding_ptr<'data>(
-        data: *const u8,
-    ) -> Result<DecodableStatus<'data>, PtrUncheckedStatusDecodeError<'data>> {
-        DecodableStatus::from_ptr(data).map_err(|e| match e {
-            DecodableNewError::UnknownExtension(extension) => {
-                PtrUncheckedStatusDecodeError::UnknownExtension(PtrUnknownExtension {
-                    extension,
-                    remaining_data: data.add(1),
-                    phantom: core::marker::PhantomData,
-                })
-            }
-            DecodableNewError::UnknownInterfaceId(id) => {
-                PtrUncheckedStatusDecodeError::UnknownInterfaceId(PtrUnknownInterfaceId {
-                    id,
-                    remaining_data: data.add(2),
-                    phantom: core::marker::PhantomData,
-                })
-            }
-        })
-    }
-
-    /// Creates a decodable item without checking the data size.
-    ///
-    /// # Errors
-    /// - Fails if the status extension is unknown. Returns the status extension.
-    /// - Fails if the status is an interface status with an unknown interface ID.
-    ///
-    /// # Safety
-    /// You are to check that:
-    /// - The decodable object fits in the given data:
-    /// [`decodable.smaller_than(data.len())`](struct.DecodableStatus.html#method.smaller_than)
-    ///
-    /// Failing that might result in reading and interpreting data outside the given
-    /// array (depending on what is done with the resulting object).
-    pub unsafe fn start_decoding_unchecked(
-        data: &[u8],
-    ) -> Result<DecodableStatus, UncheckedStatusDecodeError> {
-        DecodableStatus::new(data).map_err(|e| match e {
-            DecodableNewError::UnknownExtension(extension) => {
-                UncheckedStatusDecodeError::UnknownExtension(UnknownExtension {
-                    extension,
-                    remaining_data: data.get_unchecked(1..),
-                })
-            }
-            DecodableNewError::UnknownInterfaceId(id) => {
-                UncheckedStatusDecodeError::UnknownInterfaceId(UnknownInterfaceId {
-                    id,
-                    remaining_data: data.get_unchecked(2..),
-                })
-            }
-        })
-    }
-
-    /// Returns a Decodable object and its expected byte size.
-    ///
-    /// This decodable item allows each parts of the item to be decoded independently.
-    ///
-    /// # Errors
-    /// - Fails if the status extension is unknown.
-    /// - Fails if this is an interface status with an unknown interface ID.
-    /// - Fails if data is smaller then the decoded expected size.
-    pub fn start_decoding(data: &[u8]) -> Result<(DecodableStatus, usize), StatusDecodeError> {
-        if data.is_empty() {
-            return Err(StatusDecodeError::MissingBytes(1));
+impl<'data> StatusRef<'data> {
+    pub fn extension(&self) -> StatusExtension {
+        match self {
+            Self::Interface(_) => StatusExtension::Interface,
         }
-        let ret = unsafe {
-            Self::start_decoding_unchecked(data).map_err(|e| match e {
-                UncheckedStatusDecodeError::UnknownExtension(e) => {
-                    StatusDecodeError::UnknownExtension(e)
-                }
-                UncheckedStatusDecodeError::UnknownInterfaceId(e) => {
-                    StatusDecodeError::UnknownInterfaceId(e)
-                }
-            })?
-        };
-        let size = ret
-            .smaller_than(data.len())
-            .map_err(StatusDecodeError::MissingBytes)?;
-        Ok((ret, size))
-    }
-
-    /// Decodes the Item from a data pointer.
-    ///
-    /// Returns the decoded data and the number of bytes consumed to produce it.
-    ///
-    /// This method is meant to allow unchecked cross language wrapper libraries
-    /// to implement an unchecked call without having to build a fake slice with
-    /// a fake size.
-    ///
-    /// It is not meant to be used inside a Rust library/binary.
-    ///
-    /// # Errors
-    /// - Fails if the status extension is unknown. Returns the status extension.
-    /// - Fails if the status is an interface status with an unknown interface ID.
-    ///
-    /// # Safety
-    /// You are to check that:
-    /// - The first byte contains this action's querycode.
-    /// - The resulting size of the data consumed is smaller than the size of the
-    /// decoded data.
-    ///
-    /// Failing that might result in reading and interpreting data outside the given
-    /// array (depending on what is done with the resulting object).
-    pub unsafe fn decode_ptr(
-        data: *const u8,
-    ) -> Result<(Self, usize), PtrUncheckedStatusDecodeError<'item>> {
-        Ok(Self::start_decoding_ptr(data)?.complete_decoding())
-    }
-
-    /// Decodes the Item from bytes.
-    ///
-    /// Returns the decoded data and the number of bytes consumed to produce it.
-    ///
-    /// # Errors
-    /// - Fails if the status extension is unknown. Returns the status extension.
-    /// - Fails if the status is an interface status with an unknown interface ID.
-    ///
-    /// # Safety
-    /// You are to check that:
-    /// - The first byte contains this action's querycode.
-    /// - The resulting size of the data consumed is smaller than the size of the
-    /// decoded data.
-    ///
-    /// Failing that might result in reading and interpreting data outside the given
-    /// array (depending on what is done with the resulting object).
-    pub unsafe fn decode_unchecked(
-        data: &'item [u8],
-    ) -> Result<(Self, usize), UncheckedStatusDecodeError> {
-        Ok(Self::start_decoding_unchecked(data)?.complete_decoding())
-    }
-
-    // TODO Homogenize decode method implementation style
-    /// Decodes the item from bytes.
-    ///
-    /// # Errors
-    /// - Fails if the status extension is unknown.
-    /// - Fails if this is an interface status with an unknown interface ID.
-    /// - Fails if data is smaller then the decoded expected size.
-    pub fn decode(data: &'item [u8]) -> Result<(Self, usize), StatusDecodeError> {
-        Ok(Self::start_decoding(data)?.0.complete_decoding())
     }
 
     pub fn to_owned(&self) -> Status {
@@ -249,86 +50,132 @@ impl<'item> StatusRef<'item> {
     }
 }
 
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-enum DecodableNewError {
-    UnknownExtension(u8),
-    UnknownInterfaceId(u8),
+pub struct EncodedStatus<'data> {
+    data: &'data [u8],
 }
 
-pub enum DecodableStatus<'data> {
-    Interface(DecodableStatusInterface<'data>),
+pub enum ValidEncodedStatus<'data> {
+    Interface(EncodedStatusInterface<'data>),
 }
 
-impl<'data> DecodableStatus<'data> {
+impl<'data> EncodedStatus<'data> {
     /// # Errors
-    /// Fails if the status extension is unknown. Return the status extension.
-    ///
-    /// # Safety
-    /// The data has to contain at least one byte.
-    unsafe fn new(data: &'data [u8]) -> Result<Self, DecodableNewError> {
-        Self::from_ptr(data.as_ptr())
-    }
-
-    /// # Errors
-    /// Fails if the querycode is invalid. Returning the querycode.
-    ///
-    /// # Safety
-    /// The data has to contain at least one byte.
-    unsafe fn from_ptr(data: *const u8) -> Result<Self, DecodableNewError> {
-        let byte = *data.add(0);
-        let code = byte >> 6;
-        let extension = match StatusExtension::from(code) {
-            Ok(ext) => ext,
-            Err(_) => return Err(DecodableNewError::UnknownExtension(code)),
-        };
-        Ok(match extension {
-            StatusExtension::Interface => DecodableStatus::Interface(
-                StatusInterfaceRef::start_decoding_ptr(data.add(1))
-                    .map_err(DecodableNewError::UnknownInterfaceId)?,
-            ),
-        })
-    }
-
-    /// Decodes the size of the Item in bytes
-    ///
-    /// # Safety
-    /// This requires reading the data bytes that may be out of bound to be calculate.
-    pub unsafe fn expected_size(&self) -> usize {
-        1 + match self {
-            Self::Interface(status) => status.expected_size(),
+    /// Fails if the status extension is unsupported.
+    pub fn extension(&self) -> Result<StatusExtension, UnsupportedExtension<'data>> {
+        unsafe {
+            let byte = self.data.get_unchecked(0);
+            let code = byte >> 6;
+            StatusExtension::from(code).map_err(|_| UnsupportedExtension {
+                extension: code,
+                remaining_data: self.data.get_unchecked(1..),
+            })
         }
     }
 
-    /// Checks whether the given data_size is bigger than the decoded object expected size.
-    ///
-    /// On success, returns the size of the decoded object.
-    ///
     /// # Errors
-    /// Fails if the data_size is smaller than the required data size to decode the object.
-    pub fn smaller_than(&self, data_size: usize) -> Result<usize, usize> {
-        match self {
-            Self::Interface(status) => status.smaller_than(data_size - 1),
+    /// Fails if the status extension is unsupported.
+    pub fn status(&self) -> Result<ValidEncodedStatus<'data>, UnsupportedExtension<'data>> {
+        unsafe {
+            Ok(match self.extension()? {
+                StatusExtension::Interface => ValidEncodedStatus::Interface(
+                    StatusInterfaceRef::start_decoding_unchecked(self.data.get_unchecked(1..)),
+                ),
+            })
+        }
+    }
+}
+
+impl<'data> FailableEncodedData<'data> for EncodedStatus<'data> {
+    type SourceData = &'data [u8];
+    type SizeError = StatusSizeError<'data>;
+    type DecodeError = StatusDecodeError<'data>;
+    type DecodedData = StatusRef<'data>;
+
+    unsafe fn new(data: Self::SourceData) -> Self {
+        Self { data }
+    }
+
+    fn encoded_size(&self) -> Result<usize, Self::SizeError> {
+        match self.status()? {
+            ValidEncodedStatus::Interface(status) => status.encoded_size(),
         }
         .map(|v| v + 1)
-        .map_err(|v| v + 1)
+        .map_err(|e| e.into())
     }
 
-    /// Fully decode the Item
-    ///
-    /// Returns the decoded data and the number of bytes consumed to produce it.
-    ///
-    /// # Errors
-    /// Fails if the decoded status is an interface status and if the decoded
-    /// interface_id is unknown.
-    pub fn complete_decoding(&self) -> (StatusRef<'data>, usize) {
-        let (status, size) = match &self {
-            DecodableStatus::Interface(interface) => {
-                let (status, size) = interface.complete_decoding();
-                (StatusRef::Interface(status), size)
+    fn complete_decoding(&self) -> Result<WithByteSize<Self::DecodedData>, Self::DecodeError> {
+        let mut ret = match &self.status()? {
+            ValidEncodedStatus::Interface(interface) => {
+                let WithByteSize {
+                    item: status,
+                    byte_size: size,
+                } = interface.complete_decoding()?;
+                WithByteSize {
+                    item: StatusRef::Interface(status),
+                    byte_size: size,
+                }
             }
         };
-        (status, 1 + size)
+        ret.byte_size += 1;
+        Ok(ret)
     }
+}
+
+pub struct EncodedStatusMut<'data> {
+    data: &'data mut [u8],
+}
+
+pub enum ValidEncodedStatusMut<'data> {
+    Interface(EncodedStatusInterfaceMut<'data>),
+}
+
+crate::make_downcastable!(EncodedStatusMut, EncodedStatus);
+
+impl<'data> EncodedStatusMut<'data> {
+    /// # Errors
+    /// Fails if the status extension is unsupported.
+    pub fn extension(&self) -> Result<StatusExtension, UnsupportedExtension<'data>> {
+        self.as_ref().extension()
+    }
+
+    /// # Errors
+    /// Fails if the status extension is unsupported.
+    pub fn status(&mut self) -> Result<ValidEncodedStatusMut, UnsupportedExtension<'data>> {
+        unsafe {
+            Ok(match self.extension()? {
+                StatusExtension::Interface => ValidEncodedStatusMut::Interface(
+                    StatusInterfaceRef::start_decoding_unchecked_mut(
+                        self.data.get_unchecked_mut(1..),
+                    ),
+                ),
+            })
+        }
+    }
+}
+
+impl<'data> FailableEncodedData<'data> for EncodedStatusMut<'data> {
+    type SourceData = &'data mut [u8];
+    type SizeError = StatusSizeError<'data>;
+    type DecodeError = StatusDecodeError<'data>;
+    type DecodedData = StatusRef<'data>;
+
+    unsafe fn new(data: Self::SourceData) -> Self {
+        Self { data }
+    }
+
+    fn encoded_size(&self) -> Result<usize, Self::SizeError> {
+        self.as_ref().encoded_size()
+    }
+
+    fn complete_decoding(&self) -> Result<WithByteSize<Self::DecodedData>, Self::DecodeError> {
+        self.as_ref().complete_decoding()
+    }
+}
+
+impl<'data> FailableDecodable<'data> for StatusRef<'data> {
+    type Data = EncodedStatus<'data>;
+    type DataMut = EncodedStatusMut<'data>;
+    type FullDecodeError = StatusSizeError<'data>;
 }
 
 /// Details from the interface the command is coming from
@@ -352,6 +199,7 @@ impl Status {
 mod test {
     #![allow(clippy::unwrap_in_result, clippy::panic, clippy::expect_used)]
     use super::*;
+    use crate::decodable::{FailableDecodable, WithByteSize};
     use crate::v1_2::dash7::{
         addressee::{AccessClass, AddresseeIdentifierRef, AddresseeRef, NlsMethod},
         interface_status::{AddresseeWithNlsStateRef, Dash7InterfaceStatusRef},
@@ -367,7 +215,10 @@ mod test {
             assert_eq!(&encoded[..size], data);
 
             // Test decode(data) == op
-            let (ret, size) = StatusRef::decode(data).unwrap();
+            let WithByteSize {
+                item: ret,
+                byte_size: size,
+            } = StatusRef::decode(data).unwrap();
             assert_eq!(size, data.len());
             assert_eq!(ret, op);
         }
@@ -451,7 +302,10 @@ mod test {
         // Test decode(op.encode_in()) == op
         let mut encoded = [0_u8; TOT_SIZE];
         let size_encoded = op.encode_in(&mut encoded).unwrap();
-        let (ret, size_decoded) = StatusRef::decode(&encoded).unwrap();
+        let WithByteSize {
+            item: ret,
+            byte_size: size_decoded,
+        } = StatusRef::decode(&encoded).unwrap();
         assert_eq!(size_encoded, size_decoded);
         assert_eq!(ret, op);
 

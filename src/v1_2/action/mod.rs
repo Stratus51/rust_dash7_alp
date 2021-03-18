@@ -26,20 +26,20 @@ pub mod write_file_properties;
 #[cfg(feature = "decode_action")]
 use crate::v1_2::define::op_code::OpCode;
 #[cfg(feature = "decode_action")]
-use crate::v1_2::error::{ActionDecodeError, PtrActionDecodeError};
+use crate::v1_2::error::{ActionDecodeError, ActionSizeError, UnsupportedOpCode};
 
 #[cfg(feature = "decode_nop")]
-use nop::DecodableNop;
+use nop::{EncodedNop, EncodedNopMut};
 #[cfg(feature = "decode_action_query")]
-use query::action_query::{DecodableActionQuery, DecodedActionQueryRef};
+use query::action_query::{DecodedActionQueryRef, EncodedActionQuery, EncodedActionQueryMut};
 #[cfg(feature = "decode_read_file_data")]
-use read_file_data::DecodableReadFileData;
+use read_file_data::{EncodedReadFileData, EncodedReadFileDataMut};
 #[cfg(feature = "decode_read_file_properties")]
-use read_file_properties::DecodableReadFileProperties;
+use read_file_properties::{EncodedReadFileProperties, EncodedReadFilePropertiesMut};
 #[cfg(feature = "decode_status")]
-use status::DecodableStatus;
+use status::{EncodedStatus, EncodedStatusMut};
 #[cfg(feature = "decode_write_file_data")]
-use write_file_data::DecodableWriteFileData;
+use write_file_data::{EncodedWriteFileData, EncodedWriteFileDataMut};
 
 #[cfg(feature = "alloc")]
 #[cfg(feature = "action_query")]
@@ -61,6 +61,19 @@ use status::{Status, StatusRef};
 #[cfg(feature = "write_file_data")]
 use write_file_data::WriteFileDataRef;
 
+#[cfg(feature = "decode_action")]
+use crate::decodable::WithByteSize;
+#[cfg(any(
+    feature = "decode_nop",
+    feature = "decode_read_file_data",
+    feature = "decode_read_file_properties",
+    feature = "decode_write_file_data"
+))]
+use crate::decodable::{Decodable, EncodedData};
+#[cfg(feature = "decode_action")]
+use crate::decodable::{FailableDecodable, FailableEncodedData};
+use crate::encodable::Encodable;
+
 // TODO SPEC: Why are some actions named "return". Removing that from the name would still
 // be technically correct: The operand "File data" contains file data. Seems good enough.
 // We can still keep the description mentionning it is supposed to be a response.
@@ -72,33 +85,28 @@ use write_file_data::WriteFileDataRef;
 // TODO SPEC: Is BreakQuery still pertinent in v1.3 as it is equivalent to:
 // [ActionQuery, Break]
 
-// TODO Extension
-
-// TODO Find a way to get rid of the enum lifetime if there is no action
-// requiring a lifetime
-
 /// An ALP Action
 ///
 /// It does not own its data references.
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub enum ActionRef<'item> {
+pub enum ActionRef<'data> {
     // Nop
     #[cfg(feature = "nop")]
-    Nop(NopRef<'item>),
+    Nop(NopRef<'data>),
     // Read
     #[cfg(feature = "read_file_data")]
-    ReadFileData(ReadFileDataRef<'item>),
+    ReadFileData(ReadFileDataRef<'data>),
     #[cfg(feature = "read_file_properties")]
-    ReadFileProperties(ReadFilePropertiesRef<'item>),
+    ReadFileProperties(ReadFilePropertiesRef<'data>),
 
     // Write
     #[cfg(feature = "write_file_data")]
-    WriteFileData(WriteFileDataRef<'item>),
+    WriteFileData(WriteFileDataRef<'data>),
     // WriteFileProperties(WriteFileProperties),
     #[cfg(feature = "action_query")]
-    ActionQuery(ActionQueryRef<'item>),
+    ActionQuery(ActionQueryRef<'data>),
     // BreakQuery(BreakQuery),
     // TODO
     // PermissionRequest(PermissionRequest),
@@ -117,7 +125,7 @@ pub enum ActionRef<'item> {
     // ReturnFileData(ReturnFileData),
     // ReturnFileProperties(ReturnFileProperties),
     #[cfg(feature = "status")]
-    Status(StatusRef<'item>),
+    Status(StatusRef<'data>),
     // ResponseTag(ResponseTag),
 
     // // Special
@@ -132,22 +140,13 @@ pub enum ActionRef<'item> {
     // Extension(Extension),
 }
 
-impl<'item> ActionRef<'item> {
-    /// Encodes the Item into a data pointer without checking the size of the
-    /// receiving byte array.
-    ///
-    /// This method is meant to allow unchecked cross language wrapper libraries
-    /// to implement an unchecked call without having to build a fake slice with
-    /// a fake size.
-    ///
-    /// It is not meant to be used inside a Rust library/binary.
-    ///
-    /// # Safety
-    /// You are responsible for checking that `out.len()` >= [`self.size()`](#method.size).
-    ///
-    /// Failing that will result in the program writing out of bound in
-    /// random parts of your memory.
-    pub unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub enum ActionToOwnedError {
+    RequiresAllocation,
+}
+
+impl<'data> Encodable for ActionRef<'data> {
+    unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
         match self {
             #[cfg(feature = "nop")]
             Self::Nop(action) => action.encode_in_ptr(out),
@@ -164,57 +163,32 @@ impl<'item> ActionRef<'item> {
         }
     }
 
-    /// Encodes the Item without checking the size of the receiving
-    /// byte array.
-    ///
-    /// # Safety
-    /// You are responsible for checking that `out.len()` >= [`self.size()`](#method.size).
-    ///
-    /// Failing that will result in the program writing out of bound in
-    /// random parts of your memory.
-    pub unsafe fn encode_in_unchecked(&self, out: &mut [u8]) -> usize {
-        self.encode_in_ptr(out.as_mut_ptr())
-    }
-
-    /// Encodes the value into pre allocated array.
-    ///
-    /// # Errors
-    /// Fails if the pre allocated array is smaller than [self.size()](#method.size)
-    /// returning the number of input bytes required.
-    pub fn encode_in(&self, out: &mut [u8]) -> Result<usize, usize> {
-        let size = self.size();
-        if out.len() >= size {
-            Ok(unsafe { self.encode_in_ptr(out.as_mut_ptr()) })
-        } else {
-            Err(size)
-        }
-    }
-
-    /// Size in bytes of the encoded equivalent of the item.
-    pub fn size(&self) -> usize {
+    fn encoded_size(&self) -> usize {
         match self {
             #[cfg(feature = "nop")]
-            Self::Nop(action) => action.size(),
+            Self::Nop(action) => action.encoded_size(),
             #[cfg(feature = "read_file_data")]
-            Self::ReadFileData(action) => action.size(),
+            Self::ReadFileData(action) => action.encoded_size(),
             #[cfg(feature = "read_file_properties")]
-            Self::ReadFileProperties(action) => action.size(),
+            Self::ReadFileProperties(action) => action.encoded_size(),
             #[cfg(feature = "write_file_data")]
-            Self::WriteFileData(action) => action.size(),
+            Self::WriteFileData(action) => action.encoded_size(),
             #[cfg(feature = "action_query")]
-            Self::ActionQuery(action) => action.size(),
+            Self::ActionQuery(action) => action.encoded_size(),
             #[cfg(feature = "status")]
-            Self::Status(action) => action.size(),
+            Self::Status(action) => action.encoded_size(),
         }
     }
+}
 
+impl<'data> ActionRef<'data> {
     /// Copies all the reference based data to create a fully self contained
     /// object.
     ///
     /// # Errors
     /// Fails only if the alloc flag is not set and the owned action requires the
     /// alloc feature.
-    pub fn to_owned(&self) -> Result<Action, ()> {
+    pub fn to_owned(&self) -> Result<Action, ActionToOwnedError> {
         Ok(match self {
             #[cfg(feature = "nop")]
             Self::Nop(action) => Action::Nop(action.to_owned()),
@@ -234,7 +208,7 @@ impl<'item> ActionRef<'item> {
             // they are selected manually.
             #[cfg_attr(not(feature = "all_actions"), allow(unreachable_patterns))]
             #[allow(unreachable_patterns)]
-            _ => return Err(()),
+            _ => return Err(ActionToOwnedError::RequiresAllocation),
         })
     }
 }
@@ -243,22 +217,22 @@ impl<'item> ActionRef<'item> {
 #[cfg_attr(feature = "packed", repr(packed))]
 #[cfg(feature = "decode_action")]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub enum DecodedActionRef<'item> {
+pub enum DecodedActionRef<'data> {
     #[cfg(feature = "decode_nop")]
     // Nop
-    Nop(NopRef<'item>),
+    Nop(NopRef<'data>),
     // Read
     #[cfg(feature = "decode_read_file_data")]
-    ReadFileData(ReadFileDataRef<'item>),
+    ReadFileData(ReadFileDataRef<'data>),
     #[cfg(feature = "decode_read_file_properties")]
-    ReadFileProperties(ReadFilePropertiesRef<'item>),
+    ReadFileProperties(ReadFilePropertiesRef<'data>),
 
     // Write
     #[cfg(feature = "decode_write_file_data")]
-    WriteFileData(WriteFileDataRef<'item>),
+    WriteFileData(WriteFileDataRef<'data>),
     // WriteFileProperties(WriteFileProperties),
     #[cfg(feature = "decode_action_query")]
-    ActionQuery(ActionQueryRef<'item>),
+    ActionQuery(DecodedActionQueryRef<'data>),
     // BreakQuery(BreakQuery),
     // TODO
     // PermissionRequest(PermissionRequest),
@@ -277,7 +251,7 @@ pub enum DecodedActionRef<'item> {
     // ReturnFileData(ReturnFileData),
     // ReturnFileProperties(ReturnFileProperties),
     #[cfg(feature = "decode_status")]
-    Status(StatusRef<'item>),
+    Status(StatusRef<'data>),
     // ResponseTag(ResponseTag),
 
     // // Special
@@ -293,136 +267,15 @@ pub enum DecodedActionRef<'item> {
 }
 
 #[cfg(feature = "decode_action")]
-impl<'item> DecodedActionRef<'item> {
-    /// Creates a decodable item from a data pointer without checking the data size.
-    ///
-    /// This method is meant to allow unchecked cross language wrapper libraries
-    /// to implement an unchecked call without having to build a fake slice with
-    /// a fake size.
-    ///
-    /// It is not meant to be used inside a Rust library/binary.
-    ///
-    /// # Errors
-    /// - Fails if the decoded data contains an invalid opcode. Returning the opcode.
-    /// - Fails if one of the actions found is unparseable.
-    ///
-    /// # Safety
-    /// You are to check that:
-    /// - The decodable object fits in the given data:
-    /// [`decodable.smaller_than(data.len())`](struct.DecodableAction.html#method.smaller_than)
-    ///
-    /// Failing that might result in reading and interpreting data outside the given
-    /// array (depending on what is done with the resulting object).
-    pub unsafe fn start_decoding_ptr<'data>(
-        data: *const u8,
-    ) -> Result<DecodableAction<'data>, PtrActionDecodeError<'data>> {
-        DecodableAction::from_ptr(data)
-    }
-
-    /// Creates a decodable item without checking the data size.
-    ///
-    /// # Errors
-    /// - Fails if the decoded data contains an invalid opcode. Returning the opcode.
-    /// - Fails if one of the actions found is unparseable.
-    ///
-    /// # Safety
-    /// You are to check that:
-    /// - The decodable object fits in the given data:
-    /// [`decodable.smaller_than(data.len())`](struct.DecodableAction.html#method.smaller_than)
-    ///
-    /// Failing that might result in reading and interpreting data outside the given
-    /// array (depending on what is done with the resulting object).
-    pub unsafe fn start_decoding_unchecked(
-        data: &[u8],
-    ) -> Result<DecodableAction, ActionDecodeError> {
-        DecodableAction::new(data)
-    }
-
-    /// Returns a Decodable object and its expected byte size.
-    ///
-    /// This decodable item allows each parts of the item to be decoded independently.
-    ///
-    /// # Errors
-    /// - Fails if first byte of the data contains an invalid opcode.
-    /// - Fails if one of the actions found is unparseable.
-    /// - Fails if data is smaller then the decoded expected size.
-    pub fn start_decoding(data: &[u8]) -> Result<(DecodableAction, usize), ActionDecodeError> {
-        if data.is_empty() {
-            return Err(ActionDecodeError::MissingBytes(1));
-        }
-        let ret = unsafe { Self::start_decoding_unchecked(data)? };
-        let size = ret
-            .smaller_than(data.len())
-            .map_err(ActionDecodeError::MissingBytes)?;
-        Ok((ret, size))
-    }
-
-    /// Decodes the Item from a data pointer.
-    ///
-    /// Returns the decoded data and the number of bytes consumed to produce it.
-    ///
-    /// This method is meant to allow unchecked cross language wrapper libraries
-    /// to implement an unchecked call without having to build a fake slice with
-    /// a fake size.
-    ///
-    /// It is not meant to be used inside a Rust library/binary.
-    ///
-    /// # Errors
-    /// - Fails if the decoded data contains an invalid opcode. Returning the opcode.
-    /// - Fails if one of the actions found is unparseable.
-    ///
-    /// # Safety
-    /// You are to check that:
-    /// - The first byte contains this action's opcode.
-    /// - The resulting size of the data consumed is smaller than the size of the
-    /// decoded data.
-    ///
-    /// Failing that might result in reading and interpreting data outside the given
-    /// array (depending on what is done with the resulting object).
-    pub unsafe fn decode_ptr(
-        data: *const u8,
-    ) -> Result<(Self, usize), PtrActionDecodeError<'item>> {
-        Ok(Self::start_decoding_ptr(data)?.complete_decoding())
-    }
-
-    /// Decodes the Item from bytes.
-    ///
-    /// Returns the decoded data and the number of bytes consumed to produce it.
-    ///
-    /// # Errors
-    /// - Fails if the decoded data contains an invalid opcode. Returning the opcode.
-    /// - Fails if one of the actions found is unparseable.
-    ///
-    /// # Safety
-    /// You are to check that:
-    /// - The first byte contains this action's opcode.
-    /// - The resulting size of the data consumed is smaller than the size of the
-    /// decoded data.
-    ///
-    /// Failing that might result in reading and interpreting data outside the given
-    /// array (depending on what is done with the resulting object).
-    pub unsafe fn decode_unchecked(data: &'item [u8]) -> Result<(Self, usize), ActionDecodeError> {
-        Ok(Self::start_decoding_unchecked(data)?.complete_decoding())
-    }
-
-    /// Decodes the item from bytes.
-    ///
-    /// # Errors
-    /// - Fails if first byte of the data contains an invalid opcode.
-    /// - Fails if one of the actions found is unparseable.
-    /// - Fails if data is smaller then the decoded expected size.
-    pub fn decode(data: &'item [u8]) -> Result<(Self, usize), ActionDecodeError> {
-        Ok(Self::start_decoding(data)?.0.complete_decoding())
-    }
-
-    pub fn as_action(self) -> ActionRef<'item> {
+impl<'data> DecodedActionRef<'data> {
+    pub fn as_encodable(self) -> ActionRef<'data> {
         self.into()
     }
 }
 
 #[cfg(feature = "decode_action")]
-impl<'item> From<DecodedActionRef<'item>> for ActionRef<'item> {
-    fn from(decoded: DecodedActionRef<'item>) -> Self {
+impl<'data> From<DecodedActionRef<'data>> for ActionRef<'data> {
+    fn from(decoded: DecodedActionRef<'data>) -> Self {
         match decoded {
             #[cfg(feature = "decode_nop")]
             DecodedActionRef::Nop(action) => ActionRef::Nop(action),
@@ -433,7 +286,7 @@ impl<'item> From<DecodedActionRef<'item>> for ActionRef<'item> {
             #[cfg(all(feature = "decode_write_file_data"))]
             DecodedActionRef::WriteFileData(action) => ActionRef::WriteFileData(action),
             #[cfg(all(feature = "decode_action_query"))]
-            DecodedActionRef::ActionQuery(action) => ActionRef::ActionQuery(action),
+            DecodedActionRef::ActionQuery(action) => ActionRef::ActionQuery(action.as_encodable()),
             #[cfg(feature = "decode_status")]
             DecodedActionRef::Status(action) => ActionRef::Status(action),
         }
@@ -441,177 +294,248 @@ impl<'item> From<DecodedActionRef<'item>> for ActionRef<'item> {
 }
 
 #[cfg(feature = "decode_action")]
-pub enum DecodableAction<'data> {
+pub enum ValidEncodedAction<'data> {
     #[cfg(feature = "decode_nop")]
-    Nop(DecodableNop<'data>),
+    Nop(EncodedNop<'data>),
     #[cfg(feature = "decode_read_file_data")]
-    ReadFileData(DecodableReadFileData<'data>),
+    ReadFileData(EncodedReadFileData<'data>),
     #[cfg(feature = "decode_read_file_properties")]
-    ReadFileProperties(DecodableReadFileProperties<'data>),
+    ReadFileProperties(EncodedReadFileProperties<'data>),
     #[cfg(feature = "decode_write_file_data")]
-    WriteFileData(DecodableWriteFileData<'data>),
+    WriteFileData(EncodedWriteFileData<'data>),
     #[cfg(feature = "decode_action_query")]
-    ActionQuery(DecodableActionQuery<'data>),
+    ActionQuery(EncodedActionQuery<'data>),
     #[cfg(feature = "decode_status")]
-    Status(DecodableStatus<'data>),
+    Status(EncodedStatus<'data>),
 }
 
 #[cfg(feature = "decode_action")]
-impl<'data> DecodableAction<'data> {
+impl<'data> EncodedAction<'data> {
     /// # Errors
-    /// Fails if the opcode is invalid. Returning the opcode.
-    ///
-    /// # Safety
-    /// The data has to contain at least one byte.
-    pub unsafe fn new(data: &'data [u8]) -> Result<Self, ActionDecodeError<'data>> {
-        let code = *data.get_unchecked(0) & 0x3F;
-        let op_code = match OpCode::from(code) {
-            Ok(code) => code,
-            Err(_) => return Err(ActionDecodeError::UnknownActionCode(code)),
-        };
-        Ok(match op_code {
-            #[cfg(feature = "decode_nop")]
-            OpCode::Nop => Self::Nop(NopRef::start_decoding_unchecked(data)),
-            #[cfg(feature = "decode_read_file_data")]
-            OpCode::ReadFileData => {
-                Self::ReadFileData(ReadFileDataRef::start_decoding_unchecked(data))
-            }
-            #[cfg(feature = "decode_read_file_properties")]
-            OpCode::ReadFileProperties => {
-                Self::ReadFileProperties(ReadFilePropertiesRef::start_decoding_unchecked(data))
-            }
-            #[cfg(feature = "decode_write_file_data")]
-            OpCode::WriteFileData => {
-                Self::WriteFileData(WriteFileDataRef::start_decoding_unchecked(data))
-            }
-            #[cfg(feature = "decode_action_query")]
-            OpCode::ActionQuery => {
-                if data.len() < 2 {
-                    return Err(ActionDecodeError::MissingBytes(2));
+    /// Fails if the op code is unsupported.
+    pub fn op_code(&self) -> Result<OpCode, UnsupportedOpCode<'data>> {
+        let code = unsafe { *self.data.get_unchecked(0) & 0x3F };
+        OpCode::from(code).map_err(|_| UnsupportedOpCode {
+            op_code: code,
+            remaining_data: self.data,
+        })
+    }
+
+    /// # Errors
+    /// Fails if the op code is unsupported.
+    pub fn action(&self) -> Result<ValidEncodedAction<'data>, UnsupportedOpCode<'data>> {
+        unsafe {
+            Ok(match self.op_code()? {
+                #[cfg(feature = "decode_nop")]
+                OpCode::Nop => ValidEncodedAction::Nop(NopRef::start_decoding_unchecked(self.data)),
+                #[cfg(feature = "decode_read_file_data")]
+                OpCode::ReadFileData => ValidEncodedAction::ReadFileData(
+                    ReadFileDataRef::start_decoding_unchecked(self.data),
+                ),
+                #[cfg(feature = "decode_read_file_properties")]
+                OpCode::ReadFileProperties => ValidEncodedAction::ReadFileProperties(
+                    ReadFilePropertiesRef::start_decoding_unchecked(self.data),
+                ),
+                #[cfg(feature = "decode_write_file_data")]
+                OpCode::WriteFileData => ValidEncodedAction::WriteFileData(
+                    WriteFileDataRef::start_decoding_unchecked(self.data),
+                ),
+                #[cfg(feature = "decode_action_query")]
+                OpCode::ActionQuery => ValidEncodedAction::ActionQuery(
+                    DecodedActionQueryRef::start_decoding_unchecked(self.data),
+                ),
+                #[cfg(feature = "decode_status")]
+                OpCode::Status => {
+                    ValidEncodedAction::Status(StatusRef::start_decoding_unchecked(self.data))
                 }
-                Self::ActionQuery(DecodedActionQueryRef::start_decoding_unchecked(data)?)
-            }
+                op_code => {
+                    return Err(UnsupportedOpCode {
+                        op_code: op_code as u8,
+                        remaining_data: self.data,
+                    })
+                }
+            })
+        }
+    }
+}
+
+#[cfg(feature = "decode_action")]
+pub struct EncodedAction<'data> {
+    data: &'data [u8],
+}
+
+#[cfg(feature = "decode_action")]
+impl<'data> FailableEncodedData<'data> for EncodedAction<'data> {
+    type SourceData = &'data [u8];
+    type SizeError = ActionSizeError<'data>;
+    type DecodeError = ActionDecodeError<'data>;
+    type DecodedData = DecodedActionRef<'data>;
+
+    unsafe fn new(data: Self::SourceData) -> Self {
+        Self { data }
+    }
+
+    fn encoded_size(&self) -> Result<usize, Self::SizeError> {
+        Ok(match self.action()? {
+            #[cfg(feature = "decode_nop")]
+            ValidEncodedAction::Nop(action) => action.encoded_size()?,
+            #[cfg(feature = "decode_read_file_data")]
+            ValidEncodedAction::ReadFileData(action) => action.encoded_size()?,
+            #[cfg(feature = "decode_read_file_properties")]
+            ValidEncodedAction::ReadFileProperties(action) => action.encoded_size()?,
+            #[cfg(feature = "decode_write_file_data")]
+            ValidEncodedAction::WriteFileData(action) => action.encoded_size()?,
+            #[cfg(feature = "decode_action_query")]
+            ValidEncodedAction::ActionQuery(action) => action.encoded_size()?,
             #[cfg(feature = "decode_status")]
-            OpCode::Status => Self::Status(StatusRef::start_decoding_unchecked(data)?),
-            _ => return Err(ActionDecodeError::UnknownActionCode(code)),
+            ValidEncodedAction::Status(action) => action.encoded_size()?,
         })
     }
 
-    /// # Errors
-    /// Fails if the opcode is invalid. Returning the opcode.
-    ///
-    /// # Safety
-    /// The data has to contain at least one byte.
-    unsafe fn from_ptr(data: *const u8) -> Result<Self, PtrActionDecodeError<'data>> {
-        let code = *data.offset(0) & 0x3F;
-        let op_code = match OpCode::from(code) {
-            Ok(code) => code,
-            Err(_) => return Err(PtrActionDecodeError::UnknownActionCode(code)),
-        };
-        Ok(match op_code {
+    fn complete_decoding(&self) -> Result<WithByteSize<Self::DecodedData>, Self::DecodeError> {
+        Ok(match self.action()? {
             #[cfg(feature = "decode_nop")]
-            OpCode::Nop => Self::Nop(NopRef::start_decoding_ptr(data)),
+            ValidEncodedAction::Nop(action) => {
+                action.complete_decoding().map(DecodedActionRef::Nop)
+            }
             #[cfg(feature = "decode_read_file_data")]
-            OpCode::ReadFileData => Self::ReadFileData(ReadFileDataRef::start_decoding_ptr(data)),
+            ValidEncodedAction::ReadFileData(action) => action
+                .complete_decoding()
+                .map(DecodedActionRef::ReadFileData),
             #[cfg(feature = "decode_read_file_properties")]
-            OpCode::ReadFileProperties => {
-                Self::ReadFileProperties(ReadFilePropertiesRef::start_decoding_ptr(data))
-            }
+            ValidEncodedAction::ReadFileProperties(action) => action
+                .complete_decoding()
+                .map(DecodedActionRef::ReadFileProperties),
             #[cfg(feature = "decode_write_file_data")]
-            OpCode::WriteFileData => {
-                Self::WriteFileData(WriteFileDataRef::start_decoding_ptr(data))
-            }
+            ValidEncodedAction::WriteFileData(action) => action
+                .complete_decoding()
+                .map(DecodedActionRef::WriteFileData),
             #[cfg(feature = "decode_action_query")]
-            OpCode::ActionQuery => {
-                Self::ActionQuery(DecodedActionQueryRef::start_decoding_ptr(data)?)
-            }
+            ValidEncodedAction::ActionQuery(action) => action
+                .complete_decoding()?
+                .map(DecodedActionRef::ActionQuery),
             #[cfg(feature = "decode_status")]
-            OpCode::Status => Self::Status(StatusRef::start_decoding_ptr(data)?),
-            _ => return Err(PtrActionDecodeError::UnknownActionCode(code)),
+            ValidEncodedAction::Status(action) => {
+                action.complete_decoding()?.map(DecodedActionRef::Status)
+            }
         })
     }
+}
 
-    /// Decodes the size of the Item in bytes
-    ///
-    /// # Safety
-    /// This requires reading the data bytes that may be out of bound to be calculate.
-    pub unsafe fn expected_size(&self) -> usize {
-        match self {
-            #[cfg(feature = "decode_nop")]
-            Self::Nop(action) => action.expected_size(),
-            #[cfg(feature = "decode_read_file_data")]
-            Self::ReadFileData(action) => action.expected_size(),
-            #[cfg(feature = "decode_read_file_properties")]
-            Self::ReadFileProperties(action) => action.expected_size(),
-            #[cfg(feature = "decode_write_file_data")]
-            Self::WriteFileData(action) => action.expected_size(),
-            #[cfg(feature = "decode_action_query")]
-            Self::ActionQuery(action) => action.expected_size(),
-            #[cfg(feature = "decode_status")]
-            Self::Status(action) => action.expected_size(),
-        }
-    }
+#[cfg(feature = "decode_action")]
+pub struct EncodedActionMut<'data> {
+    data: &'data mut [u8],
+}
 
-    /// Checks whether the given data_size is bigger than the decoded object expected size.
-    ///
-    /// On success, returns the size of the decoded object.
-    ///
+#[cfg(feature = "decode_action")]
+pub enum ValidEncodedActionMut<'data> {
+    #[cfg(feature = "decode_nop")]
+    Nop(EncodedNopMut<'data>),
+    #[cfg(feature = "decode_read_file_data")]
+    ReadFileData(EncodedReadFileDataMut<'data>),
+    #[cfg(feature = "decode_read_file_properties")]
+    ReadFileProperties(EncodedReadFilePropertiesMut<'data>),
+    #[cfg(feature = "decode_write_file_data")]
+    WriteFileData(EncodedWriteFileDataMut<'data>),
+    #[cfg(feature = "decode_action_query")]
+    ActionQuery(EncodedActionQueryMut<'data>),
+    #[cfg(feature = "decode_status")]
+    Status(EncodedStatusMut<'data>),
+}
+
+#[cfg(feature = "decode_action")]
+crate::make_downcastable!(EncodedActionMut, EncodedAction);
+
+#[cfg(feature = "decode_action")]
+impl<'data> EncodedActionMut<'data> {
     /// # Errors
-    /// Fails if the data_size is smaller than the required data size to decode the object.
-    pub fn smaller_than(&self, data_size: usize) -> Result<usize, usize> {
-        match self {
-            #[cfg(feature = "decode_nop")]
-            Self::Nop(action) => action.smaller_than(data_size),
-            #[cfg(feature = "decode_read_file_data")]
-            Self::ReadFileData(action) => action.smaller_than(data_size),
-            #[cfg(feature = "decode_read_file_properties")]
-            Self::ReadFileProperties(action) => action.smaller_than(data_size),
-            #[cfg(feature = "decode_write_file_data")]
-            Self::WriteFileData(action) => action.smaller_than(data_size),
-            #[cfg(feature = "decode_action_query")]
-            Self::ActionQuery(action) => action.smaller_than(data_size),
-            #[cfg(feature = "decode_status")]
-            Self::Status(action) => action.smaller_than(data_size),
-        }
+    /// Fails if the op code is unsupported.
+    pub fn op_code(&self) -> Result<OpCode, UnsupportedOpCode<'data>> {
+        self.as_ref().op_code()
     }
 
-    /// Fully decode the Item
-    ///
-    /// Returns the decoded data and the number of bytes consumed to produce it.
-    pub fn complete_decoding(&self) -> (DecodedActionRef<'data>, usize) {
-        match self {
-            #[cfg(feature = "decode_nop")]
-            Self::Nop(action) => {
-                let (action, size) = action.complete_decoding();
-                (DecodedActionRef::Nop(action), size)
-            }
-            #[cfg(feature = "decode_read_file_data")]
-            Self::ReadFileData(action) => {
-                let (action, size) = action.complete_decoding();
-                (DecodedActionRef::ReadFileData(action), size)
-            }
-            #[cfg(feature = "decode_read_file_properties")]
-            Self::ReadFileProperties(action) => {
-                let (action, size) = action.complete_decoding();
-                (DecodedActionRef::ReadFileProperties(action), size)
-            }
-            #[cfg(feature = "decode_write_file_data")]
-            Self::WriteFileData(action) => {
-                let (action, size) = action.complete_decoding();
-                (DecodedActionRef::WriteFileData(action), size)
-            }
-            #[cfg(feature = "decode_action_query")]
-            Self::ActionQuery(action) => {
-                let (action, size) = action.complete_decoding();
-                (DecodedActionRef::ActionQuery(action.into()), size)
-            }
-            #[cfg(feature = "decode_status")]
-            Self::Status(action) => {
-                let (action, size) = action.complete_decoding();
-                (DecodedActionRef::Status(action), size)
-            }
+    /// # Errors
+    /// Fails if the op code is unsupported.
+    pub fn action(&self) -> Result<ValidEncodedAction<'data>, UnsupportedOpCode<'data>> {
+        self.as_ref().action()
+    }
+
+    /// # Safety
+    /// Changing this breaks the payload.
+    /// It should never be used.
+    /// Make sure that you change the following payload to keep it coherent.
+    pub unsafe fn set_op_code(&mut self, op_code: OpCode) {
+        *self.data.get_unchecked_mut(0) &= 0xC0;
+        *self.data.get_unchecked_mut(0) |= op_code as u8;
+    }
+
+    /// # Errors
+    /// Fails if the op code is unsupported.
+    pub fn action_mut(
+        &'data mut self,
+    ) -> Result<ValidEncodedActionMut<'data>, UnsupportedOpCode<'data>> {
+        unsafe {
+            Ok(match self.op_code()? {
+                #[cfg(feature = "decode_nop")]
+                OpCode::Nop => {
+                    ValidEncodedActionMut::Nop(NopRef::start_decoding_unchecked_mut(self.data))
+                }
+                #[cfg(feature = "decode_read_file_data")]
+                OpCode::ReadFileData => ValidEncodedActionMut::ReadFileData(
+                    ReadFileDataRef::start_decoding_unchecked_mut(self.data),
+                ),
+                #[cfg(feature = "decode_read_file_properties")]
+                OpCode::ReadFileProperties => ValidEncodedActionMut::ReadFileProperties(
+                    ReadFilePropertiesRef::start_decoding_unchecked_mut(self.data),
+                ),
+                #[cfg(feature = "decode_write_file_data")]
+                OpCode::WriteFileData => ValidEncodedActionMut::WriteFileData(
+                    WriteFileDataRef::start_decoding_unchecked_mut(self.data),
+                ),
+                #[cfg(feature = "decode_action_query")]
+                OpCode::ActionQuery => ValidEncodedActionMut::ActionQuery(
+                    DecodedActionQueryRef::start_decoding_unchecked_mut(self.data),
+                ),
+                #[cfg(feature = "decode_status")]
+                OpCode::Status => ValidEncodedActionMut::Status(
+                    StatusRef::start_decoding_unchecked_mut(self.data),
+                ),
+                op_code => {
+                    return Err(UnsupportedOpCode {
+                        op_code: op_code as u8,
+                        remaining_data: self.data,
+                    })
+                }
+            })
         }
     }
+}
+
+#[cfg(feature = "decode_action")]
+impl<'data> FailableEncodedData<'data> for EncodedActionMut<'data> {
+    type SourceData = &'data mut [u8];
+    type SizeError = ActionSizeError<'data>;
+    type DecodeError = ActionDecodeError<'data>;
+    type DecodedData = DecodedActionRef<'data>;
+
+    unsafe fn new(data: Self::SourceData) -> Self {
+        Self { data }
+    }
+
+    fn encoded_size(&self) -> Result<usize, Self::SizeError> {
+        self.as_ref().encoded_size()
+    }
+
+    fn complete_decoding(&self) -> Result<WithByteSize<Self::DecodedData>, Self::DecodeError> {
+        self.as_ref().complete_decoding()
+    }
+}
+
+#[cfg(feature = "decode_action")]
+impl<'data> FailableDecodable<'data> for DecodedActionRef<'data> {
+    type Data = EncodedAction<'data>;
+    type DataMut = EncodedActionMut<'data>;
+    type FullDecodeError = ActionSizeError<'data>;
 }
 
 /// An Owned ALP Action
@@ -699,6 +623,7 @@ impl Action {
 mod test {
     #![allow(clippy::unwrap_in_result, clippy::panic, clippy::expect_used)]
     use super::*;
+    use crate::decodable::{FailableDecodable, FailableEncodedData, WithByteSize};
     #[cfg(any(
         all(
             feature = "decode_action_query",
@@ -748,15 +673,22 @@ mod test {
             assert_eq!(&encoded[..size], data);
 
             // Test decode(data) == op
-            let (ret, size) = DecodedActionRef::decode(data).unwrap();
+            let WithByteSize {
+                item: ret,
+                byte_size: size,
+            } = DecodedActionRef::decode(data).unwrap();
             assert_eq!(size, data.len());
-            assert_eq!(ret.as_action(), op);
+            assert_eq!(ret.as_encodable(), op);
 
             // Test partial_decode == op
-            let (decoder, expected_size) = DecodedActionRef::start_decoding(data).unwrap();
+            let WithByteSize {
+                item: decoder,
+                byte_size: expected_size,
+            } = DecodedActionRef::start_decoding(data).unwrap();
             assert_eq!(expected_size, size);
-            assert_eq!(unsafe { decoder.expected_size() }, size);
-            assert_eq!(decoder.smaller_than(data.len()).unwrap(), size);
+            // TODO Should this be supported?
+            // assert_eq!(unsafe { decoder.encoded_size_unchecked() }, size);
+            assert_eq!(decoder.encoded_size().unwrap(), size);
         }
         #[cfg(feature = "decode_nop")]
         test(ActionRef::Nop(NopRef::new(false, true)), &[0x40]);
@@ -888,9 +820,12 @@ mod test {
         // Test decode(op.encode_in()) == op
         let mut encoded = [0_u8; TOT_SIZE];
         let size_encoded = op.encode_in(&mut encoded).unwrap();
-        let (ret, size_decoded) = DecodedActionRef::decode(&encoded).unwrap();
+        let WithByteSize {
+            item: ret,
+            byte_size: size_decoded,
+        } = DecodedActionRef::decode(&encoded).unwrap();
         assert_eq!(size_encoded, size_decoded);
-        assert_eq!(ret.as_action(), op);
+        assert_eq!(ret.as_encodable(), op);
 
         // Test decode(data).encode_in() == data
         let mut encoded2 = [0_u8; TOT_SIZE];

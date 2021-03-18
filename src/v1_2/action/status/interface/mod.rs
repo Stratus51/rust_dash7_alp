@@ -1,8 +1,13 @@
-use super::super::super::error::StatusInterfaceDecodeError;
-use crate::v1_2::dash7::interface_status::{
-    Dash7InterfaceStatus, Dash7InterfaceStatusRef, DecodableDash7InterfaceStatus,
+use crate::decodable::{
+    Decodable, EncodedData, FailableDecodable, FailableEncodedData, WithByteSize,
 };
-use crate::varint::{DecodableVarint, Varint};
+use crate::encodable::Encodable;
+use crate::v1_2::dash7::interface_status::{
+    Dash7InterfaceStatus, Dash7InterfaceStatusRef, EncodedDash7InterfaceStatus,
+    EncodedDash7InterfaceStatusMut,
+};
+use crate::v1_2::error::{StatusInterfaceSizeError, UnsupportedInterfaceId};
+use crate::varint::{EncodedVarint, EncodedVarintMut, Varint};
 
 pub mod define;
 use define::InterfaceId;
@@ -56,31 +61,18 @@ use define::InterfaceId;
 // operand, I hardly think it is useful to keep this feature, which might just encourage
 // using it for the wrong reasons.
 
+// TODO Rename InterfaceStatus
 /// Details from the interface the command is coming from
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub enum StatusInterfaceRef<'item> {
+pub enum StatusInterfaceRef<'data> {
     Host,
-    Dash7(Dash7InterfaceStatusRef<'item>),
+    Dash7(Dash7InterfaceStatusRef<'data>),
 }
 
-impl<'item> StatusInterfaceRef<'item> {
-    /// Encodes the Item into a data pointer without checking the size of the
-    /// receiving byte array.
-    ///
-    /// This method is meant to allow unchecked cross language wrapper libraries
-    /// to implement an unchecked call without having to build a fake slice with
-    /// a fake size.
-    ///
-    /// It is not meant to be used inside a Rust library/binary.
-    ///
-    /// # Safety
-    /// You are responsible for checking that `out.len()` >= [`self.size()`](#method.size).
-    ///
-    /// Failing that will result in the program writing out of bound in
-    /// random parts of your memory.
-    pub unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
+impl<'data> Encodable for StatusInterfaceRef<'data> {
+    unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
         let mut offset = 1;
         match self {
             Self::Host => {
@@ -89,169 +81,27 @@ impl<'item> StatusInterfaceRef<'item> {
             }
             Self::Dash7(status) => {
                 *out.add(0) = InterfaceId::Dash7 as u8;
-                let status_length = Varint::new_unchecked(status.size() as u32);
+                let status_length = Varint::new_unchecked(status.encoded_size() as u32);
                 status_length.encode_in_ptr(out.add(offset));
-                offset += status_length.size();
+                offset += status_length.encoded_size();
                 offset += status.encode_in_ptr(out.add(offset));
             }
         }
         offset
     }
 
-    /// Encodes the Item without checking the size of the receiving
-    /// byte array.
-    ///
-    /// # Safety
-    /// You are responsible for checking that `out.len()` >= [`self.size()`](#method.size).
-    ///
-    /// Failing that will result in the program writing out of bound in
-    /// random parts of your memory.
-    pub unsafe fn encode_in_unchecked(&self, out: &mut [u8]) -> usize {
-        self.encode_in_ptr(out.as_mut_ptr())
-    }
-
-    /// Encodes the value into pre allocated array.
-    ///
-    /// # Errors
-    /// Fails if the pre allocated array is smaller than [`self.size()`](#method.size)
-    /// returning the number of input bytes required.
-    pub fn encode_in(&self, out: &mut [u8]) -> Result<usize, usize> {
-        let size = self.size();
-        if out.len() >= size {
-            Ok(unsafe { self.encode_in_ptr(out.as_mut_ptr()) })
-        } else {
-            Err(size)
-        }
-    }
-
-    /// Size in bytes of the encoded equivalent of the item.
-    pub fn size(&self) -> usize {
+    fn encoded_size(&self) -> usize {
         1 + match self {
             Self::Host => 1,
             Self::Dash7(status) => {
-                let status_len = unsafe { Varint::new_unchecked(status.size() as u32) };
-                status_len.size() + status_len.usize()
+                let status_len = unsafe { Varint::new_unchecked(status.encoded_size() as u32) };
+                status_len.encoded_size() + unsafe { status_len.usize() }
             }
         }
     }
+}
 
-    /// Creates a decodable item from a data pointer without checking the data size.
-    ///
-    /// This method is meant to allow unchecked cross language wrapper libraries
-    /// to implement an unchecked call without having to build a fake slice with
-    /// a fake size.
-    ///
-    /// It is not meant to be used inside a Rust library/binary.
-    ///
-    /// # Errors
-    /// Fails if the decoded interface_id is unknown.
-    ///
-    /// # Safety
-    /// You are to check that:
-    /// - The decodable object fits in the given data:
-    /// [`decodable.smaller_than(data.len())`](struct.DecodableStatusInterface.html#method.smaller_than)
-    ///
-    /// Failing that might result in reading and interpreting data outside the given
-    /// array (depending on what is done with the resulting object).
-    pub unsafe fn start_decoding_ptr<'data>(
-        data: *const u8,
-    ) -> Result<DecodableStatusInterface<'data>, u8> {
-        DecodableStatusInterface::from_ptr(data)
-    }
-
-    /// Creates a decodable item without checking the data size.
-    ///
-    /// # Errors
-    /// Fails if the decoded interface_id is unknown.
-    ///
-    /// # Safety
-    /// You are to check that:
-    /// - The decodable object fits in the given data:
-    /// [`decodable.smaller_than(data.len())`](struct.DecodableStatusInterface.html#method.smaller_than)
-    ///
-    /// Failing that might result in reading and interpreting data outside the given
-    /// array (depending on what is done with the resulting object).
-    pub unsafe fn start_decoding_unchecked(data: &[u8]) -> Result<DecodableStatusInterface, u8> {
-        DecodableStatusInterface::new(data)
-    }
-
-    /// Returns a Decodable object and its expected byte size.
-    ///
-    /// This decodable item allows each parts of the item to be decoded independently.
-    ///
-    /// # Errors
-    /// - Fails if first byte of the data contains an unknown interface ID.
-    /// - Fails if data is smaller then the decoded expected size.
-    pub fn start_decoding(
-        data: &[u8],
-    ) -> Result<(DecodableStatusInterface, usize), StatusInterfaceDecodeError> {
-        let ret = unsafe {
-            Self::start_decoding_unchecked(data)
-                .map_err(StatusInterfaceDecodeError::UnknownInterfaceId)?
-        };
-        let size = ret
-            .smaller_than(data.len())
-            .map_err(StatusInterfaceDecodeError::MissingBytes)?;
-        Ok((ret, size))
-    }
-
-    /// Decodes the Item from a data pointer.
-    ///
-    /// Returns the decoded data and the number of bytes consumed to produce it.
-    ///
-    /// This method is meant to allow unchecked cross language wrapper libraries
-    /// to implement an unchecked call without having to build a fake slice with
-    /// a fake size.
-    ///
-    /// It is not meant to be used inside a Rust library/binary.
-    ///
-    /// # Errors
-    /// - Fails if first byte of the data contains an unknown interface ID.
-    ///
-    /// # Errors
-    /// Fails if the decoded interface_id is unknown.
-    ///
-    /// # Safety
-    /// You are to check that:
-    /// - The resulting size of the data consumed is smaller than the size of the
-    /// decoded data.
-    ///
-    /// Failing that might result in reading and interpreting data outside the given
-    /// array (depending on what is done with the resulting object).
-    pub unsafe fn decode_ptr(data: *const u8) -> Result<(Self, usize), u8> {
-        Ok(Self::start_decoding_ptr(data)?.complete_decoding())
-    }
-
-    /// Decodes the Item from bytes.
-    ///
-    /// Returns the decoded data and the number of bytes consumed to produce it.
-    ///
-    /// # Errors
-    /// Fails if the decoded interface_id is unknown.
-    ///
-    /// # Safety
-    /// You are to check that:
-    /// - The resulting size of the data consumed is smaller than the size of the
-    /// decoded data.
-    ///
-    /// Failing that might result in reading and interpreting data outside the given
-    /// array (depending on what is done with the resulting object).
-    pub unsafe fn decode_unchecked(data: &'item [u8]) -> Result<(Self, usize), u8> {
-        Ok(Self::start_decoding_unchecked(data)?.complete_decoding())
-    }
-
-    /// Decodes the item from bytes.
-    ///
-    /// On success, returns the decoded data and the number of bytes consumed
-    /// to produce it.
-    ///
-    /// # Errors
-    /// - Fails if first byte of the data contains an unknown interface ID.
-    /// - Fails if data is smaller then the decoded expected size.
-    pub fn decode(data: &'item [u8]) -> Result<(Self, usize), StatusInterfaceDecodeError> {
-        Self::start_decoding(data).map(|v| v.0.complete_decoding())
-    }
-
+impl<'data> StatusInterfaceRef<'data> {
     pub fn to_owned(&self) -> StatusInterface {
         match self {
             Self::Host => StatusInterface::Host,
@@ -260,113 +110,202 @@ impl<'item> StatusInterfaceRef<'item> {
     }
 }
 
-pub enum DecodableStatusInterfaceKind<'data> {
+pub enum ValidEncodedStatusInterface<'data> {
     Host,
-    Dash7(DecodableDash7InterfaceStatus<'data>),
+    Dash7(EncodedDash7InterfaceStatus<'data>),
 }
 
-pub struct DecodableStatusInterface<'data> {
-    data: *const u8,
-    data_life: core::marker::PhantomData<&'data ()>,
-    interface_id: InterfaceId,
+pub struct EncodedStatusInterface<'data> {
+    data: &'data [u8],
 }
 
-impl<'data> DecodableStatusInterface<'data> {
+impl<'data> EncodedStatusInterface<'data> {
     /// # Errors
-    /// Fails if the decoded interface_id is unknown.
-    unsafe fn new(data: &'data [u8]) -> Result<Self, u8> {
-        Self::from_ptr(data.as_ptr())
+    /// Fails if the interface status id is unsupported.
+    pub fn interface_id(&self) -> Result<InterfaceId, UnsupportedInterfaceId<'data>> {
+        unsafe {
+            let byte = self.data.get_unchecked(0);
+            Ok(
+                InterfaceId::from(*byte).map_err(|_| UnsupportedInterfaceId {
+                    id: *byte,
+                    remaining_data: self.data.get_unchecked(1..),
+                })?,
+            )
+        }
+    }
+
+    pub fn len_field(&self) -> EncodedVarint<'data> {
+        unsafe { Varint::start_decoding_unchecked(self.data.get_unchecked(1..)) }
     }
 
     /// # Errors
-    /// Fails if the decoded interface_id is unknown.
-    unsafe fn from_ptr(data: *const u8) -> Result<Self, u8> {
-        let byte = *data.add(0);
-        let interface_id = InterfaceId::from(byte).map_err(|_| byte)?;
-        Ok(Self {
-            data,
-            data_life: core::marker::PhantomData,
-            interface_id,
-        })
+    /// Fails if the interface status id is unsupported.
+    pub fn status(
+        &self,
+    ) -> Result<ValidEncodedStatusInterface<'data>, UnsupportedInterfaceId<'data>> {
+        unsafe {
+            let offset = 1 + self.len_field().encoded_size_unchecked();
+            Ok(match self.interface_id()? {
+                InterfaceId::Host => ValidEncodedStatusInterface::Host,
+                InterfaceId::Dash7 => ValidEncodedStatusInterface::Dash7(
+                    Dash7InterfaceStatusRef::start_decoding_unchecked(
+                        self.data.get_unchecked(offset..),
+                    ),
+                ),
+            })
+        }
+    }
+}
+
+impl<'data> FailableEncodedData<'data> for EncodedStatusInterface<'data> {
+    type SourceData = &'data [u8];
+    type SizeError = StatusInterfaceSizeError<'data>;
+    type DecodeError = UnsupportedInterfaceId<'data>;
+    type DecodedData = StatusInterfaceRef<'data>;
+
+    unsafe fn new(data: Self::SourceData) -> Self {
+        Self { data }
     }
 
-    /// Decodes the size of the Item in bytes
-    ///
-    /// # Safety
-    /// This requires reading the data bytes that may be out of bound to be calculate.
-    pub unsafe fn expected_size(&self) -> usize {
-        1 + self.len_field().expected_size()
-            + match &self.status() {
-                DecodableStatusInterfaceKind::Host => 0,
-                DecodableStatusInterfaceKind::Dash7(status) => status.expected_size(),
-            }
-    }
-
-    /// Checks whether the given data_size is bigger than the decoded object expected size.
-    ///
-    /// On success, returns the size of the decoded object.
-    ///
-    /// # Errors
-    /// - Fails if the data_size is smaller than the required data size to decode the object.
-    pub fn smaller_than(&self, data_size: usize) -> Result<usize, usize> {
+    fn encoded_size(&self) -> Result<usize, Self::SizeError> {
         let mut size = 2;
+        let data_size = self.data.len();
         if data_size < size {
-            return Err(size);
+            return Err(StatusInterfaceSizeError::MissingBytes);
         }
-        size = 1 + unsafe { self.len_field().expected_size() };
+        size = 1 + unsafe { self.len_field().encoded_size_unchecked() };
         if data_size < size {
-            return Err(size);
+            return Err(StatusInterfaceSizeError::MissingBytes);
         }
-        size += match &self.status() {
-            DecodableStatusInterfaceKind::Host => 0,
-            DecodableStatusInterfaceKind::Dash7(status) => {
-                match status.smaller_than(data_size - size + 1) {
-                    Ok(size) => size,
-                    Err(s) => return Err(size - 1 + s),
-                }
-            }
+        size += match &self
+            .status()
+            .map_err(StatusInterfaceSizeError::UnsupportedInterfaceId)?
+        {
+            ValidEncodedStatusInterface::Host => 0,
+            ValidEncodedStatusInterface::Dash7(status) => match status.encoded_size() {
+                Ok(size) => size,
+                Err(_) => return Err(StatusInterfaceSizeError::MissingBytes),
+            },
         };
         if data_size < size {
-            return Err(size);
+            return Err(StatusInterfaceSizeError::MissingBytes);
         }
         Ok(size)
     }
 
-    pub fn interface_id(&self) -> &InterfaceId {
-        &self.interface_id
-    }
-
-    pub fn len_field(&self) -> DecodableVarint<'data> {
-        unsafe { Varint::start_decoding_ptr(self.data.add(1)) }
-    }
-
-    pub fn status(&self) -> DecodableStatusInterfaceKind<'data> {
+    fn complete_decoding(&self) -> Result<WithByteSize<Self::DecodedData>, Self::DecodeError> {
+        let offset = 1 + unsafe { self.len_field().encoded_size_unchecked() };
         unsafe {
-            let offset = 1 + self.len_field().expected_size();
-            match self.interface_id {
-                InterfaceId::Host => DecodableStatusInterfaceKind::Host,
-                InterfaceId::Dash7 => DecodableStatusInterfaceKind::Dash7(
-                    Dash7InterfaceStatusRef::start_decoding_ptr(self.data.add(offset)),
-                ),
-            }
-        }
-    }
-
-    /// Fully decode the Item
-    ///
-    /// Returns the decoded data and the number of bytes consumed to produce it.
-    pub fn complete_decoding(&self) -> (StatusInterfaceRef<'data>, usize) {
-        let offset = 1 + unsafe { self.len_field().expected_size() };
-        unsafe {
-            match self.interface_id {
-                InterfaceId::Host => (StatusInterfaceRef::Host, offset),
+            Ok(match self.interface_id()? {
+                InterfaceId::Host => WithByteSize {
+                    item: StatusInterfaceRef::Host,
+                    byte_size: offset,
+                },
                 InterfaceId::Dash7 => {
-                    let (status, size) = Dash7InterfaceStatusRef::decode_ptr(self.data.add(offset));
-                    (StatusInterfaceRef::Dash7(status), offset + size)
+                    let WithByteSize {
+                        item: status,
+                        byte_size: size,
+                    } = Dash7InterfaceStatusRef::decode_unchecked(
+                        self.data.get_unchecked(offset..),
+                    );
+                    WithByteSize {
+                        item: StatusInterfaceRef::Dash7(status),
+                        byte_size: offset + size,
+                    }
                 }
-            }
+            })
         }
     }
+}
+
+pub struct EncodedStatusInterfaceMut<'data> {
+    data: &'data mut [u8],
+}
+
+pub enum ValidEncodedStatusInterfaceMut<'data> {
+    Host,
+    Dash7(EncodedDash7InterfaceStatusMut<'data>),
+}
+
+crate::make_downcastable!(EncodedStatusInterfaceMut, EncodedStatusInterface);
+
+impl<'data> EncodedStatusInterfaceMut<'data> {
+    /// # Errors
+    /// Fails if the interface status id is unsupported.
+    pub fn interface_id(&self) -> Result<InterfaceId, UnsupportedInterfaceId<'data>> {
+        self.as_ref().interface_id()
+    }
+
+    pub fn len_field(&self) -> EncodedVarint<'data> {
+        self.as_ref().len_field()
+    }
+
+    /// # Errors
+    /// Fails if the interface status id is unsupported.
+    pub fn status(
+        &self,
+    ) -> Result<ValidEncodedStatusInterface<'data>, UnsupportedInterfaceId<'data>> {
+        self.as_ref().status()
+    }
+
+    /// # Safety
+    /// This method method changes the interface id of the status.
+    /// This will probably make the payload incoherent unless you are sure that the payloads for
+    /// both those interface statuses are identical.
+    pub unsafe fn set_interface_id(&mut self, interface_id: u8) {
+        *self.data.get_unchecked_mut(0) = interface_id;
+    }
+
+    /// # Safety
+    /// Even though it is technically possible, changing the length field of the interface status
+    /// has a high chance of making it incoherent.
+    /// Be sure that you have adapted the payload somehow to match it.
+    pub unsafe fn len_field_mut(&mut self) -> EncodedVarintMut {
+        Varint::start_decoding_unchecked_mut(self.data.get_unchecked_mut(1..))
+    }
+
+    /// # Errors
+    /// Fails if the interface status id is unsupported.
+    pub fn status_mut(
+        &mut self,
+    ) -> Result<ValidEncodedStatusInterfaceMut, UnsupportedInterfaceId<'data>> {
+        unsafe {
+            let offset = 1 + self.len_field().encoded_size_unchecked();
+            Ok(match self.interface_id()? {
+                InterfaceId::Host => ValidEncodedStatusInterfaceMut::Host,
+                InterfaceId::Dash7 => ValidEncodedStatusInterfaceMut::Dash7(
+                    Dash7InterfaceStatusRef::start_decoding_unchecked_mut(
+                        self.data.get_unchecked_mut(offset..),
+                    ),
+                ),
+            })
+        }
+    }
+}
+
+impl<'data> FailableEncodedData<'data> for EncodedStatusInterfaceMut<'data> {
+    type SourceData = &'data mut [u8];
+    type SizeError = StatusInterfaceSizeError<'data>;
+    type DecodeError = UnsupportedInterfaceId<'data>;
+    type DecodedData = StatusInterfaceRef<'data>;
+
+    unsafe fn new(data: Self::SourceData) -> Self {
+        Self { data }
+    }
+
+    fn encoded_size(&self) -> Result<usize, Self::SizeError> {
+        self.as_ref().encoded_size()
+    }
+
+    fn complete_decoding(&self) -> Result<WithByteSize<Self::DecodedData>, Self::DecodeError> {
+        self.as_ref().complete_decoding()
+    }
+}
+
+impl<'data> FailableDecodable<'data> for StatusInterfaceRef<'data> {
+    type Data = EncodedStatusInterface<'data>;
+    type DataMut = EncodedStatusInterfaceMut<'data>;
+    type FullDecodeError = StatusInterfaceSizeError<'data>;
 }
 
 /// Details from the interface the command is coming from
@@ -391,6 +330,7 @@ impl StatusInterface {
 mod test {
     #![allow(clippy::unwrap_in_result, clippy::panic, clippy::expect_used)]
     use super::*;
+    use crate::decodable::{FailableDecodable, WithByteSize};
     use crate::v1_2::dash7::{
         addressee::{AccessClass, AddresseeIdentifierRef, AddresseeRef, NlsMethod},
         interface_status::AddresseeWithNlsStateRef,
@@ -406,21 +346,26 @@ mod test {
             assert_eq!(&encoded[..size], data);
 
             // Test decode(data) == op
-            let (ret, size) = StatusInterfaceRef::decode(data).unwrap();
+            let WithByteSize {
+                item: ret,
+                byte_size: size,
+            } = StatusInterfaceRef::decode(data).unwrap();
             assert_eq!(size, data.len());
             assert_eq!(ret, op);
 
             // Test partial_decode == op
-            let (decoder, expected_size) = StatusInterfaceRef::start_decoding(data).unwrap();
+            let WithByteSize {
+                item: decoder,
+                byte_size: expected_size,
+            } = StatusInterfaceRef::start_decoding(data).unwrap();
             assert_eq!(expected_size, size);
-            assert_eq!(unsafe { decoder.expected_size() }, size);
-            assert_eq!(decoder.smaller_than(data.len()).unwrap(), size);
+            assert_eq!(decoder.encoded_size().unwrap(), size);
             assert_eq!(
                 op,
-                match decoder.status() {
-                    DecodableStatusInterfaceKind::Host => StatusInterfaceRef::Host,
-                    DecodableStatusInterfaceKind::Dash7(status) =>
-                        StatusInterfaceRef::Dash7(status.complete_decoding().0),
+                match decoder.status().unwrap() {
+                    ValidEncodedStatusInterface::Host => StatusInterfaceRef::Host,
+                    ValidEncodedStatusInterface::Dash7(status) =>
+                        StatusInterfaceRef::Dash7(status.complete_decoding().item),
                 },
             );
         }
@@ -484,7 +429,10 @@ mod test {
         // Test decode(op.encode_in()) == op
         let mut encoded = [0_u8; TOT_SIZE];
         let size_encoded = op.encode_in(&mut encoded).unwrap();
-        let (ret, size_decoded) = StatusInterfaceRef::decode(&encoded).unwrap();
+        let WithByteSize {
+            item: ret,
+            byte_size: size_decoded,
+        } = StatusInterfaceRef::decode(&encoded).unwrap();
         assert_eq!(size_encoded, size_decoded);
         assert_eq!(ret, op);
 
