@@ -1,7 +1,7 @@
 pub mod interface;
 
 use crate::decodable::MissingByteErrorBuilder;
-use interface::{StatusInterfaceSizeError, UnsupportedInterfaceId};
+use interface::{InterfaceStatusSizeError, UnsupportedInterfaceId};
 
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
@@ -45,11 +45,11 @@ pub enum StatusSizeError<'data> {
     MissingBytes,
 }
 
-impl<'data> From<StatusInterfaceSizeError<'data>> for StatusSizeError<'data> {
-    fn from(e: StatusInterfaceSizeError<'data>) -> Self {
+impl<'data> From<InterfaceStatusSizeError<'data>> for StatusSizeError<'data> {
+    fn from(e: InterfaceStatusSizeError<'data>) -> Self {
         match e {
-            StatusInterfaceSizeError::MissingBytes => Self::MissingBytes,
-            StatusInterfaceSizeError::UnsupportedInterfaceId(e) => Self::UnsupportedInterfaceId(e),
+            InterfaceStatusSizeError::MissingBytes => Self::MissingBytes,
+            InterfaceStatusSizeError::UnsupportedInterfaceId(e) => Self::UnsupportedInterfaceId(e),
         }
     }
 }

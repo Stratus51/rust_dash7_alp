@@ -10,7 +10,7 @@ use crate::v1_2::error::action::status::{
 };
 pub use define::StatusExtension;
 pub use interface::{
-    EncodedStatusInterface, EncodedStatusInterfaceMut, StatusInterface, StatusInterfaceRef,
+    EncodedInterfaceStatus, EncodedInterfaceStatusMut, InterfaceStatus, InterfaceStatusRef,
 };
 
 // TODO Add feature based sub types support (also in status_interface)
@@ -20,7 +20,7 @@ pub use interface::{
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum StatusRef<'data> {
     // Action(),
-    Interface(StatusInterfaceRef<'data>),
+    Interface(InterfaceStatusRef<'data>),
 }
 
 impl<'data> Encodable for StatusRef<'data> {
@@ -57,7 +57,7 @@ pub struct EncodedStatus<'data> {
 }
 
 pub enum ValidEncodedStatus<'data> {
-    Interface(EncodedStatusInterface<'data>),
+    Interface(EncodedInterfaceStatus<'data>),
 }
 
 impl<'data> EncodedStatus<'data> {
@@ -80,7 +80,7 @@ impl<'data> EncodedStatus<'data> {
         unsafe {
             Ok(match self.extension()? {
                 StatusExtension::Interface => ValidEncodedStatus::Interface(
-                    StatusInterfaceRef::start_decoding_unchecked(self.data.get_unchecked(1..)),
+                    InterfaceStatusRef::start_decoding_unchecked(self.data.get_unchecked(1..)),
                 ),
             })
         }
@@ -128,7 +128,7 @@ pub struct EncodedStatusMut<'data> {
 }
 
 pub enum ValidEncodedStatusMut<'data> {
-    Interface(EncodedStatusInterfaceMut<'data>),
+    Interface(EncodedInterfaceStatusMut<'data>),
 }
 
 crate::make_downcastable!(EncodedStatusMut, EncodedStatus);
@@ -146,7 +146,7 @@ impl<'data> EncodedStatusMut<'data> {
         unsafe {
             Ok(match self.extension()? {
                 StatusExtension::Interface => ValidEncodedStatusMut::Interface(
-                    StatusInterfaceRef::start_decoding_unchecked_mut(
+                    InterfaceStatusRef::start_decoding_unchecked_mut(
                         self.data.get_unchecked_mut(1..),
                     ),
                 ),
@@ -186,7 +186,7 @@ impl<'data> FailableDecodable<'data> for StatusRef<'data> {
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum Status {
     // Action(),
-    Interface(StatusInterface),
+    Interface(InterfaceStatus),
 }
 
 impl Status {
@@ -225,7 +225,7 @@ mod test {
             assert_eq!(ret, op);
         }
         test(
-            StatusRef::Interface(StatusInterfaceRef::Dash7(Dash7InterfaceStatusRef {
+            StatusRef::Interface(InterfaceStatusRef::Dash7(Dash7InterfaceStatusRef {
                 ch_header: 0x1,
                 ch_idx: 0x2,
                 rxlev: 0x3,
@@ -278,7 +278,7 @@ mod test {
     #[test]
     fn consistence() {
         const TOT_SIZE: usize = 23;
-        let op = StatusRef::Interface(StatusInterfaceRef::Dash7(Dash7InterfaceStatusRef {
+        let op = StatusRef::Interface(InterfaceStatusRef::Dash7(Dash7InterfaceStatusRef {
             ch_header: 0x1,
             ch_idx: 0x2,
             rxlev: 0x3,
