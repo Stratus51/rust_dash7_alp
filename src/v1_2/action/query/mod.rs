@@ -31,7 +31,7 @@ use crate::decodable::{FailableDecodable, FailableEncodedData, WithByteSize};
 #[cfg(feature = "query")]
 use crate::encodable::Encodable;
 #[cfg(feature = "decode_query")]
-use crate::v1_2::error::{QueryError, QuerySizeError, UnsupportedQueryCode};
+use crate::v1_2::error::action::query::{QueryError, QuerySizeError, UnsupportedQueryCode};
 
 #[cfg(feature = "query")]
 #[cfg_attr(feature = "repr_c", repr(C))]

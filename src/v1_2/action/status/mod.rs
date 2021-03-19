@@ -5,7 +5,9 @@ pub mod interface;
 use crate::decodable::{FailableDecodable, FailableEncodedData, WithByteSize};
 use crate::encodable::Encodable;
 use crate::v1_2::define::op_code;
-use crate::v1_2::error::{StatusDecodeError, StatusSizeError, UnsupportedExtension};
+use crate::v1_2::error::action::status::{
+    StatusDecodeError, StatusSizeError, UnsupportedExtension,
+};
 pub use define::StatusExtension;
 pub use interface::{
     EncodedStatusInterface, EncodedStatusInterfaceMut, StatusInterface, StatusInterfaceRef,

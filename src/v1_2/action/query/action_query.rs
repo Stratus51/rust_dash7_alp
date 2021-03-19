@@ -7,7 +7,7 @@ use crate::v1_2::define::flag;
 #[cfg(feature = "query")]
 use crate::v1_2::define::op_code;
 #[cfg(feature = "decode_query")]
-use crate::v1_2::error::{QueryError, QuerySizeError};
+use crate::v1_2::error::action::query::{QueryError, QuerySizeError};
 
 #[cfg(feature = "query")]
 use super::QueryRef;

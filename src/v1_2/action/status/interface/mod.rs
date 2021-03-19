@@ -6,7 +6,9 @@ use crate::v1_2::dash7::interface_status::{
     Dash7InterfaceStatus, Dash7InterfaceStatusRef, EncodedDash7InterfaceStatus,
     EncodedDash7InterfaceStatusMut,
 };
-use crate::v1_2::error::{StatusInterfaceSizeError, UnsupportedInterfaceId};
+use crate::v1_2::error::action::status::interface::{
+    StatusInterfaceSizeError, UnsupportedInterfaceId,
+};
 use crate::varint::{EncodedVarint, EncodedVarintMut, Varint};
 
 pub mod define;

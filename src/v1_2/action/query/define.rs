@@ -1,4 +1,6 @@
-use crate::v1_2::error::{QueryCodeError, QueryComparisonTypeError, QueryRangeComparisonTypeError};
+use crate::v1_2::error::define::{
+    QueryCodeError, QueryComparisonTypeError, QueryRangeComparisonTypeError,
+};
 
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]

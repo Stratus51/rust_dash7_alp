@@ -8,7 +8,7 @@ use crate::define::{
 };
 use crate::encodable::Encodable;
 use crate::v1_2::define::flag;
-use crate::v1_2::error::{
+use crate::v1_2::error::action::query::comparison_with_range::{
     QueryRangeError, QueryRangeSetError, QueryRangeSetLooselyError, QueryRangeSizeError,
 };
 use crate::varint::{EncodedVarint, EncodedVarintMut, Varint};

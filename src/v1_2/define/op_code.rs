@@ -1,4 +1,4 @@
-use crate::v1_2::error::OpCodeError;
+use crate::v1_2::error::define::OpCodeError;
 
 // Nop
 pub const NOP: u8 = 0;

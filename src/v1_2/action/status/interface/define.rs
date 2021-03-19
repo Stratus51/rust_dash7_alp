@@ -1,4 +1,4 @@
-use crate::v1_2::error::InterfaceIdError;
+use crate::v1_2::error::define::InterfaceIdError;
 
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]

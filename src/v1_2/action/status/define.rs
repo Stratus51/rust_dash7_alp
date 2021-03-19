@@ -1,4 +1,4 @@
-use crate::v1_2::error::StatusExtensionError;
+use crate::v1_2::error::define::StatusExtensionError;
 
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]

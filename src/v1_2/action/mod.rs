@@ -26,7 +26,7 @@ pub mod write_file_properties;
 #[cfg(feature = "decode_action")]
 use crate::v1_2::define::op_code::OpCode;
 #[cfg(feature = "decode_action")]
-use crate::v1_2::error::{ActionDecodeError, ActionSizeError, UnsupportedOpCode};
+use crate::v1_2::error::action::{ActionDecodeError, ActionSizeError, UnsupportedOpCode};
 
 #[cfg(feature = "decode_nop")]
 use nop::{EncodedNop, EncodedNopMut};
