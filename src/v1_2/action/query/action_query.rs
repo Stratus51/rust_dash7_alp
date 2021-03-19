@@ -7,7 +7,7 @@ use crate::v1_2::define::flag;
 #[cfg(feature = "query")]
 use crate::v1_2::define::op_code;
 #[cfg(feature = "decode_query")]
-use crate::v1_2::error::{QuerySizeError, UnsupportedQueryCode};
+use crate::v1_2::error::{QueryError, QuerySizeError};
 
 #[cfg(feature = "query")]
 use super::QueryRef;
@@ -118,7 +118,7 @@ impl<'data> EncodedActionQuery<'data> {
 impl<'data> FailableEncodedData<'data> for EncodedActionQuery<'data> {
     type SourceData = &'data [u8];
     type SizeError = QuerySizeError<'data>;
-    type DecodeError = UnsupportedQueryCode<'data>;
+    type DecodeError = QueryError<'data>;
     type DecodedData = DecodedActionQueryRef<'data>;
 
     unsafe fn new(data: Self::SourceData) -> Self {
@@ -192,7 +192,7 @@ impl<'data> EncodedActionQueryMut<'data> {
 impl<'data> FailableEncodedData<'data> for EncodedActionQueryMut<'data> {
     type SourceData = &'data mut [u8];
     type SizeError = QuerySizeError<'data>;
-    type DecodeError = UnsupportedQueryCode<'data>;
+    type DecodeError = QueryError<'data>;
     type DecodedData = DecodedActionQueryRef<'data>;
 
     unsafe fn new(data: Self::SourceData) -> Self {

@@ -1,4 +1,5 @@
 pub mod encodable_data;
+pub mod file_offset_operand;
 pub mod masked_range;
 pub mod masked_value;
 

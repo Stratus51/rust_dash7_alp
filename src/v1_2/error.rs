@@ -1,4 +1,5 @@
 use crate::decodable::{MissingByteErrorBuilder, SizeError};
+// TODO Split this file into submodules. It is too crowded.
 
 // ============================================================
 // Defines
@@ -57,6 +58,62 @@ pub enum InterfaceIdError {
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+pub enum QueryRangeError {
+    /// The encoded range is invalid because, range.start > range.end
+    BadEncodedRange,
+}
+
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+pub enum QueryRangeSizeError {
+    /// The encoded range is invalid because, range.start > range.end
+    BadEncodedRange,
+    MissingBytes,
+}
+impl From<QueryRangeError> for QueryRangeSizeError {
+    fn from(e: QueryRangeError) -> Self {
+        match e {
+            QueryRangeError::BadEncodedRange => Self::BadEncodedRange,
+        }
+    }
+}
+impl MissingByteErrorBuilder for QueryRangeSizeError {
+    fn missing_bytes() -> Self {
+        Self::MissingBytes
+    }
+}
+
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+pub enum QueryRangeSetError {
+    /// The given range does not have the same compare length as the encoded one.
+    CompareLengthMismatch,
+    /// The bitmap bit size calculated with the given range does not match the size of the encoded
+    /// bitmap.
+    BitmapBitSizeMismatch,
+    /// The given range is invalid because, range.start > range.end
+    BadGivenRange,
+    /// The encoded range is invalid because, range.start > range.end
+    BadEncodedRange,
+}
+
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+pub enum QueryRangeSetLooselyError {
+    /// The boundaries + bitmap size does not match the current one.
+    ByteSizeMismatch,
+    /// The given range is invalid because, range.start > range.end
+    BadGivenRange,
+    /// The encoded range is invalid because, range.start > range.end
+    BadEncodedRange,
+}
+
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct UnsupportedQueryCode<'data> {
     /// Parsed query code
     pub code: u8,
@@ -68,13 +125,52 @@ pub struct UnsupportedQueryCode<'data> {
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub enum QuerySizeError<'data> {
-    MissingBytes,
+pub enum QueryError<'data> {
     UnsupportedQueryCode(UnsupportedQueryCode<'data>),
+    /// The query is a range query and the encoded range is invalid because, range.start > range.end
+    BadEncodedRange,
 }
-impl<'data> From<UnsupportedQueryCode<'data>> for QuerySizeError<'data> {
+impl<'data> From<UnsupportedQueryCode<'data>> for QueryError<'data> {
     fn from(e: UnsupportedQueryCode<'data>) -> Self {
         Self::UnsupportedQueryCode(e)
+    }
+}
+impl<'data> From<QueryRangeError> for QueryError<'data> {
+    fn from(e: QueryRangeError) -> Self {
+        match e {
+            QueryRangeError::BadEncodedRange => Self::BadEncodedRange,
+        }
+    }
+}
+
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+pub enum QuerySizeError<'data> {
+    UnsupportedQueryCode(UnsupportedQueryCode<'data>),
+    /// The query is a range query and the encoded range is invalid because, range.start > range.end
+    BadEncodedRange,
+    MissingBytes,
+}
+impl<'data> From<QueryError<'data>> for QuerySizeError<'data> {
+    fn from(e: QueryError<'data>) -> Self {
+        match e {
+            QueryError::BadEncodedRange => Self::BadEncodedRange,
+            QueryError::UnsupportedQueryCode(e) => Self::UnsupportedQueryCode(e),
+        }
+    }
+}
+impl<'data> From<QueryRangeSizeError> for QuerySizeError<'data> {
+    fn from(e: QueryRangeSizeError) -> Self {
+        match e {
+            QueryRangeSizeError::BadEncodedRange => Self::BadEncodedRange,
+            QueryRangeSizeError::MissingBytes => Self::MissingBytes,
+        }
+    }
+}
+impl<'data> From<SizeError> for QuerySizeError<'data> {
+    fn from(_: SizeError) -> Self {
+        Self::MissingBytes
     }
 }
 impl<'data> MissingByteErrorBuilder for QuerySizeError<'data> {
@@ -108,8 +204,8 @@ pub struct UnsupportedInterfaceId<'data> {
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum StatusInterfaceSizeError<'data> {
-    MissingBytes,
     UnsupportedInterfaceId(UnsupportedInterfaceId<'data>),
+    MissingBytes,
 }
 impl<'data> From<UnsupportedInterfaceId<'data>> for StatusInterfaceSizeError<'data> {
     fn from(e: UnsupportedInterfaceId<'data>) -> Self {
@@ -146,11 +242,11 @@ impl<'data> From<UnsupportedInterfaceId<'data>> for StatusDecodeError<'data> {
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum StatusSizeError<'data> {
-    MissingBytes,
     /// The decoded query contains an unknown query code.
     UnsupportedExtension(UnsupportedExtension<'data>),
     /// The input data contains an unknown interface ID
     UnsupportedInterfaceId(UnsupportedInterfaceId<'data>),
+    MissingBytes,
 }
 
 impl<'data> From<StatusInterfaceSizeError<'data>> for StatusSizeError<'data> {
@@ -198,7 +294,7 @@ pub struct UnsupportedOpCode<'data> {
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum ActionDecodeError<'data> {
     UnsupportedOpCode(UnsupportedOpCode<'data>),
-    Query(UnsupportedQueryCode<'data>),
+    Query(QueryError<'data>),
     Status(StatusDecodeError<'data>),
 }
 
@@ -208,8 +304,8 @@ impl<'data> From<StatusDecodeError<'data>> for ActionDecodeError<'data> {
     }
 }
 
-impl<'data> From<UnsupportedQueryCode<'data>> for ActionDecodeError<'data> {
-    fn from(e: UnsupportedQueryCode<'data>) -> Self {
+impl<'data> From<QueryError<'data>> for ActionDecodeError<'data> {
+    fn from(e: QueryError<'data>) -> Self {
         Self::Query(e)
     }
 }
@@ -224,10 +320,10 @@ impl<'data> From<UnsupportedOpCode<'data>> for ActionDecodeError<'data> {
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum ActionSizeError<'data> {
-    MissingBytes,
     UnsupportedOpCode(UnsupportedOpCode<'data>),
-    Query(UnsupportedQueryCode<'data>),
+    Query(QueryError<'data>),
     Status(StatusDecodeError<'data>),
+    MissingBytes,
 }
 
 impl<'data> From<StatusDecodeError<'data>> for ActionSizeError<'data> {
@@ -236,8 +332,8 @@ impl<'data> From<StatusDecodeError<'data>> for ActionSizeError<'data> {
     }
 }
 
-impl<'data> From<UnsupportedQueryCode<'data>> for ActionSizeError<'data> {
-    fn from(e: UnsupportedQueryCode<'data>) -> Self {
+impl<'data> From<QueryError<'data>> for ActionSizeError<'data> {
+    fn from(e: QueryError<'data>) -> Self {
         Self::Query(e)
     }
 }
@@ -260,7 +356,10 @@ impl<'data> From<QuerySizeError<'data>> for ActionSizeError<'data> {
     fn from(e: QuerySizeError<'data>) -> Self {
         match e {
             QuerySizeError::MissingBytes => Self::MissingBytes,
-            QuerySizeError::UnsupportedQueryCode(e) => Self::Query(e),
+            QuerySizeError::UnsupportedQueryCode(e) => {
+                Self::Query(QueryError::UnsupportedQueryCode(e))
+            }
+            QuerySizeError::BadEncodedRange => Self::Query(QueryError::BadEncodedRange),
         }
     }
 }
