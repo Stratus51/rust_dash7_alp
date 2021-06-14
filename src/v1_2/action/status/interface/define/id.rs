@@ -1,11 +1,15 @@
 use crate::v1_2::error::define::InterfaceIdError;
 
+const HOST: u8 = 0;
+const DASH7: u8 = 0xD7;
+
+#[repr(u8)]
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum InterfaceId {
-    Host = 0,
-    Dash7 = 0xD7,
+    Host = HOST,
+    Dash7 = DASH7,
 }
 
 impl InterfaceId {
@@ -14,8 +18,8 @@ impl InterfaceId {
     /// [`InterfaceId`](enum.InterfaceId.html)
     pub const unsafe fn from_unchecked(n: u8) -> Self {
         match n {
-            0 => Self::Host,
-            0xD7 => Self::Dash7,
+            HOST => Self::Host,
+            DASH7 => Self::Dash7,
             // Should never occured if used safely
             _ => Self::Host,
         }
@@ -25,8 +29,8 @@ impl InterfaceId {
     /// Returns an error if n > 7
     pub const fn from(n: u8) -> Result<Self, InterfaceIdError> {
         Ok(match n {
-            0 => Self::Host,
-            0xD7 => Self::Dash7,
+            HOST => Self::Host,
+            DASH7 => Self::Dash7,
             id => return Err(InterfaceIdError::Unsupported { id }),
         })
     }

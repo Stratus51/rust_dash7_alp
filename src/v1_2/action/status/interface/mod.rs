@@ -12,7 +12,7 @@ use crate::v1_2::error::action::status::interface::{
 use crate::varint::{EncodedVarint, EncodedVarintMut, Varint};
 
 pub mod define;
-use define::InterfaceId;
+use define::id::InterfaceId;
 
 // TODO ALP SPEC: The length field of this operand seems superfluous.
 //
@@ -62,6 +62,8 @@ use define::InterfaceId;
 // While yes, skipping the interface status is non lethal, because it is not a flow control
 // operand, I hardly think it is useful to keep this feature, which might just encourage
 // using it for the wrong reasons.
+
+// TODO Add feature based sub types support
 
 /// Metadata of the packet from the interface it is coming from.
 #[cfg_attr(feature = "repr_c", repr(C))]

@@ -1,4 +1,4 @@
-use super::define::{QueryCode, QueryRangeComparisonType};
+use super::define::{code, range_comparison_type::QueryRangeComparisonType};
 use crate::decodable::{
     Decodable, EncodedData, FailableDecodable, FailableEncodedData, WithByteSize,
 };
@@ -42,7 +42,7 @@ impl<'data> Encodable for ComparisonWithRangeRef<'data> {
         } else {
             0
         };
-        *out.offset(0) = ((QueryCode::ComparisonWithRange as u8) << 5)
+        *out.offset(0) = (code::COMPARISON_WITH_RANGE << 5)
             | mask_flag
             | signed_flag
             | self.comparison_type as u8;

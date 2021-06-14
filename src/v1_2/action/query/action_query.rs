@@ -248,7 +248,7 @@ impl ActionQuery {
 mod test {
     #![allow(clippy::unwrap_in_result, clippy::panic, clippy::expect_used)]
     use super::super::{
-        comparison_with_value::ComparisonWithValueRef, define::QueryComparisonType,
+        comparison_with_value::ComparisonWithValueRef, define::comparison_type::QueryComparisonType,
     };
     use super::*;
     use crate::{

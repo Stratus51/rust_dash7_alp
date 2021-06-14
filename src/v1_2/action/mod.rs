@@ -733,7 +733,7 @@ mod test {
                 query: query::QueryRef::ComparisonWithValue(
                     query::comparison_with_value::ComparisonWithValueRef {
                         signed_data: true,
-                        comparison_type: query::define::QueryComparisonType::Equal,
+                        comparison_type: query::define::comparison_type::QueryComparisonType::Equal,
                         compare_value: MaskedValueRef::new(
                             EncodableDataRef::new(&[0x00, 0x01, 0x02]).unwrap(),
                             None,
@@ -760,7 +760,7 @@ mod test {
         #[cfg(feature = "decode_status")]
         test(
             ActionRef::Status(StatusRef::Interface(
-                status::interface::StatusInterfaceRef::Dash7(Dash7InterfaceStatusRef {
+                status::interface::InterfaceStatusRef::Dash7(Dash7InterfaceStatusRef {
                     ch_header: 0x1,
                     ch_idx: 0x2,
                     rxlev: 0x3,

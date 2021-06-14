@@ -8,12 +8,12 @@ use crate::v1_2::define::op_code;
 use crate::v1_2::error::action::status::{
     StatusDecodeError, StatusSizeError, UnsupportedExtension,
 };
-pub use define::StatusExtension;
-pub use interface::{
+use define::extension::{self, StatusExtension};
+use interface::{
     EncodedInterfaceStatus, EncodedInterfaceStatusMut, InterfaceStatus, InterfaceStatusRef,
 };
 
-// TODO Add feature based sub types support (also in status_interface)
+// TODO Add feature based sub types support
 
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
@@ -25,7 +25,10 @@ pub enum StatusRef<'data> {
 
 impl<'data> Encodable for StatusRef<'data> {
     unsafe fn encode_in_ptr(&self, out: *mut u8) -> usize {
-        *out.add(0) = op_code::STATUS | ((self.extension() as u8) << 6);
+        let extension = match self {
+            Self::Interface(_) => extension::INTERFACE,
+        };
+        *out.add(0) = op_code::STATUS | (extension << 6);
         1 + match self {
             Self::Interface(status) => status.encode_in_ptr(out.add(1)),
         }

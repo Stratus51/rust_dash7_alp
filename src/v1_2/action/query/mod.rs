@@ -21,7 +21,7 @@ use comparison_with_range::ComparisonWithRange;
 use comparison_with_value::ComparisonWithValue;
 
 #[cfg(feature = "decode_query")]
-use define::QueryCode;
+use define::code::QueryCode;
 
 #[cfg(any(feature = "decode_query_compare_with_value"))]
 use crate::decodable::{Decodable, EncodedData};
@@ -352,7 +352,7 @@ impl Query {
 mod test {
     #![allow(clippy::unwrap_in_result, clippy::panic, clippy::expect_used)]
     #[cfg(feature = "decode_query_compare_with_value")]
-    use super::define::QueryComparisonType;
+    use super::define::comparison_type::QueryComparisonType;
     use super::*;
     use crate::define::FileId;
     #[cfg(feature = "decode_query_compare_with_value")]
@@ -417,7 +417,8 @@ mod test {
         test(
             QueryRef::ComparisonWithRange(ComparisonWithRangeRef {
                 signed_data: false,
-                comparison_type: define::QueryRangeComparisonType::NotInRange,
+                comparison_type:
+                    define::range_comparison_type::QueryRangeComparisonType::NotInRange,
                 range: crate::define::MaskedRangeRef::new(1, 50, 66, Some(&[0x33, 0x22])).unwrap(),
                 file_id: FileId::new(0x88),
                 offset: Varint::new(0xFF).unwrap(),

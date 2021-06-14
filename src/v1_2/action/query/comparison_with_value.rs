@@ -1,4 +1,4 @@
-use super::define::{QueryCode, QueryComparisonType};
+use super::define::{code, comparison_type::QueryComparisonType};
 use crate::decodable::{Decodable, EncodedData, SizeError, WithByteSize};
 use crate::define::{EncodableDataRef, FileId, MaskedValueRef};
 use crate::encodable::Encodable;
@@ -34,7 +34,7 @@ impl<'data> Encodable for ComparisonWithValueRef<'data> {
         } else {
             0
         };
-        *out.offset(0) = ((QueryCode::ComparisonWithValue as u8) << 5)
+        *out.offset(0) = (code::COMPARISON_WITH_VALUE << 5)
             | mask_flag
             | signed_flag
             | self.comparison_type as u8;
