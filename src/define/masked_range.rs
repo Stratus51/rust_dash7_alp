@@ -13,7 +13,8 @@ use alloc::prelude::v1::Box;
 ///
 /// If a bitmap is defined, its size must match `floor((end - start + 6)/8)`.
 ///
-/// NB: In theory, because the start and end values are encoded on integers of
+/// # Limitation
+/// In theory, because the start and end values are encoded on integers of
 /// any size specifiable by a varint, they can have huge values (`256^(0x3F_FF_FF_FF)`).
 ///
 /// For ergonomy purpose, this library does not take those possibilities into consideration

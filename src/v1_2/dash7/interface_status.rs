@@ -105,7 +105,7 @@ impl<'data> EncodedAddresseeWithNlsState<'data> {
         unsafe { AddresseeRef::start_decoding_unchecked(self.data) }
     }
 
-    pub fn nls_state(&self) -> Option<&'data [u8]> {
+    pub fn nls_state(&self) -> Option<&'data [u8; 5]> {
         if self.addressee().nls_method() == NlsMethod::None {
             None
         } else {
@@ -189,7 +189,7 @@ impl<'data> EncodedAddresseeWithNlsStateMut<'data> {
         self.as_ref().addressee()
     }
 
-    pub fn nls_state(&self) -> Option<&'data [u8]> {
+    pub fn nls_state(&self) -> Option<&'data [u8; 5]> {
         self.as_ref().nls_state()
     }
 
@@ -205,7 +205,7 @@ impl<'data> EncodedAddresseeWithNlsStateMut<'data> {
         unsafe { AddresseeRef::start_decoding_unchecked_mut(self.data) }
     }
 
-    pub fn nls_state_mut(&mut self) -> Option<&'data mut [u8]> {
+    pub fn nls_state_mut(&mut self) -> Option<&'data mut [u8; 5]> {
         if self.addressee().nls_method() == NlsMethod::None {
             None
         } else {
@@ -464,7 +464,11 @@ impl<'data> EncodedDash7InterfaceStatusMut<'data> {
     }
 
     pub fn set_ch_idx(&mut self, ch_idx: u16) {
-        self.data.copy_from_slice(&ch_idx.to_le_bytes())
+        unsafe {
+            self.data
+                .get_unchecked_mut(1..1 + 2)
+                .copy_from_slice(&ch_idx.to_le_bytes())
+        }
     }
     pub fn set_rxlev(&mut self, rxlev: u8) {
         unsafe { *self.data.get_unchecked_mut(3) = rxlev }
@@ -579,11 +583,11 @@ mod test {
                 item: decoder,
                 byte_size: expected_size,
             } = Dash7InterfaceStatusRef::start_decoding(data).unwrap();
+            assert_eq!(expected_size, size);
             assert_eq!(
                 ret.addressee_with_nls_state.addressee(),
                 &decoder.addressee().complete_decoding().item
             );
-            assert_eq!(expected_size, size);
             assert_eq!(unsafe { decoder.encoded_size_unchecked() }, size);
             assert_eq!(decoder.encoded_size().unwrap(), size);
             assert_eq!(
@@ -604,6 +608,110 @@ mod test {
                         .item,
                 }
             );
+
+            // Test partial mutability
+            let WithByteSize {
+                item: mut decoder_mut,
+                byte_size: expected_size,
+            } = Dash7InterfaceStatusRef::start_decoding_mut(&mut encoded).unwrap();
+            assert_eq!(expected_size, size);
+
+            assert_eq!(decoder_mut.ch_header(), op.ch_header);
+            let new_ch_header = !op.ch_header;
+            assert!(new_ch_header != op.ch_header);
+            decoder_mut.set_ch_header(new_ch_header);
+            assert_eq!(decoder_mut.ch_header(), new_ch_header);
+
+            assert_eq!(decoder_mut.ch_idx(), op.ch_idx);
+            let new_ch_idx = !op.ch_idx;
+            assert!(new_ch_idx != op.ch_idx);
+            decoder_mut.set_ch_idx(new_ch_idx);
+            assert_eq!(decoder_mut.ch_idx(), new_ch_idx);
+
+            assert_eq!(decoder_mut.rxlev(), op.rxlev);
+            let new_rxlev = !op.rxlev;
+            assert!(new_rxlev != op.rxlev);
+            decoder_mut.set_rxlev(new_rxlev);
+            assert_eq!(decoder_mut.rxlev(), new_rxlev);
+
+            assert_eq!(decoder_mut.lb(), op.lb);
+            let new_lb = !op.lb;
+            assert!(new_lb != op.lb);
+            decoder_mut.set_lb(new_lb);
+            assert_eq!(decoder_mut.lb(), new_lb);
+
+            assert_eq!(decoder_mut.snr(), op.snr);
+            let new_snr = !op.snr;
+            assert!(new_snr != op.snr);
+            decoder_mut.set_snr(new_snr);
+            assert_eq!(decoder_mut.snr(), new_snr);
+
+            assert_eq!(decoder_mut.status(), op.status);
+            let new_status = !op.status;
+            assert!(new_status != op.status);
+            decoder_mut.set_status(new_status);
+            assert_eq!(decoder_mut.status(), new_status);
+
+            assert_eq!(decoder_mut.token(), op.token);
+            let new_token = !op.token;
+            assert!(new_token != op.token);
+            decoder_mut.set_token(new_token);
+            assert_eq!(decoder_mut.token(), new_token);
+
+            assert_eq!(decoder_mut.seq(), op.seq);
+            let new_seq = !op.seq;
+            assert!(new_seq != op.seq);
+            decoder_mut.set_seq(new_seq);
+            assert_eq!(decoder_mut.seq(), new_seq);
+
+            assert_eq!(decoder_mut.resp_to(), op.resp_to);
+            let new_resp_to = !op.resp_to;
+            assert!(new_resp_to != op.resp_to);
+            decoder_mut.set_resp_to(new_resp_to);
+            assert_eq!(decoder_mut.resp_to(), new_resp_to);
+
+            {
+                // Test one modification on addressee to verify that the addressee_mut offset is
+                // correct
+                let mut decoder_mut = decoder_mut.addressee_mut();
+                let original = op.addressee_with_nls_state.addressee.access_class;
+                assert_eq!(decoder_mut.access_class(), original);
+                let new_access_class = AccessClass(!original.u8());
+                assert!(new_access_class != original);
+                decoder_mut.set_access_class(new_access_class);
+                assert_eq!(decoder_mut.access_class(), new_access_class);
+                // Reset for next test
+                decoder_mut.set_access_class(original);
+            }
+
+            if let Some(nls_state) = &op.addressee_with_nls_state.nls_state {
+                let mut addressee_with_nls_state = decoder_mut.addressee_with_nls_state_mut();
+                assert_eq!(
+                    addressee_with_nls_state.nls_state().as_ref().unwrap(),
+                    nls_state
+                );
+                let mut new_nls_state = [0_u8; 5];
+                let nls_state_mut = addressee_with_nls_state.nls_state_mut().unwrap();
+                for (i, b) in nls_state.iter().enumerate() {
+                    new_nls_state[i] = !b;
+                    nls_state_mut[i] = new_nls_state[i];
+                }
+                assert!(new_nls_state != **nls_state);
+                assert_eq!(
+                    addressee_with_nls_state.nls_state().unwrap(),
+                    &new_nls_state
+                );
+
+                // Test one modification on addressee to verify that the addressee_mut offset is
+                // correct
+                let mut addressee = addressee_with_nls_state.addressee_mut();
+                let original = op.addressee_with_nls_state.addressee.access_class;
+                assert_eq!(addressee.access_class(), original);
+                let new_access_class = AccessClass(!original.u8());
+                assert!(new_access_class != original);
+                addressee.set_access_class(new_access_class);
+                assert_eq!(addressee.access_class(), new_access_class);
+            }
         }
         test(
             Dash7InterfaceStatusRef {

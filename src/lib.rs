@@ -76,9 +76,10 @@ pub mod varint;
 // TODO Add cross language wrapper embryo to check compatibility
 // TODO Optimize struct fields order for repr(C) alignment?
 
-// TODO Maybe the pointer decode/encode methods are totally irrelevant:
-// It may force a C FFI to give a length to build a slice, but that length will be unused if
-// the _unchecked variant is called. So there's a chance the compiler will just remove
-// the useless passed parameter?
-
 // TODO Add tests to verify the impact of the feature flags on binary size
+// TODO Test all the error cases
+// TODO Some unsafe accessors exists in this library but in an inconsistent manner. Either say that
+// unsafe modifications are out of scope for this library or implement all trivial unsafe
+// modification for uniformity.
+// TODO FileId type is semantics typing. Is that really a good idea? If yes then why not extend it
+// to Offset, Length... types?

@@ -371,6 +371,24 @@ mod test {
                         InterfaceStatusRef::Dash7(status.complete_decoding().item),
                 },
             );
+
+            // Test partial mutability
+            let WithByteSize {
+                item: mut decoder_mut,
+                byte_size: expected_size,
+            } = InterfaceStatusRef::start_decoding_mut(&mut encoded).unwrap();
+            assert_eq!(expected_size, size);
+
+            match decoder_mut.status_mut().unwrap() {
+                ValidEncodedInterfaceStatusMut::Host => (),
+                ValidEncodedInterfaceStatusMut::Dash7(mut decoder_mut) => {
+                    let original = decoder_mut.ch_header();
+                    let new_ch_header = !original;
+                    assert!(new_ch_header != original);
+                    decoder_mut.set_ch_header(new_ch_header);
+                    assert_eq!(decoder_mut.ch_header(), new_ch_header);
+                }
+            }
         }
         test(InterfaceStatusRef::Host, &[0x00, 0x00]);
         test(

@@ -130,24 +130,36 @@ impl<'data> EncodedReadFilePropertiesMut<'data> {
         self.as_ref().response()
     }
 
+    pub fn file_id(&self) -> FileId {
+        self.as_ref().file_id()
+    }
+
     pub fn encoded_size_unchecked(&self) -> usize {
         self.as_ref().encoded_size_unchecked()
     }
 
     pub fn set_group(&mut self, group: bool) {
-        if group {
-            unsafe { *self.data.get_unchecked_mut(0) |= flag::GROUP }
-        } else {
-            unsafe { *self.data.get_unchecked_mut(0) &= !flag::GROUP }
+        unsafe {
+            if group {
+                *self.data.get_unchecked_mut(0) |= flag::GROUP
+            } else {
+                *self.data.get_unchecked_mut(0) &= !flag::GROUP
+            }
         }
     }
 
     pub fn set_response(&mut self, response: bool) {
-        if response {
-            unsafe { *self.data.get_unchecked_mut(0) |= flag::RESPONSE }
-        } else {
-            unsafe { *self.data.get_unchecked_mut(0) &= !flag::RESPONSE }
+        unsafe {
+            if response {
+                *self.data.get_unchecked_mut(0) |= flag::RESPONSE
+            } else {
+                *self.data.get_unchecked_mut(0) &= !flag::RESPONSE
+            }
         }
+    }
+
+    pub fn set_file_id(&mut self, file_id: FileId) {
+        unsafe { *self.data.get_unchecked_mut(1) = file_id.u8() }
     }
 }
 
@@ -236,6 +248,31 @@ mod test {
                     phantom: core::marker::PhantomData,
                 }
             );
+
+            // Test partial mutability
+            let WithByteSize {
+                item: mut decoder_mut,
+                byte_size: expected_size,
+            } = ReadFilePropertiesRef::start_decoding_mut(&mut encoded).unwrap();
+            assert_eq!(expected_size, size);
+
+            assert_eq!(decoder_mut.group(), op.group);
+            let new_group = !op.group;
+            assert!(new_group != op.group);
+            decoder_mut.set_group(new_group);
+            assert_eq!(decoder_mut.group(), new_group);
+
+            assert_eq!(decoder_mut.response(), op.response);
+            let new_response = !op.response;
+            assert!(new_response != op.response);
+            decoder_mut.set_response(new_response);
+            assert_eq!(decoder_mut.response(), new_response);
+
+            assert_eq!(decoder_mut.file_id(), op.file_id);
+            let new_file_id = FileId(!op.file_id.u8());
+            assert!(new_file_id != op.file_id);
+            decoder_mut.set_file_id(new_file_id);
+            assert_eq!(decoder_mut.file_id(), new_file_id);
         }
         test(
             ReadFilePropertiesRef {

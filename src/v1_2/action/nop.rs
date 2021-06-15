@@ -120,18 +120,22 @@ impl<'data> EncodedNopMut<'data> {
     }
 
     pub fn set_group(&mut self, group: bool) {
-        if group {
-            unsafe { *self.data.get_unchecked_mut(0) |= flag::GROUP }
-        } else {
-            unsafe { *self.data.get_unchecked_mut(0) &= !flag::GROUP }
+        unsafe {
+            if group {
+                *self.data.get_unchecked_mut(0) |= flag::GROUP
+            } else {
+                *self.data.get_unchecked_mut(0) &= !flag::GROUP
+            }
         }
     }
 
     pub fn set_response(&mut self, response: bool) {
-        if response {
-            unsafe { *self.data.get_unchecked_mut(0) |= flag::RESPONSE }
-        } else {
-            unsafe { *self.data.get_unchecked_mut(0) &= !flag::RESPONSE }
+        unsafe {
+            if response {
+                *self.data.get_unchecked_mut(0) |= flag::RESPONSE
+            } else {
+                *self.data.get_unchecked_mut(0) &= !flag::RESPONSE
+            }
         }
     }
 }
@@ -217,6 +221,25 @@ mod test {
                     phantom: core::marker::PhantomData,
                 }
             );
+
+            // Test partial mutability
+            let WithByteSize {
+                item: mut decoder_mut,
+                byte_size: expected_size,
+            } = NopRef::start_decoding_mut(&mut encoded).unwrap();
+            assert_eq!(expected_size, size);
+
+            assert_eq!(decoder_mut.group(), op.group);
+            let new_group = !op.group;
+            assert!(new_group != op.group);
+            decoder_mut.set_group(new_group);
+            assert_eq!(decoder_mut.group(), new_group);
+
+            assert_eq!(decoder_mut.response(), op.response);
+            let new_response = !op.response;
+            assert!(new_response != op.response);
+            decoder_mut.set_response(new_response);
+            assert_eq!(decoder_mut.response(), new_response);
         }
         test(
             NopRef {

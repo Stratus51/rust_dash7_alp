@@ -237,18 +237,22 @@ impl<'data> EncodedWriteFileDataMut<'data> {
     }
 
     pub fn set_group(&mut self, group: bool) {
-        if group {
-            unsafe { *self.data.get_unchecked_mut(0) |= flag::GROUP }
-        } else {
-            unsafe { *self.data.get_unchecked_mut(0) &= !flag::GROUP }
+        unsafe {
+            if group {
+                *self.data.get_unchecked_mut(0) |= flag::GROUP
+            } else {
+                *self.data.get_unchecked_mut(0) &= !flag::GROUP
+            }
         }
     }
 
     pub fn set_response(&mut self, response: bool) {
-        if response {
-            unsafe { *self.data.get_unchecked_mut(0) |= flag::RESPONSE }
-        } else {
-            unsafe { *self.data.get_unchecked_mut(0) &= !flag::RESPONSE }
+        unsafe {
+            if response {
+                *self.data.get_unchecked_mut(0) |= flag::RESPONSE
+            } else {
+                *self.data.get_unchecked_mut(0) &= !flag::RESPONSE
+            }
         }
     }
 
@@ -381,6 +385,58 @@ mod test {
                     data: unsafe { EncodableDataRef::new_unchecked(decoder.data()) },
                 }
             );
+
+            // Test partial mutability
+            let WithByteSize {
+                item: mut decoder_mut,
+                byte_size: expected_size,
+            } = WriteFileDataRef::start_decoding_mut(&mut encoded).unwrap();
+            assert_eq!(expected_size, size);
+
+            assert_eq!(decoder_mut.group(), op.group);
+            let new_group = !op.group;
+            assert!(new_group != op.group);
+            decoder_mut.set_group(new_group);
+            assert_eq!(decoder_mut.group(), new_group);
+
+            assert_eq!(decoder_mut.response(), op.response);
+            let new_response = !op.response;
+            assert!(new_response != op.response);
+            decoder_mut.set_response(new_response);
+            assert_eq!(decoder_mut.response(), new_response);
+
+            assert_eq!(decoder_mut.file_id(), op.file_id);
+            let new_file_id = FileId(!op.file_id.u8());
+            assert!(new_file_id != op.file_id);
+            decoder_mut.set_file_id(new_file_id);
+            assert_eq!(decoder_mut.file_id(), new_file_id);
+
+            {
+                let original = op.offset;
+                let mut offset = decoder_mut.offset_mut();
+                assert_eq!(offset.complete_decoding().item.u32(), original.u32());
+                let new_value = Varint::new(if original.encoded_size() == 1 {
+                    (original.u32() == 0) as u32
+                } else {
+                    original.u32() ^ 0x3F
+                })
+                .unwrap();
+                assert!(new_value != original);
+                offset.set_value(&new_value).unwrap();
+                assert_eq!(offset.complete_decoding().item, new_value);
+            }
+
+            if !op.data.is_empty() {
+                let original = &op.data;
+                let mut new_data = vec![0_u8; original.len()];
+                let data_mut = decoder_mut.data_mut();
+                for (i, b) in original.data().iter().enumerate() {
+                    new_data[i] = !b;
+                    data_mut[i] = new_data[i];
+                }
+                assert!(&new_data[..] != original.data());
+                assert_eq!(decoder_mut.data(), &new_data);
+            }
         }
         test(
             WriteFileDataRef {

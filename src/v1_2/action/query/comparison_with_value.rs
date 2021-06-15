@@ -358,19 +358,24 @@ impl<'data> EncodedComparisonWithValueMut<'data> {
         self.as_ref().encoded_size_unchecked()
     }
 
-    pub fn set_mask_flag(&mut self, mask_flag: bool) {
+    /// # Safety
+    /// This changes the structure of the packet and you have to make sure that the rest of the
+    /// payload is coherent.
+    pub unsafe fn set_mask_flag(&mut self, mask_flag: bool) {
         if mask_flag {
-            unsafe { *self.data.get_unchecked_mut(0) |= flag::QUERY_MASK }
+            *self.data.get_unchecked_mut(0) |= flag::QUERY_MASK
         } else {
-            unsafe { *self.data.get_unchecked_mut(0) &= !flag::QUERY_MASK }
+            *self.data.get_unchecked_mut(0) &= !flag::QUERY_MASK
         }
     }
 
     pub fn set_signed_data(&mut self, signed_data: bool) {
-        if signed_data {
-            unsafe { *self.data.get_unchecked_mut(0) |= flag::QUERY_SIGNED_DATA }
-        } else {
-            unsafe { *self.data.get_unchecked_mut(0) &= !flag::QUERY_SIGNED_DATA }
+        unsafe {
+            if signed_data {
+                *self.data.get_unchecked_mut(0) |= flag::QUERY_SIGNED_DATA
+            } else {
+                *self.data.get_unchecked_mut(0) &= !flag::QUERY_SIGNED_DATA
+            }
         }
     }
 
@@ -548,6 +553,73 @@ mod test {
                     offset: decoder.offset().complete_decoding().item,
                 }
             );
+
+            // Test partial mutability
+            let WithByteSize {
+                item: mut decoder_mut,
+                byte_size: expected_size,
+            } = ComparisonWithValueRef::start_decoding_mut(&mut encoded).unwrap();
+            assert_eq!(expected_size, size);
+
+            assert_eq!(decoder_mut.signed_data(), op.signed_data);
+            let new_signed_data = !op.signed_data;
+            assert!(new_signed_data != op.signed_data);
+            decoder_mut.set_signed_data(new_signed_data);
+            assert_eq!(decoder_mut.signed_data(), new_signed_data);
+
+            assert_eq!(decoder_mut.comparison_type(), op.comparison_type);
+            let new_comparison_type =
+                QueryComparisonType::from((op.comparison_type as u8 + 1) % 8).unwrap();
+            assert!(new_comparison_type != op.comparison_type);
+            decoder_mut.set_comparison_type(new_comparison_type);
+            assert_eq!(decoder_mut.comparison_type(), new_comparison_type);
+
+            if decoder_mut.mask_mut().is_some() {
+                let original = op.compare_value.mask().unwrap();
+                let mut new_data = vec![0_u8; original.len()];
+                {
+                    let data_mut = decoder_mut.mask_mut().unwrap();
+                    for (i, b) in original.iter().enumerate() {
+                        new_data[i] = !b;
+                        data_mut[i] = new_data[i];
+                    }
+                    assert!(&new_data[..] != original);
+                }
+                assert_eq!(decoder_mut.mask().unwrap(), &new_data);
+            }
+
+            {
+                let original = op.compare_value.value();
+                let mut new_data = vec![0_u8; original.len()];
+                let data_mut = decoder_mut.value_mut();
+                for (i, b) in original.iter().enumerate() {
+                    new_data[i] = !b;
+                    data_mut[i] = new_data[i];
+                }
+                assert!(&new_data[..] != original);
+                assert_eq!(decoder_mut.value(), &new_data);
+            }
+
+            assert_eq!(decoder_mut.file_id(), op.file_id);
+            let new_file_id = FileId(!op.file_id.u8());
+            assert!(new_file_id != op.file_id);
+            decoder_mut.set_file_id(new_file_id);
+            assert_eq!(decoder_mut.file_id(), new_file_id);
+
+            {
+                let original = op.offset;
+                let mut decoder_mut = decoder_mut.offset_mut();
+                assert_eq!(decoder_mut.complete_decoding().item.u32(), original.u32());
+                let new_value = Varint::new(if original.encoded_size() == 1 {
+                    (original.u32() == 0) as u32
+                } else {
+                    original.u32() ^ 0x3F
+                })
+                .unwrap();
+                assert!(new_value != original);
+                decoder_mut.set_value(&new_value).unwrap();
+                assert_eq!(decoder_mut.complete_decoding().item, new_value);
+            }
         }
         test(
             ComparisonWithValueRef {

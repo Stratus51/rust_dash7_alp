@@ -168,18 +168,22 @@ impl<'data> EncodedActionQueryMut<'data> {
     }
 
     pub fn set_group(&mut self, group: bool) {
-        if group {
-            unsafe { *self.data.get_unchecked_mut(0) |= flag::GROUP }
-        } else {
-            unsafe { *self.data.get_unchecked_mut(0) &= !flag::GROUP }
+        unsafe {
+            if group {
+                *self.data.get_unchecked_mut(0) |= flag::GROUP
+            } else {
+                *self.data.get_unchecked_mut(0) &= !flag::GROUP
+            }
         }
     }
 
     pub fn set_response(&mut self, response: bool) {
-        if response {
-            unsafe { *self.data.get_unchecked_mut(0) |= flag::RESPONSE }
-        } else {
-            unsafe { *self.data.get_unchecked_mut(0) &= !flag::RESPONSE }
+        unsafe {
+            if response {
+                *self.data.get_unchecked_mut(0) |= flag::RESPONSE
+            } else {
+                *self.data.get_unchecked_mut(0) &= !flag::RESPONSE
+            }
         }
     }
 
@@ -248,7 +252,8 @@ impl ActionQuery {
 mod test {
     #![allow(clippy::unwrap_in_result, clippy::panic, clippy::expect_used)]
     use super::super::{
-        comparison_with_value::ComparisonWithValueRef, define::comparison_type::QueryComparisonType,
+        comparison_with_value::ComparisonWithValueRef,
+        define::comparison_type::QueryComparisonType, ValidEncodedQueryMut,
     };
     use super::*;
     use crate::{
@@ -292,6 +297,32 @@ mod test {
                         .as_encodable(),
                 }
             );
+
+            // Test partial mutability
+            let WithByteSize {
+                item: mut decoder_mut,
+                byte_size: expected_size,
+            } = DecodedActionQueryRef::start_decoding_mut(&mut encoded).unwrap();
+            assert_eq!(expected_size, size);
+
+            match decoder_mut.query_mut().query_mut().unwrap() {
+                #[cfg(feature = "decode_query_compare_with_value")]
+                ValidEncodedQueryMut::ComparisonWithValue(mut decoder_mut) => {
+                    let original = decoder_mut.signed_data();
+                    let new_signed_data = !original;
+                    assert!(new_signed_data != original);
+                    decoder_mut.set_signed_data(new_signed_data);
+                    assert_eq!(decoder_mut.signed_data(), new_signed_data);
+                }
+                #[cfg(feature = "decode_query_compare_with_range")]
+                ValidEncodedQueryMut::ComparisonWithRange(mut decoder_mut) => {
+                    let original = decoder_mut.signed_data();
+                    let new_signed_data = !original;
+                    assert!(new_signed_data != original);
+                    decoder_mut.set_signed_data(new_signed_data);
+                    assert_eq!(decoder_mut.signed_data(), new_signed_data);
+                }
+            }
         }
         test(
             ActionQueryRef {

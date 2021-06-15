@@ -145,7 +145,13 @@ impl<'data> EncodedStatusMut<'data> {
 
     /// # Errors
     /// Fails if the status extension is unsupported.
-    pub fn status(&mut self) -> Result<ValidEncodedStatusMut, UnsupportedExtension<'data>> {
+    pub fn status(&self) -> Result<ValidEncodedStatus, UnsupportedExtension<'data>> {
+        self.as_ref().status()
+    }
+
+    /// # Errors
+    /// Fails if the status extension is unsupported.
+    pub fn status_mut(&mut self) -> Result<ValidEncodedStatusMut, UnsupportedExtension<'data>> {
         unsafe {
             Ok(match self.extension()? {
                 StatusExtension::Interface => ValidEncodedStatusMut::Interface(
@@ -209,6 +215,7 @@ mod test {
         addressee::{AccessClass, AddresseeIdentifierRef, AddresseeRef, NlsMethod},
         interface_status::{AddresseeWithNlsStateRef, Dash7InterfaceStatusRef},
     };
+    use interface::ValidEncodedInterfaceStatusMut;
 
     #[test]
     fn known() {
@@ -226,6 +233,28 @@ mod test {
             } = StatusRef::decode(data).unwrap();
             assert_eq!(size, data.len());
             assert_eq!(ret, op);
+
+            // Test partial mutability
+            let WithByteSize {
+                item: mut decoder_mut,
+                byte_size: expected_size,
+            } = StatusRef::start_decoding_mut(&mut encoded).unwrap();
+            assert_eq!(expected_size, size);
+
+            match decoder_mut.status_mut().unwrap() {
+                ValidEncodedStatusMut::Interface(mut decoder_mut) => {
+                    match decoder_mut.status_mut().unwrap() {
+                        ValidEncodedInterfaceStatusMut::Host => (),
+                        ValidEncodedInterfaceStatusMut::Dash7(mut decoder_mut) => {
+                            let original = decoder_mut.ch_header();
+                            let new_ch_header = !original;
+                            assert!(new_ch_header != original);
+                            decoder_mut.set_ch_header(new_ch_header);
+                            assert_eq!(decoder_mut.ch_header(), new_ch_header);
+                        }
+                    }
+                }
+            }
         }
         test(
             StatusRef::Interface(InterfaceStatusRef::Dash7(Dash7InterfaceStatusRef {

@@ -42,6 +42,8 @@ pub enum QueryRangeSetError {
     BadGivenRange,
     /// The encoded range is invalid because, range.start > range.end
     BadEncodedRange,
+    /// The range cannot be encoded with the given compare_length
+    CompareLengthTooSmall,
 }
 
 #[cfg_attr(feature = "repr_c", repr(C))]
@@ -54,4 +56,6 @@ pub enum QueryRangeSetLooselyError {
     BadGivenRange,
     /// The encoded range is invalid because, range.start > range.end
     BadEncodedRange,
+    /// The range cannot be encoded with the given compare_length
+    CompareLengthTooSmall,
 }

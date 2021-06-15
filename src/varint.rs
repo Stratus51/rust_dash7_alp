@@ -233,6 +233,9 @@ pub struct EncodedVarintMut<'data> {
 
 crate::make_downcastable!(EncodedVarintMut, EncodedVarint);
 
+#[cfg_attr(feature = "repr_c", repr(C))]
+#[cfg_attr(feature = "packed", repr(packed))]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum VarintSetError {
     /// The encoded size of the given varint does not match the size of the currently encoded
     /// varint.
@@ -310,14 +313,35 @@ mod test {
 
     #[test]
     fn test_encode() {
-        fn test(n: u32, truth: &[u8]) {
+        fn test(value: u32, data: &[u8]) {
             let mut encoded = [0_u8; MAX_SIZE];
-            let size = Varint::new(n).unwrap().encode_in(&mut encoded[..]).unwrap();
-            assert_eq!(truth.len(), size);
-            assert_eq!(*truth, encoded[..truth.len()]);
+            let size = Varint::new(value)
+                .unwrap()
+                .encode_in(&mut encoded[..])
+                .unwrap();
+            assert_eq!(data.len(), size);
+            assert_eq!(*data, encoded[..data.len()]);
+
+            let WithByteSize {
+                item: mut decoder_mut,
+                byte_size: expected_size,
+            } = Varint::start_decoding_mut(&mut encoded).unwrap();
+            assert_eq!(expected_size, size);
+
+            assert_eq!(decoder_mut.complete_decoding().item.u32(), value);
+            let new_value = Varint::new(if data.len() == 1 {
+                (value == 0) as u32
+            } else {
+                value ^ 0x3F
+            })
+            .unwrap();
+            assert!(new_value.u32() != value);
+            decoder_mut.set_value(&new_value).unwrap();
+            assert_eq!(decoder_mut.complete_decoding().item, new_value);
         }
         test(0x00, &[0]);
         test(0x3F, &hex!("3F"));
+        test(0xFF, &hex!("40 FF"));
         test(0x3F_FF, &hex!("7F FF"));
         test(0x3F_FF_FF, &hex!("BF FF FF"));
         test(0x3F_FF_FF_FF, &hex!("FF FF FF FF"));
@@ -343,6 +367,13 @@ mod test {
             assert_eq!(expected_size, size);
             assert_eq!(part_size, size);
             assert_eq!(unsafe { decoder.encoded_size_unchecked() }, size);
+
+            // Test partial mutability
+            let mut encoded = [0_u8; MAX_SIZE];
+            Varint::new(value)
+                .unwrap()
+                .encode_in(&mut encoded[..])
+                .unwrap();
         }
         test_ok(&[0], 0x00, 1);
         test_ok(&hex!("3F"), 0x3F, 1);

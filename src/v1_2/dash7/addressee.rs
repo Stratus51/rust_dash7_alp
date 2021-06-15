@@ -375,6 +375,7 @@ impl<'data> EncodedAddresseeMut<'data> {
     }
 
     /// # Safety
+    /// This method will assume you provided it the right identifier type.
     pub unsafe fn set_identifier_unchecked(&mut self, identifier: AddresseeIdentifierRef<'data>) {
         match identifier {
             AddresseeIdentifierRef::Nbid(n) => {
@@ -382,10 +383,10 @@ impl<'data> EncodedAddresseeMut<'data> {
             }
             AddresseeIdentifierRef::Noid => (),
             AddresseeIdentifierRef::Uid(id) => {
-                self.data.get_unchecked_mut(2..).copy_from_slice(id);
+                self.data.get_unchecked_mut(2..2 + 8).copy_from_slice(id);
             }
             AddresseeIdentifierRef::Vid(id) => {
-                self.data.get_unchecked_mut(2..).copy_from_slice(id);
+                self.data.get_unchecked_mut(2..2 + 2).copy_from_slice(id);
             }
         }
     }
@@ -473,8 +474,8 @@ mod test {
                 item: decoder,
                 byte_size: expected_size,
             } = AddresseeRef::start_decoding(data).unwrap();
-            assert_eq!(ret.identifier.id_type(), decoder.id_type());
             assert_eq!(expected_size, size);
+            assert_eq!(ret.identifier.id_type(), decoder.id_type());
             assert_eq!(unsafe { decoder.encoded_size_unchecked() }, size);
             assert_eq!(decoder.encoded_size().unwrap(), size);
             assert_eq!(
@@ -485,6 +486,47 @@ mod test {
                     identifier: decoder.identifier(),
                 }
             );
+
+            // Test partial mutability
+            // TODO How to check unsafe methods?
+            let WithByteSize {
+                item: mut decoder_mut,
+                byte_size: expected_size,
+            } = AddresseeRef::start_decoding_mut(&mut encoded).unwrap();
+            assert_eq!(expected_size, size);
+
+            // Access class
+            assert_eq!(decoder_mut.access_class(), op.access_class);
+            let new_access_class = AccessClass(!op.access_class.u8());
+            assert!(new_access_class != op.access_class);
+            decoder_mut.set_access_class(new_access_class);
+            assert_eq!(decoder_mut.access_class(), new_access_class);
+
+            // Identifier
+            assert_eq!(decoder_mut.identifier(), op.identifier);
+            let mut vid_data = [0_u8; 2];
+            let mut uid_data = [0_u8; 8];
+            let new_identifier = match decoder_mut.identifier() {
+                AddresseeIdentifierRef::Nbid(n) => AddresseeIdentifierRef::Nbid(!n),
+                AddresseeIdentifierRef::Noid => AddresseeIdentifierRef::Noid,
+                AddresseeIdentifierRef::Uid(id) => {
+                    for (i, b) in id.iter().enumerate() {
+                        uid_data[i] = !*b;
+                    }
+                    AddresseeIdentifierRef::Uid(&uid_data)
+                }
+                AddresseeIdentifierRef::Vid(id) => {
+                    for (i, b) in id.iter().enumerate() {
+                        vid_data[i] = !*b;
+                    }
+                    AddresseeIdentifierRef::Vid(&vid_data)
+                }
+            };
+            if new_identifier != AddresseeIdentifierRef::Noid {
+                assert!(new_identifier != op.identifier);
+            }
+            decoder_mut.set_identifier(new_identifier).unwrap();
+            assert_eq!(decoder_mut.identifier(), new_identifier);
         }
         test(
             AddresseeRef {

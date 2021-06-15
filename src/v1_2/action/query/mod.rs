@@ -256,6 +256,7 @@ impl<'data> EncodedQueryMut<'data> {
 
     /// # Errors
     /// Fails if the query code is unsupported.
+    // TODO Those names are a bit too redundant!
     pub fn query(&self) -> Result<ValidEncodedQuery<'data>, UnsupportedQueryCode<'data>> {
         self.as_ref().query()
     }
@@ -383,6 +384,32 @@ mod test {
             } = DecodedQueryRef::start_decoding(data).unwrap();
             assert_eq!(expected_size, size);
             assert_eq!(decoder.encoded_size().unwrap(), size);
+
+            // Test partial mutability
+            let WithByteSize {
+                item: mut decoder_mut,
+                byte_size: expected_size,
+            } = DecodedQueryRef::start_decoding_mut(&mut encoded).unwrap();
+            assert_eq!(expected_size, size);
+
+            match decoder_mut.query_mut().unwrap() {
+                #[cfg(feature = "decode_query_compare_with_value")]
+                ValidEncodedQueryMut::ComparisonWithValue(mut decoder_mut) => {
+                    let original = decoder_mut.signed_data();
+                    let new_signed_data = !original;
+                    assert!(new_signed_data != original);
+                    decoder_mut.set_signed_data(new_signed_data);
+                    assert_eq!(decoder_mut.signed_data(), new_signed_data);
+                }
+                #[cfg(feature = "decode_query_compare_with_range")]
+                ValidEncodedQueryMut::ComparisonWithRange(mut decoder_mut) => {
+                    let original = decoder_mut.signed_data();
+                    let new_signed_data = !original;
+                    assert!(new_signed_data != original);
+                    decoder_mut.set_signed_data(new_signed_data);
+                    assert_eq!(decoder_mut.signed_data(), new_signed_data);
+                }
+            }
         }
         #[cfg(feature = "decode_query_compare_with_value")]
         test(

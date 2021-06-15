@@ -689,6 +689,74 @@ mod test {
             // TODO Should this be supported?
             // assert_eq!(unsafe { decoder.encoded_size_unchecked() }, size);
             assert_eq!(decoder.encoded_size().unwrap(), size);
+
+            let WithByteSize {
+                item: mut decoder_mut,
+                byte_size: expected_size,
+            } = DecodedActionRef::start_decoding_mut(&mut encoded).unwrap();
+            assert_eq!(expected_size, size);
+
+            match decoder_mut.action_mut().unwrap() {
+                #[cfg(feature = "decode_nop")]
+                ValidEncodedActionMut::Nop(mut decoder_mut) => {
+                    let original = decoder_mut.group();
+                    let new_group = !original;
+                    assert!(new_group != original);
+                    decoder_mut.set_group(new_group);
+                    assert_eq!(decoder_mut.group(), new_group);
+                }
+                #[cfg(feature = "decode_read_file_data")]
+                ValidEncodedActionMut::ReadFileData(mut decoder_mut) => {
+                    let original = decoder_mut.group();
+                    let new_group = !original;
+                    assert!(new_group != original);
+                    decoder_mut.set_group(new_group);
+                    assert_eq!(decoder_mut.group(), new_group);
+                }
+                #[cfg(feature = "decode_read_file_properties")]
+                ValidEncodedActionMut::ReadFileProperties(mut decoder_mut) => {
+                    let original = decoder_mut.group();
+                    let new_group = !original;
+                    assert!(new_group != original);
+                    decoder_mut.set_group(new_group);
+                    assert_eq!(decoder_mut.group(), new_group);
+                }
+                #[cfg(all(feature = "decode_write_file_data"))]
+                ValidEncodedActionMut::WriteFileData(mut decoder_mut) => {
+                    let original = decoder_mut.group();
+                    let new_group = !original;
+                    assert!(new_group != original);
+                    decoder_mut.set_group(new_group);
+                    assert_eq!(decoder_mut.group(), new_group);
+                }
+                #[cfg(all(feature = "decode_action_query"))]
+                ValidEncodedActionMut::ActionQuery(mut decoder_mut) => {
+                    let original = decoder_mut.group();
+                    let new_group = !original;
+                    assert!(new_group != original);
+                    decoder_mut.set_group(new_group);
+                    assert_eq!(decoder_mut.group(), new_group);
+                }
+                #[cfg(feature = "decode_status")]
+                ValidEncodedActionMut::Status(mut decoder_mut) => {
+                    match decoder_mut.status_mut().unwrap() {
+                        status::ValidEncodedStatusMut::Interface(mut decoder_mut) => {
+                            match decoder_mut.status_mut().unwrap() {
+                                status::interface::ValidEncodedInterfaceStatusMut::Host => (),
+                                status::interface::ValidEncodedInterfaceStatusMut::Dash7(
+                                    mut decoder_mut,
+                                ) => {
+                                    let original = decoder_mut.ch_header();
+                                    let new_ch_header = !original;
+                                    assert!(new_ch_header != original);
+                                    decoder_mut.set_ch_header(new_ch_header);
+                                    assert_eq!(decoder_mut.ch_header(), new_ch_header);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
         #[cfg(feature = "decode_nop")]
         test(ActionRef::Nop(NopRef::new(false, true)), &[0x40]);
