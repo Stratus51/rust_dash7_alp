@@ -539,6 +539,17 @@ mod test {
             }
             decoder_mut.set_identifier(new_identifier).unwrap();
             assert_eq!(decoder_mut.identifier(), new_identifier);
+
+            // Unsafe mutations
+            let original = decoder_mut.id_type();
+            let target = if let AddresseeIdentifierType::Noid = original {
+                AddresseeIdentifierType::Nbid
+            } else {
+                AddresseeIdentifierType::Noid
+            };
+            assert!(target != original);
+            unsafe { decoder_mut.set_id_type(target) };
+            assert_eq!(decoder_mut.id_type(), target);
         }
         test(
             AddresseeRef {

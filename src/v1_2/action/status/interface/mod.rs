@@ -400,6 +400,23 @@ mod test {
                     assert_eq!(decoder_mut.ch_header(), new_ch_header);
                 }
             }
+
+            // Unsafe mutations
+            let original = decoder_mut.interface_id().unwrap();
+            let target = if let InterfaceId::Host = original {
+                InterfaceId::Dash7
+            } else {
+                InterfaceId::Host
+            };
+            assert!(target != original);
+            unsafe { decoder_mut.set_interface_id(target as u8) };
+            assert_eq!(decoder_mut.interface_id().unwrap(), target);
+
+            let original = decoder_mut.len_field().complete_decoding().item;
+            let target = Varint::new((original.u32() == 0) as u32).unwrap();
+            assert!(target != original);
+            unsafe { decoder_mut.len_field_mut().set_value(&target).unwrap() };
+            assert_eq!(decoder_mut.len_field().complete_decoding().item, target);
         }
         test(InterfaceStatusRef::Host, &[0x00, 0x00]);
         test(

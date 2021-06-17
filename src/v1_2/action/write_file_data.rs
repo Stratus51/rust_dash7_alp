@@ -443,7 +443,15 @@ mod test {
                 assert!(&new_data[..] != original.data());
                 assert_eq!(decoder_mut.data(), &new_data);
             }
+
+            // Unsafe mutations
+            let original = decoder_mut.length().complete_decoding().item;
+            let target = Varint::new((original.u32() == 0) as u32).unwrap();
+            assert!(target != original);
+            unsafe { decoder_mut.length_mut().set_value(&target).unwrap() };
+            assert_eq!(decoder_mut.length().complete_decoding().item, target);
         }
+
         test(
             WriteFileDataRef {
                 group: false,

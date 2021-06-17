@@ -252,6 +252,8 @@ impl<'data> EncodedVarintMut<'data> {
     }
 
     /// Changes the number of bytes the varint is encoded on.
+    /// The number of byte is n + 1.
+    /// You are to ensure that n <= 3.
     ///
     /// # Safety
     /// This will break:
@@ -260,7 +262,7 @@ impl<'data> EncodedVarintMut<'data> {
     /// It also breaks the payload after this varint.
     ///
     /// Only use it if you are sure about what you are doing.
-    pub unsafe fn set_byte_number(&mut self, n: u8) {
+    pub unsafe fn set_encoded_size(&mut self, n: u8) {
         *self.data.get_unchecked_mut(0) = (*self.data.get_unchecked(0) & 0x3F) | (n << 6);
     }
 
@@ -351,6 +353,13 @@ mod test {
             assert!(new_value.u32() != value);
             decoder_mut.set_value(&new_value).unwrap();
             assert_eq!(decoder_mut.complete_decoding().item, new_value);
+
+            // Unsafe mutations
+            let original = decoder_mut.encoded_size().unwrap() - 1;
+            let target = !original & 0x3;
+            assert!(target != original);
+            unsafe { decoder_mut.set_encoded_size(target as u8) };
+            assert_eq!(decoder_mut.encoded_size().unwrap() - 1, target);
         }
         test(0x00, &[0]);
         test(0x3F, &hex!("3F"));

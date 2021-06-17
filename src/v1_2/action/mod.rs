@@ -695,6 +695,7 @@ mod test {
             // assert_eq!(unsafe { decoder.encoded_size_unchecked() }, size);
             assert_eq!(decoder.encoded_size().unwrap(), size);
 
+            // Test partial mutability
             let WithByteSize {
                 item: mut decoder_mut,
                 byte_size: expected_size,
@@ -761,6 +762,25 @@ mod test {
                         }
                     }
                 }
+            }
+
+            // Unsafe mutations
+            #[cfg(all(feature = "decode_nop", feature = "decode_read_file_data"))]
+            {
+                let WithByteSize {
+                    item: mut decoder_mut,
+                    byte_size: _,
+                } = DecodedActionRef::start_decoding_mut(&mut encoded).unwrap();
+
+                let original = decoder_mut.op_code().unwrap();
+                let target = if let OpCode::Nop = original {
+                    OpCode::ReadFileData
+                } else {
+                    OpCode::Nop
+                };
+                assert!(target != original);
+                unsafe { decoder_mut.set_op_code(target) };
+                assert_eq!(decoder_mut.op_code().unwrap(), target);
             }
         }
         #[cfg(feature = "decode_nop")]

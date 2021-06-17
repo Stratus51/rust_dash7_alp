@@ -424,6 +424,23 @@ mod test {
                     assert_eq!(decoder_mut.signed_data(), new_signed_data);
                 }
             }
+
+            // Unsafe mutations
+            #[cfg(all(
+                feature = "decode_query_compare_with_value",
+                feature = "decode_query_compare_with_range"
+            ))]
+            {
+                let original = decoder_mut.query_code().unwrap();
+                let target = if let QueryCode::ComparisonWithValue = original {
+                    QueryCode::ComparisonWithRange
+                } else {
+                    QueryCode::ComparisonWithValue
+                };
+                assert!(target != original);
+                unsafe { decoder_mut.set_query_code(target) };
+                assert_eq!(decoder_mut.query_code().unwrap(), target);
+            }
         }
         #[cfg(feature = "decode_query_compare_with_value")]
         test(

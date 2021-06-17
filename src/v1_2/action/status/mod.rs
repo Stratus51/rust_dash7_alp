@@ -269,6 +269,18 @@ mod test {
                     }
                 }
             }
+
+            // Unsafe mutations
+            // TODO When multiple extension exist
+            // let original = decoder_mut.extension().unwrap();
+            // let target = if let StatusExtension::Interface = original {
+            //     StatusExtension::Action
+            // } else {
+            //     StatusExtension::Interface
+            // };
+            // assert!(target != original);
+            // unsafe { decoder_mut.set_extension(target) };
+            // assert_eq!(decoder_mut.extension().unwrap(), target);
         }
         test(
             StatusRef::Interface(InterfaceStatusRef::Dash7(Dash7InterfaceStatusRef {

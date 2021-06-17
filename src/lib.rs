@@ -78,4 +78,3 @@ pub mod varint;
 
 // TODO Add tests to verify the impact of the feature flags on binary size
 // TODO Test all the error cases
-// TODO Add tests for unsafe methods

@@ -741,6 +741,32 @@ mod test {
                     assert_eq!(decoder_mut.complete_decoding().item, new_value);
                 }
             }
+
+            // Unsafe mutations
+            let mut encoded_clone = encoded;
+            let WithByteSize {
+                item: mut decoder_mut,
+                byte_size: _,
+            } = ComparisonWithRangeRef::start_decoding_mut(&mut encoded_clone).unwrap();
+            let original = decoder_mut.mask_flag();
+            let target = !original;
+            assert!(target != original);
+            unsafe { decoder_mut.set_mask_flag(target) };
+            assert_eq!(decoder_mut.mask_flag(), target);
+
+            let mut encoded_clone = encoded;
+            let WithByteSize {
+                item: mut decoder_mut,
+                byte_size: _,
+            } = ComparisonWithRangeRef::start_decoding_mut(&mut encoded_clone).unwrap();
+            let original = decoder_mut.compare_length().complete_decoding().item;
+            let target = Varint::new((original.u32() == 0) as u32).unwrap();
+            assert!(target != original);
+            unsafe { decoder_mut.compare_length_mut().set_value(&target).unwrap() };
+            assert_eq!(
+                decoder_mut.compare_length().complete_decoding().item,
+                target
+            );
         }
         test(
             ComparisonWithRangeRef {
