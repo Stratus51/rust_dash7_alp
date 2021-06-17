@@ -358,9 +358,16 @@ impl<'data> EncodedComparisonWithValueMut<'data> {
         self.as_ref().encoded_size_unchecked()
     }
 
+    /// Modifies whether the query contains a mask or not.
+    ///
     /// # Safety
-    /// This changes the structure of the packet and you have to make sure that the rest of the
-    /// payload is coherent.
+    /// This will break:
+    /// - the mask if set from false to true.
+    /// - the file offset and id: mispositionned.
+    ///
+    /// It also breaks the payload after this action.
+    ///
+    /// Only use it if you are sure about what you are doing.
     pub unsafe fn set_mask_flag(&mut self, mask_flag: bool) {
         if mask_flag {
             *self.data.get_unchecked_mut(0) |= flag::QUERY_MASK
@@ -386,10 +393,17 @@ impl<'data> EncodedComparisonWithValueMut<'data> {
         }
     }
 
+    /// Modifies the length of the value.
+    ///
     /// # Safety
-    /// This value should never be modified in place because it details the length in bytes of the
-    /// value and mask items.
-    /// If you are to modify this, make sure you know what you are doing.
+    /// This will break:
+    /// - the value: add or substract bytes at/from its end and/or its beginning (varint length).
+    /// - the mask: mispositionned.
+    /// - the file offset and id: mispositionned.
+    ///
+    /// It also breaks the payload after this action.
+    ///
+    /// Only use it if you are sure about what you are doing.
     pub unsafe fn compare_length_mut(&'data mut self) -> EncodedVarintMut<'data> {
         Varint::start_decoding_unchecked_mut(self.data.get_unchecked_mut(1..))
     }

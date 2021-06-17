@@ -17,6 +17,10 @@ pub use masked_value::MaskedValueRef;
 ///
 /// It is exactly homogeneous to a byte, and the wrapping is only done
 /// to help insure semantic correctness of the code.
+///
+/// For example it will forbid any direct arithmetics with file ids and will require an extra step
+/// to build, which will encourage defining constants rather than inlining, or infering their
+/// values.
 #[cfg_attr(feature = "repr_c", repr(transparent))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct FileId(pub u8);

@@ -149,6 +149,20 @@ impl<'data> EncodedStatusMut<'data> {
         self.as_ref().status()
     }
 
+    /// Changes the status extension.
+    ///
+    /// # Safety
+    /// This will break:
+    /// - the whole status structure.
+    ///
+    /// It also breaks the payload after this action.
+    ///
+    /// Only use it if you are sure about what you are doing.
+    pub unsafe fn set_extension(&mut self, extension: StatusExtension) {
+        *self.data.get_unchecked_mut(0) =
+            (*self.data.get_unchecked(0) & 0x3F) | ((extension as u8) << 6);
+    }
+
     /// # Errors
     /// Fails if the status extension is unsupported.
     pub fn status_mut(&mut self) -> Result<ValidEncodedStatusMut, UnsupportedExtension<'data>> {

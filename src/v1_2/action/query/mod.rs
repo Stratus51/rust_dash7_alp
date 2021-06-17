@@ -261,6 +261,20 @@ impl<'data> EncodedQueryMut<'data> {
         self.as_ref().query()
     }
 
+    /// Changes the query code, and thus the query type of this query.
+    ///
+    /// # Safety
+    /// This will break:
+    /// - the whole query structure except maybe for the "length" parameter.
+    ///
+    /// It also breaks the payload after this action.
+    ///
+    /// Only use it if you are sure about what you are doing.
+    pub unsafe fn set_query_code(&mut self, code: QueryCode) {
+        *self.data.get_unchecked_mut(0) =
+            (*self.data.get_unchecked(0) & 0x1F) | ((code as u8) << 5);
+    }
+
     /// # Errors
     /// Fails if the query code is unsupported.
     pub fn query_mut(&mut self) -> Result<ValidEncodedQueryMut, UnsupportedQueryCode<'data>> {

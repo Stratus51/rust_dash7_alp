@@ -264,9 +264,15 @@ impl<'data> EncodedWriteFileDataMut<'data> {
         unsafe { Varint::start_decoding_unchecked_mut(self.data.get_unchecked_mut(2..)) }
     }
 
+    /// Modifies the length of the data.
+    ///
     /// # Safety
-    /// You are not supposed to modify the length without changing the following data because it
-    /// indicates its size. Unless you know very well what you are doing.
+    /// This will break:
+    /// - the data: add or substract bytes at/from its end and/or its beginning (varint length).
+    ///
+    /// It also breaks the payload after this action.
+    ///
+    /// Only use it if you are sure about what you are doing.
     pub unsafe fn length_mut(&mut self) -> EncodedVarintMut {
         let offset_size = self.offset().encoded_size_unchecked() as usize;
         Varint::start_decoding_unchecked_mut(self.data.get_unchecked_mut(2 + offset_size..))

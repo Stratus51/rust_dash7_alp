@@ -78,8 +78,4 @@ pub mod varint;
 
 // TODO Add tests to verify the impact of the feature flags on binary size
 // TODO Test all the error cases
-// TODO Some unsafe accessors exists in this library but in an inconsistent manner. Either say that
-// unsafe modifications are out of scope for this library or implement all trivial unsafe
-// modification for uniformity.
-// TODO FileId type is semantics typing. Is that really a good idea? If yes then why not extend it
-// to Offset, Length... types?
+// TODO Add tests for unsafe methods

@@ -330,18 +330,29 @@ impl<'data> EncodedAddresseeMut<'data> {
         self.as_ref().encoded_size_unchecked()
     }
 
+    /// Changes the type of addressee.
+    ///
     /// # Safety
-    /// Changing this breaks the coherence of the data.
-    /// Make sure you change the identifier part accordingly.
+    /// This will break:
+    /// - the addressee identifier.
+    ///
+    /// It also breaks the payload after this action.
+    ///
+    /// Only use it if you are sure about what you are doing.
     pub unsafe fn set_id_type(&mut self, ty: AddresseeIdentifierType) {
         *self.data.get_unchecked_mut(0) &= 0x0F;
         *self.data.get_unchecked_mut(0) |= (ty as u8) << 4;
     }
 
+    /// Changes the nls method.
+    ///
     /// # Safety
-    /// Changing this can break the coherence of the data.
-    /// Make sure that the nls_state size stays the same whatever value you replace the nls method
-    /// with.
+    /// This will break:
+    /// - the nls_state if there is one following that addressee.
+    ///
+    /// It also breaks the payload after this action.
+    ///
+    /// Only use it if you are sure about what you are doing.
     pub unsafe fn set_nls_method_unchecked(&mut self, nls_method: NlsMethod) {
         *self.data.get_unchecked_mut(0) &= 0xF0;
         *self.data.get_unchecked_mut(0) |= nls_method as u8;
@@ -375,7 +386,8 @@ impl<'data> EncodedAddresseeMut<'data> {
     }
 
     /// # Safety
-    /// This method will assume you provided it the right identifier type.
+    /// This method not perform any check on the identifier type and just write the identifier data
+    /// as is, without checking if the identifier type is coherent.
     pub unsafe fn set_identifier_unchecked(&mut self, identifier: AddresseeIdentifierRef<'data>) {
         match identifier {
             AddresseeIdentifierRef::Nbid(n) => {

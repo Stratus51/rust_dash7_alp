@@ -460,10 +460,15 @@ impl<'data> EncodedActionMut<'data> {
         self.as_ref().action()
     }
 
+    /// Changes the action op_code, thus changing completely the meaning of the bytes afterwards.
+    ///
     /// # Safety
-    /// Changing this breaks the payload.
-    /// It should never be used.
-    /// Make sure that you change the following payload to keep it coherent.
+    /// This will break:
+    /// - EVERYTHING
+    ///
+    /// It also breaks the payload after this action.
+    ///
+    /// Only use it if you are sure about what you are doing.
     pub unsafe fn set_op_code(&mut self, op_code: OpCode) {
         *self.data.get_unchecked_mut(0) &= 0xC0;
         *self.data.get_unchecked_mut(0) |= op_code as u8;

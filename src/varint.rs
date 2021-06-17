@@ -251,6 +251,19 @@ impl<'data> EncodedVarintMut<'data> {
         self.as_ref().encoded_size_unchecked()
     }
 
+    /// Changes the number of bytes the varint is encoded on.
+    ///
+    /// # Safety
+    /// This will break:
+    /// - the value: add or substract bytes at/from its end.
+    ///
+    /// It also breaks the payload after this varint.
+    ///
+    /// Only use it if you are sure about what you are doing.
+    pub unsafe fn set_byte_number(&mut self, n: u8) {
+        *self.data.get_unchecked_mut(0) = (*self.data.get_unchecked(0) & 0x3F) | (n << 6);
+    }
+
     /// Modify the value of the Varint in place.
     ///
     /// # Errors

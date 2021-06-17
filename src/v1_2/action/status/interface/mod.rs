@@ -251,18 +251,29 @@ impl<'data> EncodedInterfaceStatusMut<'data> {
         self.as_ref().status()
     }
 
+    /// Changes the status interface type.
+    ///
     /// # Safety
-    /// This method method changes the interface id of the status.
-    /// This will probably make the payload incoherent unless you are sure that the payloads for
-    /// both those interface statuses are identical.
+    /// This will break:
+    /// - the whole status structure.
+    ///
+    /// It also breaks the payload after this action.
+    ///
+    /// Only use it if you are sure about what you are doing.
     pub unsafe fn set_interface_id(&mut self, interface_id: u8) {
         *self.data.get_unchecked_mut(0) = interface_id;
     }
 
+    /// Changes the status operand's declared length (as opposed to actual decoding length, which
+    /// depends on each interface type's status structures).
+    ///
     /// # Safety
-    /// Even though it is technically possible, changing the length field of the interface status
-    /// has a high chance of making it incoherent.
-    /// Be sure that you have adapted the payload somehow to match it.
+    /// This will break:
+    /// - the whole status structure.
+    ///
+    /// It also breaks the payload after this action.
+    ///
+    /// Only use it if you are sure about what you are doing.
     pub unsafe fn len_field_mut(&mut self) -> EncodedVarintMut {
         Varint::start_decoding_unchecked_mut(self.data.get_unchecked_mut(1..))
     }

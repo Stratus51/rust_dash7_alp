@@ -378,9 +378,16 @@ impl<'data> EncodedComparisonWithRangeMut<'data> {
         self.as_ref().range()
     }
 
+    /// Modifies whether the query contains a mask or not.
+    ///
     /// # Safety
-    /// Changing this flag will change the structure of the packet. You are to insure it stays
-    /// coherent by modifying it approriately
+    /// This will break:
+    /// - the mask if set from false to true.
+    /// - the file offset and id: mispositionned.
+    ///
+    /// It also breaks the payload after this action.
+    ///
+    /// Only use it if you are sure about what you are doing.
     pub unsafe fn set_mask_flag(&mut self, mask_flag: bool) {
         if mask_flag {
             *self.data.get_unchecked_mut(0) |= flag::QUERY_MASK
@@ -406,8 +413,20 @@ impl<'data> EncodedComparisonWithRangeMut<'data> {
         }
     }
 
-    pub fn compare_length_mut(&mut self) -> EncodedVarintMut {
-        unsafe { Varint::start_decoding_unchecked_mut(self.data.get_unchecked_mut(1..)) }
+    /// Modifies the byte length of the range limits.
+    ///
+    /// # Safety
+    /// This will break:
+    /// - the start limit: add or substract bytes at/from its end,
+    /// - the stop limit: mispositionned.
+    /// - the mask: mispositionned.
+    /// - the file offset and id: mispositionned.
+    ///
+    /// It also breaks the payload after this action.
+    ///
+    /// Only use it if you are sure about what you are doing.
+    pub unsafe fn compare_length_mut(&mut self) -> EncodedVarintMut {
+        Varint::start_decoding_unchecked_mut(self.data.get_unchecked_mut(1..))
     }
 
     /// # Safety
