@@ -150,7 +150,7 @@ impl<'data> EncodedQuery<'data> {
 
     /// # Errors
     /// Fails if the query code is unsupported.
-    pub fn query(&self) -> Result<ValidEncodedQuery<'data>, UnsupportedQueryCode<'data>> {
+    pub fn operand(&self) -> Result<ValidEncodedQuery<'data>, UnsupportedQueryCode<'data>> {
         unsafe {
             Ok(match self.query_code()? {
                 #[cfg(feature = "decode_query_compare_with_value")]
@@ -189,7 +189,10 @@ impl<'data> FailableEncodedData<'data> for EncodedQuery<'data> {
 
     fn encoded_size(&self) -> Result<usize, Self::SizeError> {
         Ok(
-            match self.query().map_err(QuerySizeError::UnsupportedQueryCode)? {
+            match self
+                .operand()
+                .map_err(QuerySizeError::UnsupportedQueryCode)?
+            {
                 #[cfg(feature = "decode_query_compare_with_value")]
                 ValidEncodedQuery::ComparisonWithValue(d) => d.encoded_size()?,
                 #[cfg(feature = "decode_query_compare_with_range")]
@@ -199,7 +202,7 @@ impl<'data> FailableEncodedData<'data> for EncodedQuery<'data> {
     }
 
     fn complete_decoding(&self) -> Result<WithByteSize<Self::DecodedData>, Self::DecodeError> {
-        Ok(match self.query()? {
+        Ok(match self.operand()? {
             #[cfg(feature = "decode_query_compare_with_value")]
             ValidEncodedQuery::ComparisonWithValue(d) => {
                 let WithByteSize {
@@ -256,9 +259,8 @@ impl<'data> EncodedQueryMut<'data> {
 
     /// # Errors
     /// Fails if the query code is unsupported.
-    // TODO Those names are a bit too redundant!
-    pub fn query(&self) -> Result<ValidEncodedQuery<'data>, UnsupportedQueryCode<'data>> {
-        self.as_ref().query()
+    pub fn operand(&self) -> Result<ValidEncodedQuery<'data>, UnsupportedQueryCode<'data>> {
+        self.as_ref().operand()
     }
 
     /// Changes the query code, and thus the query type of this query.
@@ -277,7 +279,7 @@ impl<'data> EncodedQueryMut<'data> {
 
     /// # Errors
     /// Fails if the query code is unsupported.
-    pub fn query_mut(&mut self) -> Result<ValidEncodedQueryMut, UnsupportedQueryCode<'data>> {
+    pub fn operand_mut(&mut self) -> Result<ValidEncodedQueryMut, UnsupportedQueryCode<'data>> {
         unsafe {
             Ok(match self.query_code()? {
                 #[cfg(feature = "decode_query_compare_with_value")]
@@ -406,7 +408,7 @@ mod test {
             } = DecodedQueryRef::start_decoding_mut(&mut encoded).unwrap();
             assert_eq!(expected_size, size);
 
-            match decoder_mut.query_mut().unwrap() {
+            match decoder_mut.operand_mut().unwrap() {
                 #[cfg(feature = "decode_query_compare_with_value")]
                 ValidEncodedQueryMut::ComparisonWithValue(mut decoder_mut) => {
                     let original = decoder_mut.signed_data();

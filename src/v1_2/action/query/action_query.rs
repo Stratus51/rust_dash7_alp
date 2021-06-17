@@ -305,7 +305,7 @@ mod test {
             } = DecodedActionQueryRef::start_decoding_mut(&mut encoded).unwrap();
             assert_eq!(expected_size, size);
 
-            match decoder_mut.query_mut().query_mut().unwrap() {
+            match decoder_mut.query_mut().operand_mut().unwrap() {
                 #[cfg(feature = "decode_query_compare_with_value")]
                 ValidEncodedQueryMut::ComparisonWithValue(mut decoder_mut) => {
                     let original = decoder_mut.signed_data();
