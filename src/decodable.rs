@@ -2,6 +2,7 @@
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum SizeError {
+    // TODO Should we return the number of missing bytes?
     MissingBytes,
 }
 

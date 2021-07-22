@@ -92,6 +92,7 @@ impl AddresseeWithNlsState {
     }
 }
 
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct EncodedAddresseeWithNlsState<'data> {
     data: &'data [u8],
 }
@@ -171,6 +172,7 @@ impl<'data> EncodedData<'data> for EncodedAddresseeWithNlsState<'data> {
     }
 }
 
+#[derive(Eq, PartialEq, Debug)]
 pub struct EncodedAddresseeWithNlsStateMut<'data> {
     data: &'data mut [u8],
 }
@@ -308,6 +310,7 @@ impl<'data> Dash7InterfaceStatusRef<'data> {
     }
 }
 
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct EncodedDash7InterfaceStatus<'data> {
     data: &'data [u8],
 }
@@ -408,6 +411,7 @@ impl<'data> EncodedData<'data> for EncodedDash7InterfaceStatus<'data> {
     }
 }
 
+#[derive(Eq, PartialEq, Debug)]
 pub struct EncodedDash7InterfaceStatusMut<'data> {
     data: &'data mut [u8],
 }
@@ -711,6 +715,22 @@ mod test {
                 assert!(new_access_class != original);
                 addressee.set_access_class(new_access_class);
                 assert_eq!(addressee.access_class(), new_access_class);
+            }
+
+            // Check undecodability of shorter payload
+            for i in 1..data.len() {
+                assert_eq!(
+                    Dash7InterfaceStatusRef::start_decoding(&data[..i]),
+                    Err(SizeError::MissingBytes)
+                );
+            }
+
+            // Check unencodability in shorter arrays
+            for i in 0..data.len() {
+                let mut array = vec![0; i];
+                let ret = op.encode_in(&mut array);
+                let missing = ret.unwrap_err();
+                assert_eq!(missing, data.len());
             }
         }
         test(

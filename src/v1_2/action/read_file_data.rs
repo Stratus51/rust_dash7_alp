@@ -79,6 +79,7 @@ impl<'data> Encodable for ReadFileDataRef<'data> {
     }
 }
 
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct EncodedReadFileData<'data> {
     data: &'data [u8],
 }
@@ -172,6 +173,7 @@ impl<'data> EncodedData<'data> for EncodedReadFileData<'data> {
     }
 }
 
+#[derive(Eq, PartialEq, Debug)]
 pub struct EncodedReadFileDataMut<'data> {
     data: &'data mut [u8],
 }
@@ -393,6 +395,22 @@ mod test {
                 assert!(new_value != original);
                 decoder_mut.set_value(&new_value).unwrap();
                 assert_eq!(decoder_mut.complete_decoding().item, new_value);
+            }
+
+            // Check undecodability of shorter payload
+            for i in 1..data.len() {
+                assert_eq!(
+                    ReadFileDataRef::start_decoding(&data[..i]),
+                    Err(SizeError::MissingBytes)
+                );
+            }
+
+            // Check unencodability in shorter arrays
+            for i in 0..data.len() {
+                let mut array = vec![0; i];
+                let ret = op.encode_in(&mut array);
+                let missing = ret.unwrap_err();
+                assert_eq!(missing, data.len());
             }
         }
         test(

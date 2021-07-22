@@ -1,3 +1,4 @@
+#[cfg(feature = "decode_query")]
 use crate::v1_2::error::define::QueryCodeError;
 
 pub const NON_VOID: u8 = 0;
@@ -8,17 +9,17 @@ pub const COMPARISON_WITH_RANGE: u8 = 4;
 pub const STRING_TOKEN_SEARCH: u8 = 7;
 
 #[repr(u8)]
-#[cfg(feature = "decode_query")]
+#[cfg(feature = "query")]
 #[cfg_attr(feature = "repr_c", repr(C))]
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum QueryCode {
     // NonVoid = NON_VOID,
     // ComparisonWithZero = COMPARISON_WITH_ZERO,
-    #[cfg(feature = "decode_query_compare_with_value")]
+    #[cfg(feature = "query_compare_with_value")]
     ComparisonWithValue = COMPARISON_WITH_VALUE,
     // ComparisonWithOtherFile = COMPARISON_WITH_OTHER_FILE,
-    #[cfg(feature = "decode_query_compare_with_range")]
+    #[cfg(feature = "query_compare_with_range")]
     ComparisonWithRange = COMPARISON_WITH_RANGE,
     // StringTokenSearch = STRING_TOKEN_SEARCH,
 }

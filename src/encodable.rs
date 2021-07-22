@@ -33,7 +33,7 @@ pub trait Encodable {
     ///
     /// # Errors
     /// Fails if the pre allocated array is smaller than [`self.encoded_size()`](#method.encoded_size)
-    /// returning the number of input bytes required.
+    /// returning the number of total input bytes required.
     fn encode_in(&self, out: &mut [u8]) -> Result<usize, usize> {
         let size = self.encoded_size();
         if out.len() >= size {

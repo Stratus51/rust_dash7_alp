@@ -1,3 +1,5 @@
+//! TODO Update library description
+//!
 //! Implementation of a [Dash7](https://dash7-alliance.org/) ALP protocol parser from its
 //! public specification.
 //!
@@ -78,3 +80,7 @@ pub mod varint;
 
 // TODO Add tests to verify the impact of the feature flags on binary size
 // TODO Test all the error cases
+// TODO Review the code: there should not be any operation that could panic used in the code.
+// Either always work, or return the appropriate error.
+
+// TODO Implement packet parser and packet encoder (in addition to action parse and action encoder)

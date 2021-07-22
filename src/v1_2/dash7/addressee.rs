@@ -204,6 +204,7 @@ impl<'data> AddresseeRef<'data> {
     }
 }
 
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct EncodedAddressee<'data> {
     data: &'data [u8],
 }
@@ -283,6 +284,7 @@ impl<'data> EncodedData<'data> for EncodedAddressee<'data> {
     }
 }
 
+#[derive(Eq, PartialEq, Debug)]
 pub struct EncodedAddresseeMut<'data> {
     data: &'data mut [u8],
 }
@@ -540,6 +542,19 @@ mod test {
             decoder_mut.set_identifier(new_identifier).unwrap();
             assert_eq!(decoder_mut.identifier(), new_identifier);
 
+            // nls method
+            if op.nls_method != NlsMethod::None {
+                let new_method = if op.nls_method == NlsMethod::AesCtr {
+                    NlsMethod::AesCbcMac128
+                } else {
+                    NlsMethod::AesCtr
+                };
+                assert!(new_method != op.nls_method);
+                assert_eq!(decoder_mut.nls_method(), op.nls_method);
+                decoder_mut.set_nls_method(new_method).unwrap();
+                assert_eq!(decoder_mut.nls_method(), new_method);
+            }
+
             // Unsafe mutations
             let original = decoder_mut.id_type();
             let target = if let AddresseeIdentifierType::Noid = original {
@@ -550,6 +565,22 @@ mod test {
             assert!(target != original);
             unsafe { decoder_mut.set_id_type(target) };
             assert_eq!(decoder_mut.id_type(), target);
+
+            // Check undecodability of shorter payload
+            for i in 1..data.len() {
+                assert_eq!(
+                    AddresseeRef::start_decoding(&data[..i]),
+                    Err(SizeError::MissingBytes)
+                );
+            }
+
+            // Check unencodability in shorter arrays
+            for i in 0..data.len() {
+                let mut array = vec![0; i];
+                let ret = op.encode_in(&mut array);
+                let missing = ret.unwrap_err();
+                assert_eq!(missing, data.len());
+            }
         }
         test(
             AddresseeRef {
@@ -585,6 +616,50 @@ mod test {
             },
             &[0x33, 0x71, 0xCA, 0xFE],
         );
+    }
+
+    #[test]
+    fn errors() {
+        let ids = vec![
+            AddresseeIdentifier::Noid,
+            AddresseeIdentifier::Nbid(1),
+            AddresseeIdentifier::Uid([0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77]),
+            AddresseeIdentifier::Vid([0xCA, 0xFE]),
+        ];
+
+        for id in ids.iter() {
+            for (m1, m2) in [
+                (NlsMethod::None, NlsMethod::AesCcm64),
+                (NlsMethod::AesCcm64, NlsMethod::None),
+            ]
+            .iter()
+            {
+                let mut data = vec![0; 32];
+                AddresseeRef {
+                    nls_method: *m1,
+                    access_class: AccessClass(0x21),
+                    identifier: id.as_ref(),
+                }
+                .encode_in(&mut data)
+                .unwrap();
+                let WithByteSize {
+                    item: mut decoder_mut,
+                    ..
+                } = AddresseeRef::start_decoding_mut(&mut data).unwrap();
+
+                assert_eq!(
+                    decoder_mut.set_nls_method(*m2),
+                    Err(AddresseeSetNlsMethodError::NlsStateMismatch)
+                );
+
+                for new_id in ids.iter().filter(|v| *v != id) {
+                    assert_eq!(
+                        decoder_mut.set_identifier(new_id.as_ref()),
+                        Err(AddresseeSetIdentifierError::IdMismatch)
+                    );
+                }
+            }
+        }
     }
 
     #[test]

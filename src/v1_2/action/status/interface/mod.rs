@@ -118,6 +118,7 @@ pub enum ValidEncodedInterfaceStatus<'data> {
     Dash7(EncodedDash7InterfaceStatus<'data>),
 }
 
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct EncodedInterfaceStatus<'data> {
     data: &'data [u8],
 }
@@ -221,6 +222,7 @@ impl<'data> FailableEncodedData<'data> for EncodedInterfaceStatus<'data> {
     }
 }
 
+#[derive(Eq, PartialEq, Debug)]
 pub struct EncodedInterfaceStatusMut<'data> {
     data: &'data mut [u8],
 }
@@ -417,6 +419,22 @@ mod test {
             assert!(target != original);
             unsafe { decoder_mut.len_field_mut().set_value(&target).unwrap() };
             assert_eq!(decoder_mut.len_field().complete_decoding().item, target);
+
+            // Check undecodability of shorter payload
+            for i in 1..data.len() {
+                assert_eq!(
+                    InterfaceStatusRef::start_decoding(&data[..i]),
+                    Err(InterfaceStatusSizeError::MissingBytes)
+                );
+            }
+
+            // Check unencodability in shorter arrays
+            for i in 0..data.len() {
+                let mut array = vec![0; i];
+                let ret = op.encode_in(&mut array);
+                let missing = ret.unwrap_err();
+                assert_eq!(missing, data.len());
+            }
         }
         test(InterfaceStatusRef::Host, &[0x00, 0x00]);
         test(
@@ -446,6 +464,18 @@ mod test {
                 0xD7, 0x14, 0x01, 0x02, 0x00, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x20, 0xE1,
                 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
             ],
+        );
+    }
+
+    #[test]
+    fn errors() {
+        let data = [0x11, 1, 2];
+        assert_eq!(
+            unsafe { InterfaceStatusRef::start_decoding_unchecked(&data).interface_id() },
+            Err(UnsupportedInterfaceId {
+                id: 0x11,
+                remaining_data: &[1, 2],
+            })
         );
     }
 

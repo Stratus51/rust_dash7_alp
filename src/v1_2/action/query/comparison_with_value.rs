@@ -90,6 +90,7 @@ impl<'data> ComparisonWithValueRef<'data> {
     }
 }
 
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct EncodedComparisonWithValue<'data> {
     data: &'data [u8],
 }
@@ -307,6 +308,7 @@ impl<'data> EncodedData<'data> for EncodedComparisonWithValue<'data> {
     }
 }
 
+#[derive(Eq, PartialEq, Debug)]
 pub struct EncodedComparisonWithValueMut<'data> {
     data: &'data mut [u8],
 }
@@ -660,6 +662,22 @@ mod test {
                 decoder_mut.compare_length().complete_decoding().item,
                 target
             );
+
+            // Check undecodability of shorter payload
+            for i in 1..data.len() {
+                assert_eq!(
+                    ComparisonWithValueRef::start_decoding(&data[..i]),
+                    Err(SizeError::MissingBytes)
+                );
+            }
+
+            // Check unencodability in shorter arrays
+            for i in 0..data.len() {
+                let mut array = vec![0; i];
+                let ret = op.encode_in(&mut array);
+                let missing = ret.unwrap_err();
+                assert_eq!(missing, data.len());
+            }
         }
         test(
             ComparisonWithValueRef {

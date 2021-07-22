@@ -20,7 +20,7 @@ use comparison_with_range::ComparisonWithRange;
 #[cfg(feature = "alloc")]
 use comparison_with_value::ComparisonWithValue;
 
-#[cfg(feature = "decode_query")]
+#[cfg(feature = "query")]
 use define::code::QueryCode;
 
 #[cfg(any(feature = "decode_query_compare_with_value"))]
@@ -71,6 +71,15 @@ impl<'data> Encodable for QueryRef<'data> {
 
 #[cfg(feature = "query")]
 impl<'data> QueryRef<'data> {
+    pub fn query_code(&self) -> QueryCode {
+        match self {
+            #[cfg(feature = "query_compare_with_value")]
+            Self::ComparisonWithValue(_) => QueryCode::ComparisonWithValue,
+            #[cfg(feature = "query_compare_with_range")]
+            Self::ComparisonWithRange(_) => QueryCode::ComparisonWithRange,
+        }
+    }
+
     // TODO Move inside when comparison without alloc exists
     #[cfg(feature = "alloc")]
     pub fn to_owned(&self) -> Query {
@@ -100,6 +109,15 @@ pub enum DecodedQueryRef<'data> {
 
 #[cfg(feature = "decode_query")]
 impl<'data> DecodedQueryRef<'data> {
+    pub fn query_code(&self) -> QueryCode {
+        match self {
+            #[cfg(feature = "decode_query_compare_with_value")]
+            Self::ComparisonWithValue(_) => QueryCode::ComparisonWithValue,
+            #[cfg(feature = "decode_query_compare_with_range")]
+            Self::ComparisonWithRange(_) => QueryCode::ComparisonWithRange,
+        }
+    }
+
     pub fn as_encodable(self) -> QueryRef<'data> {
         self.into()
     }
@@ -130,6 +148,7 @@ pub enum ValidEncodedQuery<'data> {
 }
 
 #[cfg(feature = "decode_query")]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct EncodedQuery<'data> {
     data: &'data [u8],
 }
@@ -161,16 +180,6 @@ impl<'data> EncodedQuery<'data> {
                 QueryCode::ComparisonWithRange => ValidEncodedQuery::ComparisonWithRange(
                     ComparisonWithRangeRef::start_decoding_unchecked(self.data),
                 ),
-                #[cfg(not(all(
-                    feature = "decode_query_compare_with_range",
-                    feature = "decode_query_compare_with_value"
-                )))]
-                code => {
-                    return Err(UnsupportedQueryCode {
-                        code: code as u8,
-                        remaining_data: self.data.get_unchecked(1..),
-                    })
-                }
             })
         }
     }
@@ -242,6 +251,7 @@ pub enum ValidEncodedQueryMut<'data> {
 }
 
 #[cfg(feature = "decode_query")]
+#[derive(Eq, PartialEq, Debug)]
 pub struct EncodedQueryMut<'data> {
     data: &'data mut [u8],
 }
@@ -290,17 +300,6 @@ impl<'data> EncodedQueryMut<'data> {
                 QueryCode::ComparisonWithRange => ValidEncodedQueryMut::ComparisonWithRange(
                     ComparisonWithRangeRef::start_decoding_unchecked_mut(self.data),
                 ),
-                #[cfg(not(all(
-                    feature = "decode_query_compare_with_range",
-                    feature = "decode_query_compare_with_value"
-                )))]
-                code => {
-                    // TODO Should this be a mutable variant?
-                    return Err(UnsupportedQueryCode {
-                        code: code as u8,
-                        remaining_data: self.as_ref().data.get_unchecked(1..),
-                    });
-                }
             })
         }
     }
@@ -400,6 +399,7 @@ mod test {
             } = DecodedQueryRef::start_decoding(data).unwrap();
             assert_eq!(expected_size, size);
             assert_eq!(decoder.encoded_size().unwrap(), size);
+            assert_eq!(decoder.query_code().unwrap(), op.query_code());
 
             // Test partial mutability
             let WithByteSize {
@@ -443,6 +443,22 @@ mod test {
                 unsafe { decoder_mut.set_query_code(target) };
                 assert_eq!(decoder_mut.query_code().unwrap(), target);
             }
+
+            // Check undecodability of shorter payload
+            for i in 1..data.len() {
+                assert_eq!(
+                    DecodedQueryRef::start_decoding(&data[..i]),
+                    Err(QuerySizeError::MissingBytes)
+                );
+            }
+
+            // Check unencodability in shorter arrays
+            for i in 0..data.len() {
+                let mut array = vec![0; i];
+                let ret = op.encode_in(&mut array);
+                let missing = ret.unwrap_err();
+                assert_eq!(missing, data.len());
+            }
         }
         #[cfg(feature = "decode_query_compare_with_value")]
         test(
@@ -479,11 +495,30 @@ mod test {
                 signed_data: false,
                 comparison_type:
                     define::range_comparison_type::QueryRangeComparisonType::NotInRange,
-                range: crate::define::MaskedRangeRef::new(1, 50, 66, Some(&[0x33, 0x22])).unwrap(),
+                range: crate::define::MaskedRangeRef::new(
+                    Varint::new(1).unwrap(),
+                    50,
+                    66,
+                    Some(&[0x33, 0x22]),
+                )
+                .unwrap(),
                 file_id: FileId::new(0x88),
                 offset: Varint::new(0xFF).unwrap(),
             }),
             &[0x80 | 0x10, 0x01, 50, 66, 0x33, 0x22, 0x88, 0x40, 0xFF],
+        );
+    }
+
+    #[test]
+    fn errors() {
+        let data = [0xC0, 0x11];
+        assert_eq!(
+            DecodedQueryRef::start_decoding(&data),
+            Err(QuerySizeError::UnsupportedQueryCode(UnsupportedQueryCode {
+                // TODO This might be a supported query code!
+                code: 6,
+                remaining_data: &[0x11],
+            }))
         );
     }
 

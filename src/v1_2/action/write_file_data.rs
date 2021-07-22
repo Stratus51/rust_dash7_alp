@@ -71,10 +71,11 @@ impl<'data> Encodable for WriteFileDataRef<'data> {
 
     fn encoded_size(&self) -> usize {
         let length = unsafe { Varint::new_unchecked(self.data.len() as u32) };
-        1 + 1 + self.offset.encoded_size() + length.encoded_size()
+        1 + 1 + self.offset.encoded_size() + length.encoded_size() + unsafe { length.usize() }
     }
 }
 
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct EncodedWriteFileData<'data> {
     data: &'data [u8],
 }
@@ -197,6 +198,7 @@ impl<'data> EncodedData<'data> for EncodedWriteFileData<'data> {
     }
 }
 
+#[derive(Eq, PartialEq, Debug)]
 pub struct EncodedWriteFileDataMut<'data> {
     data: &'data mut [u8],
 }
@@ -450,6 +452,22 @@ mod test {
             assert!(target != original);
             unsafe { decoder_mut.length_mut().set_value(&target).unwrap() };
             assert_eq!(decoder_mut.length().complete_decoding().item, target);
+
+            // Check undecodability of shorter payload
+            for i in 1..data.len() {
+                assert_eq!(
+                    WriteFileDataRef::start_decoding(&data[..i]),
+                    Err(SizeError::MissingBytes)
+                );
+            }
+
+            // Check unencodability in shorter arrays
+            for i in 0..data.len() {
+                let mut array = vec![0; i];
+                let ret = op.encode_in(&mut array);
+                let missing = ret.unwrap_err();
+                assert_eq!(missing, data.len());
+            }
         }
 
         test(

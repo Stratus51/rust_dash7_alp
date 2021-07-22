@@ -95,6 +95,7 @@ impl<'data> From<DecodedActionQueryRef<'data>> for ActionQueryRef<'data> {
 }
 
 #[cfg(feature = "decode_query")]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct EncodedActionQuery<'data> {
     data: &'data [u8],
 }
@@ -146,6 +147,7 @@ impl<'data> FailableEncodedData<'data> for EncodedActionQuery<'data> {
 }
 
 #[cfg(feature = "decode_query")]
+#[derive(Eq, PartialEq, Debug)]
 pub struct EncodedActionQueryMut<'data> {
     data: &'data mut [u8],
 }
@@ -322,6 +324,22 @@ mod test {
                     decoder_mut.set_signed_data(new_signed_data);
                     assert_eq!(decoder_mut.signed_data(), new_signed_data);
                 }
+            }
+
+            // Check undecodability of shorter payload
+            for i in 1..data.len() {
+                assert_eq!(
+                    DecodedActionQueryRef::start_decoding(&data[..i]),
+                    Err(QuerySizeError::MissingBytes)
+                );
+            }
+
+            // Check unencodability in shorter arrays
+            for i in 0..data.len() {
+                let mut array = vec![0; i];
+                let ret = op.encode_in(&mut array);
+                let missing = ret.unwrap_err();
+                assert_eq!(missing, data.len());
             }
         }
         test(

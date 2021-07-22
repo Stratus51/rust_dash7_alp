@@ -1,3 +1,4 @@
+use crate::varint::Varint;
 #[cfg(feature = "alloc")]
 use alloc::prelude::v1::Box;
 
@@ -24,7 +25,7 @@ use alloc::prelude::v1::Box;
 /// you will have trouble transmitting anything bigger than 256 bytes.
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct MaskedRangeRef<'data> {
-    compare_length: usize,
+    compare_length: Varint,
     start: usize,
     end: usize,
     bitmap: Option<&'data [u8]>,
@@ -44,7 +45,7 @@ impl<'data> MaskedRangeRef<'data> {
     /// # Safety
     /// If bitmap is defined you are to warrant that bitmap.len() == `floor((end - start + 6)/8)`.
     pub const unsafe fn new_unchecked(
-        compare_length: usize,
+        compare_length: Varint,
         start: usize,
         end: usize,
         bitmap: Option<&'data [u8]>,
@@ -64,7 +65,7 @@ impl<'data> MaskedRangeRef<'data> {
     /// # Errors
     /// Fails if the bitmap is defined and bitmap.len() != `floor((end - start + 6)/8)`.
     pub fn new(
-        compare_length: usize,
+        compare_length: Varint,
         start: usize,
         end: usize,
         bitmap: Option<&'data [u8]>,
@@ -78,15 +79,13 @@ impl<'data> MaskedRangeRef<'data> {
             }
         } else if end < start {
             return Err(MaskedRangeNewError::InvalidRange);
-        } else if compare_length < core::mem::size_of::<usize>()
-            && end >= (1 << (8 * compare_length))
-        {
+        } else if end >= (1 << (8 * unsafe { compare_length.usize() })) {
             return Err(MaskedRangeNewError::BoundOverflowSize);
         }
         Ok(unsafe { Self::new_unchecked(compare_length, start, end, bitmap) })
     }
 
-    pub const fn compare_length(&self) -> usize {
+    pub const fn compare_length(&self) -> Varint {
         self.compare_length
     }
 
@@ -128,7 +127,7 @@ impl<'data> MaskedRangeRef<'data> {
 #[cfg(feature = "alloc")]
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct MaskedRange {
-    compare_length: usize,
+    compare_length: Varint,
     start: usize,
     end: usize,
     bitmap: Option<Box<[u8]>>,

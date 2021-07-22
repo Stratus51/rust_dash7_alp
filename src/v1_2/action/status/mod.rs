@@ -55,6 +55,7 @@ impl<'data> StatusRef<'data> {
     }
 }
 
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct EncodedStatus<'data> {
     data: &'data [u8],
 }
@@ -126,6 +127,7 @@ impl<'data> FailableEncodedData<'data> for EncodedStatus<'data> {
     }
 }
 
+#[derive(Eq, PartialEq, Debug)]
 pub struct EncodedStatusMut<'data> {
     data: &'data mut [u8],
 }
@@ -281,6 +283,22 @@ mod test {
             // assert!(target != original);
             // unsafe { decoder_mut.set_extension(target) };
             // assert_eq!(decoder_mut.extension().unwrap(), target);
+
+            // Check undecodability of shorter payload
+            for i in 1..data.len() {
+                assert_eq!(
+                    StatusRef::start_decoding(&data[..i]),
+                    Err(StatusSizeError::MissingBytes)
+                );
+            }
+
+            // Check unencodability in shorter arrays
+            for i in 0..data.len() {
+                let mut array = vec![0; i];
+                let ret = op.encode_in(&mut array);
+                let missing = ret.unwrap_err();
+                assert_eq!(missing, data.len());
+            }
         }
         test(
             StatusRef::Interface(InterfaceStatusRef::Dash7(Dash7InterfaceStatusRef {
@@ -330,6 +348,18 @@ mod test {
                 0x66,
                 0x77,
             ],
+        );
+    }
+
+    #[test]
+    fn errors() {
+        let data = [34 | 0xC0, 1, 2];
+        assert_eq!(
+            unsafe { StatusRef::start_decoding_unchecked(&data).extension() },
+            Err(UnsupportedExtension {
+                extension: 3,
+                remaining_data: &[1, 2],
+            })
         );
     }
 

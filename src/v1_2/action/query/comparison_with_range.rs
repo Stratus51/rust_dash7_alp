@@ -49,18 +49,18 @@ impl<'data> Encodable for ComparisonWithRangeRef<'data> {
         size += 1;
 
         // Write compare_length
-        let boundaries_size = self.range.boundaries_size();
-        size += Varint::new_unchecked(boundaries_size).encode_in_ptr(out.add(size));
-        let boundaries_size = boundaries_size as usize;
+        let compare_length = self.range.compare_length();
+        size += compare_length.encode_in_ptr(out.add(size));
+        let compare_length = compare_length.usize();
 
         // Write range boundaries
         // TODO SPEC What endianess???
         out.add(size)
-            .copy_from(self.range.start().to_le_bytes().as_ptr(), boundaries_size);
-        size += boundaries_size;
+            .copy_from(self.range.start().to_le_bytes().as_ptr(), compare_length);
+        size += compare_length;
         out.add(size)
-            .copy_from(self.range.end().to_le_bytes().as_ptr(), boundaries_size);
-        size += boundaries_size;
+            .copy_from(self.range.end().to_le_bytes().as_ptr(), compare_length);
+        size += compare_length;
 
         // Write bitmap
         if let Some(bitmap) = &self.range.bitmap() {
@@ -78,6 +78,7 @@ impl<'data> Encodable for ComparisonWithRangeRef<'data> {
     fn encoded_size(&self) -> usize {
         unsafe {
             1 + Varint::new_unchecked(self.range.boundaries_size()).encoded_size()
+                + 2 * self.range.boundaries_size() as usize
                 + match &self.range.bitmap() {
                     Some(bitmap) => bitmap.len(),
                     None => 0,
@@ -101,6 +102,7 @@ impl<'data> ComparisonWithRangeRef<'data> {
     }
 }
 
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct EncodedComparisonWithRange<'data> {
     data: &'data [u8],
 }
@@ -109,7 +111,7 @@ pub struct EncodedComparisonWithRange<'data> {
 #[cfg_attr(feature = "packed", repr(packed))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct Range {
-    pub compare_length: usize,
+    pub compare_length: Varint,
     pub start: usize,
     pub end: usize,
 }
@@ -144,7 +146,7 @@ impl<'data> EncodedComparisonWithRange<'data> {
         unsafe { Varint::start_decoding_unchecked(self.data.get_unchecked(1..)) }
     }
 
-    pub fn range_boundaries_with_offset(&self) -> (Range, usize) {
+    fn range_boundaries_with_offset(&self) -> (Range, usize) {
         let WithByteSize {
             item: compare_length,
             byte_size: compare_length_size,
@@ -175,7 +177,7 @@ impl<'data> EncodedComparisonWithRange<'data> {
         }
         (
             Range {
-                compare_length: unsafe { compare_length.usize() },
+                compare_length,
                 start: usize::from_le_bytes(start_slice),
                 end: usize::from_le_bytes(end_slice),
             },
@@ -183,7 +185,7 @@ impl<'data> EncodedComparisonWithRange<'data> {
         )
     }
 
-    pub fn range_boundaries(&self) -> Range {
+    fn range_boundaries(&self) -> Range {
         self.range_boundaries_with_offset().0
     }
 
@@ -292,8 +294,6 @@ impl<'data> FailableEncodedData<'data> for EncodedComparisonWithRange<'data> {
                 }
                 let bitmap_size = MaskedRangeRef::bitmap_size(start, end);
                 size += bitmap_size;
-            } else {
-                size += compare_length;
             }
             size += 2;
             if data_size < size {
@@ -337,6 +337,7 @@ impl<'data> FailableEncodedData<'data> for EncodedComparisonWithRange<'data> {
     }
 }
 
+#[derive(Eq, PartialEq, Debug)]
 pub struct EncodedComparisonWithRangeMut<'data> {
     data: &'data mut [u8],
 }
@@ -360,7 +361,7 @@ impl<'data> EncodedComparisonWithRangeMut<'data> {
         self.as_ref().compare_length()
     }
 
-    pub fn range_boundaries(&self) -> Range {
+    fn range_boundaries(&self) -> Range {
         self.as_ref().range_boundaries()
     }
 
@@ -437,16 +438,14 @@ impl<'data> EncodedComparisonWithRangeMut<'data> {
     /// If you change the bitmap bit size (while keeping the same byte size) then make sure you
     /// know the state of the additional bits interpreted.
     pub unsafe fn set_range_boundaries_unchecked(&mut self, range: &Range) {
-        let WithByteSize {
-            item: compare_length,
-            byte_size: compare_length_size,
-        } = self.compare_length().complete_decoding();
-        let mut offset = 1 + compare_length_size;
+        let mut offset = 1 + range
+            .compare_length
+            .encode_in_unchecked(&mut self.data.get_unchecked_mut(1..));
 
         let start_slice = range.start.to_le_bytes();
         let end_slice = range.end.to_le_bytes();
 
-        let len = compare_length.usize();
+        let len = range.compare_length.usize();
         self.data
             .get_unchecked_mut(offset..offset + len)
             .copy_from_slice(start_slice.get_unchecked(..len));
@@ -466,7 +465,7 @@ impl<'data> EncodedComparisonWithRangeMut<'data> {
             return Err(QueryRangeSetLooselyError::BadGivenRange);
         }
 
-        if range.end >> (8 * range.compare_length) > 0 {
+        if range.end >> (8 * unsafe { range.compare_length.usize() }) > 0 {
             return Err(QueryRangeSetLooselyError::CompareLengthTooSmall);
         }
 
@@ -478,9 +477,19 @@ impl<'data> EncodedComparisonWithRangeMut<'data> {
         if current_start > current_end {
             return Err(QueryRangeSetLooselyError::BadEncodedRange);
         }
-        let old_size = 2 * compare_length + MaskedRangeRef::bitmap_size(current_start, current_end);
-        let new_size =
-            2 * range.compare_length + MaskedRangeRef::bitmap_size(range.start, range.end);
+        let has_mask = self.mask_flag();
+        let old_size = 2 * unsafe { compare_length.usize() }
+            + if has_mask {
+                MaskedRangeRef::bitmap_size(current_start, current_end)
+            } else {
+                0
+            };
+        let new_size = 2 * unsafe { range.compare_length.usize() }
+            + if has_mask {
+                MaskedRangeRef::bitmap_size(range.start, range.end)
+            } else {
+                0
+            };
         if new_size != old_size {
             return Err(QueryRangeSetLooselyError::ByteSizeMismatch);
         }
@@ -495,7 +504,7 @@ impl<'data> EncodedComparisonWithRangeMut<'data> {
             return Err(QueryRangeSetError::BadGivenRange);
         }
 
-        if range.end >> (8 * range.compare_length) > 0 {
+        if range.end >> (8 * unsafe { range.compare_length.usize() }) > 0 {
             return Err(QueryRangeSetError::CompareLengthTooSmall);
         }
 
@@ -623,8 +632,8 @@ mod test {
             } = ComparisonWithRangeRef::start_decoding(data).unwrap();
             assert_eq!(ret.range.bitmap().is_some(), decoder.mask_flag());
             assert_eq!(
-                ret.range.boundaries_size(),
-                decoder.compare_length().complete_decoding().item.u32()
+                ret.range.compare_length(),
+                decoder.compare_length().complete_decoding().item
             );
             assert_eq!(
                 Range {
@@ -685,21 +694,54 @@ mod test {
                     start: op.range.start(),
                     end: op.range.end(),
                 };
-                let new_range = Range {
-                    compare_length: op.range.compare_length(),
-                    start: op.range.start() + 1,
-                    end: op.range.end() + 1,
+                let target = Range {
+                    compare_length: original.compare_length,
+                    start: original.start + 1,
+                    end: original.end + 1,
                 };
-                assert!(new_range != original);
-                decoder_mut.set_range_boundaries(&new_range).unwrap();
+                assert!(target != original);
+                decoder_mut.set_range_boundaries(&target).unwrap();
                 let full_new_range = MaskedRangeRef::new(
-                    new_range.compare_length,
-                    new_range.start,
-                    new_range.end,
+                    target.compare_length,
+                    target.start,
+                    target.end,
                     op.range.bitmap(),
                 )
                 .unwrap();
                 assert_eq!(decoder_mut.range().unwrap(), full_new_range);
+                decoder_mut.set_range_boundaries(&original).unwrap();
+                assert_eq!(decoder_mut.range().unwrap(), op.range);
+
+                let target = Range {
+                    compare_length: original.compare_length,
+                    start: original.start + 1,
+                    end: original.end + 1,
+                };
+                decoder_mut.set_range_boundaries_loosely(&target).unwrap();
+                let full_new_range = MaskedRangeRef::new(
+                    target.compare_length,
+                    target.start,
+                    target.end,
+                    op.range.bitmap(),
+                )
+                .unwrap();
+                assert_eq!(decoder_mut.range().unwrap(), full_new_range);
+                decoder_mut.set_range_boundaries_loosely(&original).unwrap();
+                assert_eq!(decoder_mut.range().unwrap(), op.range);
+
+                if op.range.compare_length().u32() > 1
+                    && (op.range.end() - op.range.start() + 2 * 8) >> 16 == 0
+                {
+                    let target = Range {
+                        compare_length: Varint::new(original.compare_length.u32() - 1).unwrap(),
+                        start: 0,
+                        end: original.end - original.start + 2 * 8,
+                    };
+                    decoder_mut.set_range_boundaries_loosely(&target).unwrap();
+                    assert_eq!(decoder_mut.range_boundaries(), target);
+                    decoder_mut.set_range_boundaries_loosely(&original).unwrap();
+                    assert_eq!(decoder_mut.range().unwrap(), op.range);
+                }
             }
 
             if decoder_mut.range_bitmap_mut().is_some() {
@@ -767,12 +809,102 @@ mod test {
                 decoder_mut.compare_length().complete_decoding().item,
                 target
             );
+
+            // Check undecodability of shorter payload
+            for i in 1..data.len() {
+                assert_eq!(
+                    ComparisonWithRangeRef::start_decoding(&data[..i]),
+                    Err(QueryRangeSizeError::MissingBytes)
+                );
+            }
+
+            // Check unencodability in shorter arrays
+            if op.range.compare_length().u32() == op.range.boundaries_size() {
+                for i in 0..data.len() {
+                    let mut array = vec![0; i];
+                    let ret = op.encode_in(&mut array);
+                    let missing = ret.unwrap_err();
+                    assert_eq!(missing, data.len());
+                }
+            }
+
+            // Check failures
+            let mut encoded_clone = encoded;
+            let WithByteSize {
+                item: mut decoder_mut,
+                byte_size: _,
+            } = ComparisonWithRangeRef::start_decoding_mut(&mut encoded_clone).unwrap();
+            let original = decoder_mut.range_boundaries();
+            let target = Range {
+                compare_length: original.compare_length,
+                start: original.end,
+                end: original.start,
+            };
+            assert!(target != original);
+            assert_eq!(
+                decoder_mut.set_range_boundaries_loosely(&target),
+                Err(QueryRangeSetLooselyError::BadGivenRange)
+            );
+            assert_eq!(
+                decoder_mut.set_range_boundaries(&target),
+                Err(QueryRangeSetError::BadGivenRange)
+            );
+            unsafe { decoder_mut.set_range_boundaries_unchecked(&target) };
+            assert_eq!(decoder_mut.range_boundaries(), target);
+            assert_eq!(decoder_mut.range(), Err(QueryRangeError::BadEncodedRange));
+
+            let mut encoded_clone = encoded;
+            let WithByteSize {
+                item: mut decoder_mut,
+                byte_size: _,
+            } = ComparisonWithRangeRef::start_decoding_mut(&mut encoded_clone).unwrap();
+            let original = decoder_mut.range_boundaries();
+            let mut target = Range {
+                compare_length: Varint::new(0).unwrap(),
+                start: original.start,
+                end: original.end,
+            };
+            assert!(target != original);
+            assert_eq!(
+                decoder_mut.set_range_boundaries_loosely(&target),
+                Err(QueryRangeSetLooselyError::CompareLengthTooSmall)
+            );
+            if op.range.compare_length().u32() == op.range.boundaries_size()
+                && original.compare_length.u32() > 1
+            {
+                target.compare_length = Varint::new(1).unwrap();
+                assert_eq!(
+                    decoder_mut.set_range_boundaries_loosely(&target),
+                    Err(QueryRangeSetLooselyError::CompareLengthTooSmall)
+                );
+            }
+            target.compare_length = original.compare_length;
+            if (target.end - target.start + 1) % 8 == 0 {
+                target.end -= 1;
+            } else {
+                target.end += 1;
+            }
+            assert!(decoder_mut.set_range_boundaries_loosely(&target).is_ok());
+            decoder_mut.set_range_boundaries_loosely(&original).unwrap();
+            assert_eq!(
+                decoder_mut.set_range_boundaries(&target),
+                Err(QueryRangeSetError::BitmapBitSizeMismatch)
+            );
+            target.compare_length = Varint::new(original.compare_length.u32() + 1).unwrap();
+            assert_eq!(
+                decoder_mut.set_range_boundaries_loosely(&target),
+                Err(QueryRangeSetLooselyError::ByteSizeMismatch)
+            );
+            assert_eq!(
+                decoder_mut.set_range_boundaries(&target),
+                Err(QueryRangeSetError::CompareLengthMismatch)
+            );
         }
         test(
             ComparisonWithRangeRef {
                 signed_data: true,
                 comparison_type: QueryRangeComparisonType::InRange,
-                range: MaskedRangeRef::new(1, 0, 5, Some(&[0x11])).unwrap(),
+                range: MaskedRangeRef::new(Varint::new(1).unwrap(), 0, 5, Some(&[0x11])).unwrap(),
                 file_id: FileId::new(0x42),
                 offset: Varint::new(0x40_00).unwrap(),
             },
@@ -792,21 +924,92 @@ mod test {
             ComparisonWithRangeRef {
                 signed_data: false,
                 comparison_type: QueryRangeComparisonType::NotInRange,
-                range: MaskedRangeRef::new(1, 50, 66, Some(&[0x33, 0x22])).unwrap(),
+                range: MaskedRangeRef::new(Varint::new(1).unwrap(), 50, 66, Some(&[0x33, 0x22]))
+                    .unwrap(),
                 file_id: FileId::new(0x88),
                 offset: Varint::new(0xFF).unwrap(),
             },
             &[0x80 | 0x10, 0x01, 50, 66, 0x33, 0x22, 0x88, 0x40, 0xFF],
         );
+        test(
+            ComparisonWithRangeRef {
+                signed_data: false,
+                comparison_type: QueryRangeComparisonType::NotInRange,
+                range: MaskedRangeRef::new(Varint::new(1).unwrap(), 50, 66, None).unwrap(),
+                file_id: FileId::new(0x88),
+                offset: Varint::new(0xFF).unwrap(),
+            },
+            &[0x80, 0x01, 50, 66, 0x88, 0x40, 0xFF],
+        );
+        test(
+            ComparisonWithRangeRef {
+                signed_data: false,
+                comparison_type: QueryRangeComparisonType::NotInRange,
+                range: MaskedRangeRef::new(
+                    Varint::new(2).unwrap(),
+                    0x01_F0,
+                    0x01_FF,
+                    Some(&[0x55, 0x66]),
+                )
+                .unwrap(),
+                file_id: FileId::new(0x88),
+                offset: Varint::new(0xFF).unwrap(),
+            },
+            &[
+                0x80 | 0x10,
+                0x02,
+                0xF0,
+                0x01,
+                0xFF,
+                0x01,
+                0x55,
+                0x66,
+                0x88,
+                0x40,
+                0xFF,
+            ],
+        );
+        test(
+            ComparisonWithRangeRef {
+                signed_data: false,
+                comparison_type: QueryRangeComparisonType::NotInRange,
+                range: MaskedRangeRef::new(Varint::new(3).unwrap(), 50, 66, Some(&[0x33, 0x22]))
+                    .unwrap(),
+                file_id: FileId::new(0x88),
+                offset: Varint::new(0xFF).unwrap(),
+            },
+            &[
+                0x80 | 0x10,
+                0x03,
+                50,
+                0,
+                0,
+                66,
+                0,
+                0,
+                0x33,
+                0x22,
+                0x88,
+                0x40,
+                0xFF,
+            ],
+        );
     }
 
+    // TODO Rename "consistency"
     #[test]
     fn consistence() {
         const TOT_SIZE: usize = 1 + 1 + 1 + 1 + 4 + 1 + 3;
         let op = ComparisonWithRangeRef {
             signed_data: true,
             comparison_type: QueryRangeComparisonType::InRange,
-            range: MaskedRangeRef::new(1, 0, 32, Some(&[0x33, 0x22, 0x33, 0x44])).unwrap(),
+            range: MaskedRangeRef::new(
+                Varint::new(1).unwrap(),
+                0,
+                32,
+                Some(&[0x33, 0x22, 0x33, 0x44]),
+            )
+            .unwrap(),
             file_id: FileId::new(0xFF),
             offset: Varint::new(0x3F_FF_00).unwrap(),
         };

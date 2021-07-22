@@ -68,6 +68,7 @@ impl<'data> Encodable for ReadFilePropertiesRef<'data> {
     }
 }
 
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct EncodedReadFileProperties<'data> {
     data: &'data [u8],
 }
@@ -115,6 +116,7 @@ impl<'data> EncodedData<'data> for EncodedReadFileProperties<'data> {
     }
 }
 
+#[derive(Eq, PartialEq, Debug)]
 pub struct EncodedReadFilePropertiesMut<'data> {
     data: &'data mut [u8],
 }

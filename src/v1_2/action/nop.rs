@@ -58,6 +58,7 @@ impl<'data> Encodable for NopRef<'data> {
     }
 }
 
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct EncodedNop<'data> {
     data: &'data [u8],
 }
@@ -100,6 +101,7 @@ impl<'data, 'result> EncodedData<'data> for EncodedNop<'data> {
     }
 }
 
+#[derive(Eq, PartialEq, Debug)]
 pub struct EncodedNopMut<'data> {
     data: &'data mut [u8],
 }

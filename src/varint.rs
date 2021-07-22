@@ -162,6 +162,7 @@ impl Encodable for Varint {
     }
 }
 
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct EncodedVarint<'data> {
     data: &'data [u8],
 }
@@ -227,6 +228,7 @@ impl<'data> EncodedData<'data> for EncodedVarint<'data> {
     }
 }
 
+#[derive(Eq, PartialEq, Debug)]
 pub struct EncodedVarintMut<'data> {
     data: &'data mut [u8],
 }
@@ -332,7 +334,7 @@ mod test {
             let mut encoded = [0_u8; MAX_SIZE];
             let size = Varint::new(value)
                 .unwrap()
-                .encode_in(&mut encoded[..])
+                .encode_in(&mut encoded[..data.len()])
                 .unwrap();
             assert_eq!(data.len(), size);
             assert_eq!(*data, encoded[..data.len()]);
@@ -396,6 +398,21 @@ mod test {
                 .unwrap()
                 .encode_in(&mut encoded[..])
                 .unwrap();
+
+            // Check undecodability of shorter payload
+            for i in 1..data.len() {
+                assert_eq!(
+                    Varint::start_decoding(&data[..i]),
+                    Err(SizeError::MissingBytes)
+                );
+            }
+
+            // Check unencodability in shorter arrays
+            let value = Varint::new(value).unwrap();
+            for i in 0..value.encoded_size() {
+                let mut array = vec![0; i];
+                assert_eq!(value.encode_in(&mut array), Err(value.encoded_size()));
+            }
         }
         test_ok(&[0], 0x00, 1);
         test_ok(&hex!("3F"), 0x3F, 1);
@@ -407,5 +424,52 @@ mod test {
         test_ok(&hex!("40 00"), 0, 2);
         test_ok(&hex!("80 00 00"), 0, 3);
         test_ok(&hex!("C0 00 00 00"), 0, 4);
+    }
+
+    #[test]
+    fn test_errors() {
+        // Varint new errors
+        assert_eq!(Varint::new(0xFF_FF_FF_FF), Err(VarintError::ValueTooBig));
+        assert_eq!(Varint::new(0x40_00_00_00), Err(VarintError::ValueTooBig));
+        assert!(Varint::new(0x3F_FF_FF_FF).is_ok());
+
+        // Varint decoding errors
+        assert!(Varint::start_decoding(&[0x00]).is_ok());
+        fn should_be_missing_bytes(data: &[u8]) {
+            for i in 0..=data.len() {
+                assert_eq!(
+                    Varint::start_decoding(&data[..i]),
+                    Err(SizeError::MissingBytes)
+                );
+            }
+        }
+        should_be_missing_bytes(&[0x40]);
+        should_be_missing_bytes(&[0x80, 0x00]);
+        should_be_missing_bytes(&[0xC0, 0x00, 0x00]);
+
+        let varints: Vec<_> = vec![0x00, 0x40, 0x40_00, 0x40_00_00]
+            .into_iter()
+            .map(|n| Varint::new(n).unwrap())
+            .collect();
+
+        for i in 0..varints.len() {
+            for j in 0..varints.len() {
+                let mut encoded = vec![0; varints[i].encoded_size()];
+                varints[i].encode_in(&mut encoded).unwrap();
+
+                let WithByteSize {
+                    item: mut decoder_mut,
+                    byte_size: _,
+                } = Varint::start_decoding_mut(&mut encoded).unwrap();
+                if i == j {
+                    assert!(decoder_mut.set_value(&varints[j]).is_ok());
+                } else {
+                    assert_eq!(
+                        decoder_mut.set_value(&varints[j]),
+                        Err(VarintSetError::SizeMismatch)
+                    );
+                }
+            }
+        }
     }
 }
