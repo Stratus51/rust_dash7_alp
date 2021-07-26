@@ -317,39 +317,39 @@ crate::make_downcastable!(EncodedComparisonWithValueMut, EncodedComparisonWithVa
 
 impl<'data> EncodedComparisonWithValueMut<'data> {
     pub fn mask_flag(&self) -> bool {
-        self.as_ref().mask_flag()
+        self.borrow().mask_flag()
     }
 
     pub fn signed_data(&self) -> bool {
-        self.as_ref().signed_data()
+        self.borrow().signed_data()
     }
 
     pub fn comparison_type(&self) -> QueryComparisonType {
-        self.as_ref().comparison_type()
+        self.borrow().comparison_type()
     }
 
     pub fn compare_length(&self) -> EncodedVarint<'data> {
-        self.as_ref().compare_length()
+        self.borrow().compare_length()
     }
 
     pub fn mask(&self) -> Option<&'data [u8]> {
-        self.as_ref().mask()
+        self.borrow().mask()
     }
 
     pub fn value(&self) -> &'data [u8] {
-        self.as_ref().value()
+        self.borrow().value()
     }
 
     pub fn compare_value(&self) -> MaskedValueRef<'data> {
-        self.as_ref().compare_value()
+        self.borrow().compare_value()
     }
 
     pub fn file_id(&self) -> FileId {
-        self.as_ref().file_id()
+        self.borrow().file_id()
     }
 
     pub fn offset(&self) -> EncodedVarint<'data> {
-        self.as_ref().offset()
+        self.borrow().offset()
     }
 
     /// # Safety
@@ -357,7 +357,7 @@ impl<'data> EncodedComparisonWithValueMut<'data> {
     /// If you fail to do so, out of bound bytes will be read, and an absurd value will be
     /// returned.
     pub unsafe fn encoded_size_unchecked(&self) -> usize {
-        self.as_ref().encoded_size_unchecked()
+        self.borrow().encoded_size_unchecked()
     }
 
     /// Modifies whether the query contains a mask or not.
@@ -483,11 +483,11 @@ impl<'data> EncodedData<'data> for EncodedComparisonWithValueMut<'data> {
     }
 
     fn encoded_size(&self) -> Result<usize, SizeError> {
-        self.as_ref().encoded_size()
+        self.borrow().encoded_size()
     }
 
     fn complete_decoding(&self) -> WithByteSize<Self::DecodedData> {
-        self.as_ref().complete_decoding()
+        self.borrow().complete_decoding()
     }
 }
 
@@ -511,7 +511,7 @@ pub struct ComparisonWithValue {
 
 #[cfg(feature = "alloc")]
 impl ComparisonWithValue {
-    pub fn as_ref(&self) -> ComparisonWithValueRef {
+    pub fn borrow(&self) -> ComparisonWithValueRef {
         ComparisonWithValueRef {
             signed_data: self.signed_data,
             comparison_type: self.comparison_type,

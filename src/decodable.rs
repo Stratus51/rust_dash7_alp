@@ -31,7 +31,7 @@ impl<T> WithByteSize<T> {
 macro_rules! make_downcastable {
     ($mut: ident, $ref: ident) => {
         impl<'data> $mut<'data> {
-            pub fn as_ref(&self) -> $ref<'data> {
+            pub fn borrow(&self) -> $ref<'data> {
                 unsafe {
                     let data: *const [u8] = self.data;
                     $ref::new(&*data)

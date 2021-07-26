@@ -142,13 +142,13 @@ impl<'data> EncodedStatusMut<'data> {
     /// # Errors
     /// Fails if the status extension is unsupported.
     pub fn extension(&self) -> Result<StatusExtension, UnsupportedExtension<'data>> {
-        self.as_ref().extension()
+        self.borrow().extension()
     }
 
     /// # Errors
     /// Fails if the status extension is unsupported.
     pub fn status(&self) -> Result<ValidEncodedStatus, UnsupportedExtension<'data>> {
-        self.as_ref().status()
+        self.borrow().status()
     }
 
     /// Changes the status extension.
@@ -191,11 +191,11 @@ impl<'data> FailableEncodedData<'data> for EncodedStatusMut<'data> {
     }
 
     fn encoded_size(&self) -> Result<usize, Self::SizeError> {
-        self.as_ref().encoded_size()
+        self.borrow().encoded_size()
     }
 
     fn complete_decoding(&self) -> Result<WithByteSize<Self::DecodedData>, Self::DecodeError> {
-        self.as_ref().complete_decoding()
+        self.borrow().complete_decoding()
     }
 }
 
@@ -215,9 +215,9 @@ pub enum Status {
 }
 
 impl Status {
-    pub fn as_ref(&self) -> StatusRef {
+    pub fn borrow(&self) -> StatusRef {
         match self {
-            Self::Interface(status) => StatusRef::Interface(status.as_ref()),
+            Self::Interface(status) => StatusRef::Interface(status.borrow()),
         }
     }
 }

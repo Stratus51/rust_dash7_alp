@@ -207,27 +207,27 @@ crate::make_downcastable!(EncodedWriteFileDataMut, EncodedWriteFileData);
 
 impl<'data> EncodedWriteFileDataMut<'data> {
     pub fn group(&self) -> bool {
-        self.as_ref().group()
+        self.borrow().group()
     }
 
     pub fn response(&self) -> bool {
-        self.as_ref().response()
+        self.borrow().response()
     }
 
     pub fn file_id(&self) -> FileId {
-        self.as_ref().file_id()
+        self.borrow().file_id()
     }
 
     pub fn offset(&self) -> EncodedVarint {
-        self.as_ref().offset()
+        self.borrow().offset()
     }
 
     pub fn length(&self) -> EncodedVarint {
-        self.as_ref().length()
+        self.borrow().length()
     }
 
     pub fn data(&self) -> &'data [u8] {
-        self.as_ref().data()
+        self.borrow().data()
     }
 
     /// # Safety
@@ -235,7 +235,7 @@ impl<'data> EncodedWriteFileDataMut<'data> {
     /// If you fail to do so, out of bound bytes will be read, and an absurd value will be
     /// returned.
     pub unsafe fn encoded_size_unchecked(&self) -> usize {
-        self.as_ref().encoded_size_unchecked()
+        self.borrow().encoded_size_unchecked()
     }
 
     pub fn set_group(&mut self, group: bool) {
@@ -304,11 +304,11 @@ impl<'data> EncodedData<'data> for EncodedWriteFileDataMut<'data> {
     }
 
     fn encoded_size(&self) -> Result<usize, SizeError> {
-        self.as_ref().encoded_size()
+        self.borrow().encoded_size()
     }
 
     fn complete_decoding(&self) -> WithByteSize<Self::DecodedData> {
-        self.as_ref().complete_decoding()
+        self.borrow().complete_decoding()
     }
 }
 
@@ -337,7 +337,7 @@ pub struct WriteFileData {
 
 #[cfg(feature = "alloc")]
 impl WriteFileData {
-    pub fn as_ref(&self) -> WriteFileDataRef {
+    pub fn borrow(&self) -> WriteFileDataRef {
         WriteFileDataRef {
             group: self.group,
             response: self.response,

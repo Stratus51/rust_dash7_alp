@@ -264,13 +264,13 @@ impl<'data> EncodedQueryMut<'data> {
     /// # Errors
     /// Fails if the query code is unsupported.
     pub fn query_code(&self) -> Result<QueryCode, UnsupportedQueryCode<'data>> {
-        self.as_ref().query_code()
+        self.borrow().query_code()
     }
 
     /// # Errors
     /// Fails if the query code is unsupported.
     pub fn operand(&self) -> Result<ValidEncodedQuery<'data>, UnsupportedQueryCode<'data>> {
-        self.as_ref().operand()
+        self.borrow().operand()
     }
 
     /// Changes the query code, and thus the query type of this query.
@@ -317,11 +317,11 @@ impl<'data> FailableEncodedData<'data> for EncodedQueryMut<'data> {
     }
 
     fn encoded_size(&self) -> Result<usize, Self::SizeError> {
-        self.as_ref().encoded_size()
+        self.borrow().encoded_size()
     }
 
     fn complete_decoding(&self) -> Result<WithByteSize<Self::DecodedData>, Self::DecodeError> {
-        self.as_ref().complete_decoding()
+        self.borrow().complete_decoding()
     }
 }
 
@@ -353,12 +353,12 @@ pub enum Query {
 #[cfg(feature = "query")]
 #[cfg(feature = "alloc")]
 impl Query {
-    pub fn as_ref(&self) -> QueryRef {
+    pub fn borrow(&self) -> QueryRef {
         match self {
             #[cfg(feature = "query_compare_with_value")]
-            Self::ComparisonWithValue(query) => QueryRef::ComparisonWithValue(query.as_ref()),
+            Self::ComparisonWithValue(query) => QueryRef::ComparisonWithValue(query.borrow()),
             #[cfg(feature = "query_compare_with_range")]
-            Self::ComparisonWithRange(query) => QueryRef::ComparisonWithRange(query.as_ref()),
+            Self::ComparisonWithRange(query) => QueryRef::ComparisonWithRange(query.borrow()),
         }
     }
 }

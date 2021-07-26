@@ -451,13 +451,13 @@ impl<'data> EncodedActionMut<'data> {
     /// # Errors
     /// Fails if the op code is unsupported.
     pub fn op_code(&self) -> Result<OpCode, UnsupportedOpCode<'data>> {
-        self.as_ref().op_code()
+        self.borrow().op_code()
     }
 
     /// # Errors
     /// Fails if the op code is unsupported.
     pub fn action(&self) -> Result<ValidEncodedAction<'data>, UnsupportedOpCode<'data>> {
-        self.as_ref().action()
+        self.borrow().action()
     }
 
     /// Changes the action op_code, thus changing completely the meaning of the bytes afterwards.
@@ -528,11 +528,11 @@ impl<'data> FailableEncodedData<'data> for EncodedActionMut<'data> {
     }
 
     fn encoded_size(&self) -> Result<usize, Self::SizeError> {
-        self.as_ref().encoded_size()
+        self.borrow().encoded_size()
     }
 
     fn complete_decoding(&self) -> Result<WithByteSize<Self::DecodedData>, Self::DecodeError> {
-        self.as_ref().complete_decoding()
+        self.borrow().complete_decoding()
     }
 }
 
@@ -600,22 +600,22 @@ pub enum Action {
 
 #[cfg(feature = "decode_action")]
 impl Action {
-    pub fn as_ref(&self) -> ActionRef {
+    pub fn borrow(&self) -> ActionRef {
         match self {
             #[cfg(feature = "nop")]
-            Self::Nop(action) => ActionRef::Nop(action.as_ref()),
+            Self::Nop(action) => ActionRef::Nop(action.borrow()),
             #[cfg(feature = "read_file_data")]
-            Self::ReadFileData(action) => ActionRef::ReadFileData(action.as_ref()),
+            Self::ReadFileData(action) => ActionRef::ReadFileData(action.borrow()),
             #[cfg(feature = "read_file_properties")]
-            Self::ReadFileProperties(action) => ActionRef::ReadFileProperties(action.as_ref()),
+            Self::ReadFileProperties(action) => ActionRef::ReadFileProperties(action.borrow()),
             #[cfg(feature = "alloc")]
             #[cfg(feature = "write_file_data")]
-            Self::WriteFileData(action) => ActionRef::WriteFileData(action.as_ref()),
+            Self::WriteFileData(action) => ActionRef::WriteFileData(action.borrow()),
             #[cfg(feature = "alloc")]
             #[cfg(feature = "action_query")]
-            Self::ActionQuery(action) => ActionRef::ActionQuery(action.as_ref()),
+            Self::ActionQuery(action) => ActionRef::ActionQuery(action.borrow()),
             #[cfg(feature = "status")]
-            Self::Status(action) => ActionRef::Status(action.as_ref()),
+            Self::Status(action) => ActionRef::Status(action.borrow()),
         }
     }
 }

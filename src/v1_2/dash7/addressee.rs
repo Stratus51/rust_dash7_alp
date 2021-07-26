@@ -155,7 +155,7 @@ pub enum AddresseeIdentifier {
 }
 
 impl AddresseeIdentifier {
-    pub fn as_ref(&self) -> AddresseeIdentifierRef {
+    pub fn borrow(&self) -> AddresseeIdentifierRef {
         match self {
             Self::Nbid(n) => AddresseeIdentifierRef::Nbid(*n),
             Self::Noid => AddresseeIdentifierRef::Noid,
@@ -309,19 +309,19 @@ pub enum AddresseeSetIdentifierError {
 
 impl<'data> EncodedAddresseeMut<'data> {
     pub fn id_type(&self) -> AddresseeIdentifierType {
-        self.as_ref().id_type()
+        self.borrow().id_type()
     }
 
     pub fn nls_method(&self) -> NlsMethod {
-        self.as_ref().nls_method()
+        self.borrow().nls_method()
     }
 
     pub fn access_class(&self) -> AccessClass {
-        self.as_ref().access_class()
+        self.borrow().access_class()
     }
 
     pub fn identifier(&self) -> AddresseeIdentifierRef<'data> {
-        self.as_ref().identifier()
+        self.borrow().identifier()
     }
 
     /// # Safety
@@ -329,7 +329,7 @@ impl<'data> EncodedAddresseeMut<'data> {
     /// If you fail to do so, out of bound bytes will be read, and an absurd value will be
     /// returned.
     pub unsafe fn encoded_size_unchecked(&self) -> usize {
-        self.as_ref().encoded_size_unchecked()
+        self.borrow().encoded_size_unchecked()
     }
 
     /// Changes the type of addressee.
@@ -429,11 +429,11 @@ impl<'data> EncodedData<'data> for EncodedAddresseeMut<'data> {
     }
 
     fn encoded_size(&self) -> Result<usize, SizeError> {
-        self.as_ref().encoded_size()
+        self.borrow().encoded_size()
     }
 
     fn complete_decoding(&self) -> WithByteSize<Self::DecodedData> {
-        self.as_ref().complete_decoding()
+        self.borrow().complete_decoding()
     }
 }
 
@@ -452,11 +452,11 @@ pub struct Addressee {
 }
 
 impl Addressee {
-    pub fn as_ref(&self) -> AddresseeRef {
+    pub fn borrow(&self) -> AddresseeRef {
         AddresseeRef {
             nls_method: self.nls_method,
             access_class: self.access_class,
-            identifier: self.identifier.as_ref(),
+            identifier: self.identifier.borrow(),
         }
     }
 }
@@ -638,7 +638,7 @@ mod test {
                 AddresseeRef {
                     nls_method: *m1,
                     access_class: AccessClass(0x21),
-                    identifier: id.as_ref(),
+                    identifier: id.borrow(),
                 }
                 .encode_in(&mut data)
                 .unwrap();
@@ -654,7 +654,7 @@ mod test {
 
                 for new_id in ids.iter().filter(|v| *v != id) {
                     assert_eq!(
-                        decoder_mut.set_identifier(new_id.as_ref()),
+                        decoder_mut.set_identifier(new_id.borrow()),
                         Err(AddresseeSetIdentifierError::IdMismatch)
                     );
                 }

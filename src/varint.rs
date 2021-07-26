@@ -250,7 +250,7 @@ impl<'data> EncodedVarintMut<'data> {
     /// If you fail to do so, out of bound bytes will be read, and an absurd value will be
     /// returned.
     pub unsafe fn encoded_size_unchecked(&self) -> usize {
-        self.as_ref().encoded_size_unchecked()
+        self.borrow().encoded_size_unchecked()
     }
 
     /// Changes the number of bytes the varint is encoded on.
@@ -292,11 +292,11 @@ impl<'data> EncodedData<'data> for EncodedVarintMut<'data> {
     }
 
     fn encoded_size(&self) -> Result<usize, SizeError> {
-        self.as_ref().encoded_size()
+        self.borrow().encoded_size()
     }
 
     fn complete_decoding(&self) -> WithByteSize<Self::DecodedData> {
-        self.as_ref().complete_decoding()
+        self.borrow().complete_decoding()
     }
 }
 

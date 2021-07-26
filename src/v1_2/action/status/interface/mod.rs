@@ -238,11 +238,11 @@ impl<'data> EncodedInterfaceStatusMut<'data> {
     /// # Errors
     /// Fails if the interface status id is unsupported.
     pub fn interface_id(&self) -> Result<InterfaceId, UnsupportedInterfaceId<'data>> {
-        self.as_ref().interface_id()
+        self.borrow().interface_id()
     }
 
     pub fn len_field(&self) -> EncodedVarint<'data> {
-        self.as_ref().len_field()
+        self.borrow().len_field()
     }
 
     /// # Errors
@@ -250,7 +250,7 @@ impl<'data> EncodedInterfaceStatusMut<'data> {
     pub fn status(
         &self,
     ) -> Result<ValidEncodedInterfaceStatus<'data>, UnsupportedInterfaceId<'data>> {
-        self.as_ref().status()
+        self.borrow().status()
     }
 
     /// Changes the status interface type.
@@ -310,11 +310,11 @@ impl<'data> FailableEncodedData<'data> for EncodedInterfaceStatusMut<'data> {
     }
 
     fn encoded_size(&self) -> Result<usize, Self::SizeError> {
-        self.as_ref().encoded_size()
+        self.borrow().encoded_size()
     }
 
     fn complete_decoding(&self) -> Result<WithByteSize<Self::DecodedData>, Self::DecodeError> {
-        self.as_ref().complete_decoding()
+        self.borrow().complete_decoding()
     }
 }
 
@@ -334,10 +334,10 @@ pub enum InterfaceStatus {
 }
 
 impl InterfaceStatus {
-    pub fn as_ref(&self) -> InterfaceStatusRef {
+    pub fn borrow(&self) -> InterfaceStatusRef {
         match self {
             Self::Host => InterfaceStatusRef::Host,
-            Self::Dash7(status) => InterfaceStatusRef::Dash7(status.as_ref()),
+            Self::Dash7(status) => InterfaceStatusRef::Dash7(status.borrow()),
         }
     }
 }

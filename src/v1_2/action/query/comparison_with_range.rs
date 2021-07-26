@@ -346,37 +346,37 @@ crate::make_downcastable!(EncodedComparisonWithRangeMut, EncodedComparisonWithRa
 
 impl<'data> EncodedComparisonWithRangeMut<'data> {
     pub fn mask_flag(&self) -> bool {
-        self.as_ref().mask_flag()
+        self.borrow().mask_flag()
     }
 
     pub fn signed_data(&self) -> bool {
-        self.as_ref().signed_data()
+        self.borrow().signed_data()
     }
 
     pub fn comparison_type(&self) -> QueryRangeComparisonType {
-        self.as_ref().comparison_type()
+        self.borrow().comparison_type()
     }
 
     pub fn compare_length(&self) -> EncodedVarint {
-        self.as_ref().compare_length()
+        self.borrow().compare_length()
     }
 
     fn range_boundaries(&self) -> Range {
-        self.as_ref().range_boundaries()
+        self.borrow().range_boundaries()
     }
 
     /// # Errors
     /// Fails if the encoded bitmap start > end.
     /// In that case, the bitmap size is negative, thus the bitmap cannot be decoded.
     pub fn range_with_file_offset(&self) -> Result<RangeWithFileOffset<'data>, QueryRangeError> {
-        self.as_ref().range_with_file_offset()
+        self.borrow().range_with_file_offset()
     }
 
     /// # Errors
     /// Fails if the encoded bitmap start > end.
     /// In that case, the bitmap size is negative, thus the bitmap cannot be decoded.
     pub fn range(&self) -> Result<MaskedRangeRef<'data>, QueryRangeError> {
-        self.as_ref().range()
+        self.borrow().range()
     }
 
     /// Modifies whether the query contains a mask or not.
@@ -528,7 +528,7 @@ impl<'data> EncodedComparisonWithRangeMut<'data> {
 
     pub fn range_bitmap_mut(&mut self) -> Option<&mut [u8]> {
         if self.mask_flag() {
-            let (Range { start, end, .. }, offset) = self.as_ref().range_boundaries_with_offset();
+            let (Range { start, end, .. }, offset) = self.borrow().range_boundaries_with_offset();
             let bitmap_size = MaskedRangeRef::bitmap_size(start, end);
             let bitmap = unsafe {
                 self.data
@@ -545,7 +545,7 @@ impl<'data> EncodedComparisonWithRangeMut<'data> {
     /// Fails if the encoded bitmap start > end.
     /// In that case, the bitmap size is negative, thus the bitmap cannot be decoded.
     pub fn file_offset_mut(&mut self) -> Result<EncodedFileOffsetOperandMut, QueryRangeError> {
-        let offset = self.as_ref().range_with_post_offset()?.1;
+        let offset = self.borrow().range_with_post_offset()?.1;
         Ok(EncodedFileOffsetOperandMut::new(unsafe {
             self.data.get_unchecked_mut(offset..)
         }))
@@ -563,11 +563,11 @@ impl<'data> FailableEncodedData<'data> for EncodedComparisonWithRangeMut<'data> 
     }
 
     fn encoded_size(&self) -> Result<usize, Self::SizeError> {
-        self.as_ref().encoded_size()
+        self.borrow().encoded_size()
     }
 
     fn complete_decoding(&self) -> Result<WithByteSize<Self::DecodedData>, Self::DecodeError> {
-        self.as_ref().complete_decoding()
+        self.borrow().complete_decoding()
     }
 }
 
@@ -592,7 +592,7 @@ pub struct ComparisonWithRange {
 
 #[cfg(feature = "alloc")]
 impl ComparisonWithRange {
-    pub fn as_ref(&self) -> ComparisonWithRangeRef {
+    pub fn borrow(&self) -> ComparisonWithRangeRef {
         ComparisonWithRangeRef {
             signed_data: self.signed_data,
             comparison_type: self.comparison_type,

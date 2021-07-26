@@ -33,11 +33,11 @@ impl<'data> EncodedFileOffsetOperandMut<'data> {
     }
 
     pub fn file_id(&self) -> FileId {
-        self.as_ref().file_id()
+        self.borrow().file_id()
     }
 
     pub fn offset(&self) -> EncodedVarint<'data> {
-        self.as_ref().offset()
+        self.borrow().offset()
     }
 
     pub fn set_file_id(&mut self, file_id: FileId) {

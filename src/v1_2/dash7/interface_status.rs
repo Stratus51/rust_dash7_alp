@@ -84,9 +84,9 @@ pub struct AddresseeWithNlsState {
 }
 
 impl AddresseeWithNlsState {
-    pub fn as_ref(&self) -> AddresseeWithNlsStateRef {
+    pub fn borrow(&self) -> AddresseeWithNlsStateRef {
         AddresseeWithNlsStateRef {
-            addressee: self.addressee.as_ref(),
+            addressee: self.addressee.borrow(),
             nls_state: self.nls_state.as_ref(),
         }
     }
@@ -184,15 +184,15 @@ crate::make_downcastable!(
 
 impl<'data> EncodedAddresseeWithNlsStateMut<'data> {
     pub fn has_auth(&self) -> bool {
-        self.as_ref().has_auth()
+        self.borrow().has_auth()
     }
 
     pub fn addressee(&self) -> EncodedAddressee<'data> {
-        self.as_ref().addressee()
+        self.borrow().addressee()
     }
 
     pub fn nls_state(&self) -> Option<&'data [u8; 5]> {
-        self.as_ref().nls_state()
+        self.borrow().nls_state()
     }
 
     /// # Safety
@@ -200,7 +200,7 @@ impl<'data> EncodedAddresseeWithNlsStateMut<'data> {
     /// If you fail to do so, out of bound bytes will be read, and an absurd value will be
     /// returned.
     pub unsafe fn encoded_size_unchecked(&self) -> usize {
-        self.as_ref().encoded_size_unchecked()
+        self.borrow().encoded_size_unchecked()
     }
 
     pub fn addressee_mut(&mut self) -> EncodedAddresseeMut {
@@ -230,11 +230,11 @@ impl<'data> EncodedData<'data> for EncodedAddresseeWithNlsStateMut<'data> {
     }
 
     fn encoded_size(&self) -> Result<usize, SizeError> {
-        self.as_ref().encoded_size()
+        self.borrow().encoded_size()
     }
 
     fn complete_decoding(&self) -> WithByteSize<Self::DecodedData> {
-        self.as_ref().complete_decoding()
+        self.borrow().complete_decoding()
     }
 }
 
@@ -420,39 +420,39 @@ crate::make_downcastable!(EncodedDash7InterfaceStatusMut, EncodedDash7InterfaceS
 
 impl<'data> EncodedDash7InterfaceStatusMut<'data> {
     pub fn ch_header(&self) -> u8 {
-        self.as_ref().ch_header()
+        self.borrow().ch_header()
     }
 
     pub fn ch_idx(&self) -> u16 {
-        self.as_ref().ch_idx()
+        self.borrow().ch_idx()
     }
     pub fn rxlev(&self) -> u8 {
-        self.as_ref().rxlev()
+        self.borrow().rxlev()
     }
     pub fn lb(&self) -> u8 {
-        self.as_ref().lb()
+        self.borrow().lb()
     }
     pub fn snr(&self) -> u8 {
-        self.as_ref().snr()
+        self.borrow().snr()
     }
     pub fn status(&self) -> u8 {
-        self.as_ref().status()
+        self.borrow().status()
     }
     pub fn token(&self) -> u8 {
-        self.as_ref().token()
+        self.borrow().token()
     }
     pub fn seq(&self) -> u8 {
-        self.as_ref().seq()
+        self.borrow().seq()
     }
     pub fn resp_to(&self) -> u8 {
-        self.as_ref().resp_to()
+        self.borrow().resp_to()
     }
     pub fn addressee(&self) -> EncodedAddressee<'data> {
-        self.as_ref().addressee()
+        self.borrow().addressee()
     }
 
     pub fn addressee_with_nls_state(&self) -> EncodedAddresseeWithNlsState<'data> {
-        self.as_ref().addressee_with_nls_state()
+        self.borrow().addressee_with_nls_state()
     }
 
     /// # Safety
@@ -460,7 +460,7 @@ impl<'data> EncodedDash7InterfaceStatusMut<'data> {
     /// If you fail to do so, out of bound bytes will be read, and an absurd value will be
     /// returned.
     pub unsafe fn encoded_size_unchecked(&mut self) -> usize {
-        self.as_ref().encoded_size_unchecked()
+        self.borrow().encoded_size_unchecked()
     }
 
     pub fn set_ch_header(&mut self, ch_header: u8) {
@@ -513,11 +513,11 @@ impl<'data> EncodedData<'data> for EncodedDash7InterfaceStatusMut<'data> {
     }
 
     fn encoded_size(&self) -> Result<usize, SizeError> {
-        self.as_ref().encoded_size()
+        self.borrow().encoded_size()
     }
 
     fn complete_decoding(&self) -> WithByteSize<Self::DecodedData> {
-        self.as_ref().complete_decoding()
+        self.borrow().complete_decoding()
     }
 }
 
@@ -543,7 +543,7 @@ pub struct Dash7InterfaceStatus {
 }
 
 impl Dash7InterfaceStatus {
-    pub fn as_ref(&self) -> Dash7InterfaceStatusRef {
+    pub fn borrow(&self) -> Dash7InterfaceStatusRef {
         Dash7InterfaceStatusRef {
             ch_header: self.ch_header,
             ch_idx: self.ch_idx,
@@ -554,7 +554,7 @@ impl Dash7InterfaceStatus {
             token: self.token,
             seq: self.seq,
             resp_to: self.resp_to,
-            addressee_with_nls_state: self.addressee_with_nls_state.as_ref(),
+            addressee_with_nls_state: self.addressee_with_nls_state.borrow(),
         }
     }
 }

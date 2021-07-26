@@ -125,19 +125,19 @@ crate::make_downcastable!(EncodedReadFilePropertiesMut, EncodedReadFilePropertie
 
 impl<'data> EncodedReadFilePropertiesMut<'data> {
     pub fn group(&self) -> bool {
-        self.as_ref().group()
+        self.borrow().group()
     }
 
     pub fn response(&self) -> bool {
-        self.as_ref().response()
+        self.borrow().response()
     }
 
     pub fn file_id(&self) -> FileId {
-        self.as_ref().file_id()
+        self.borrow().file_id()
     }
 
     pub fn encoded_size_unchecked(&self) -> usize {
-        self.as_ref().encoded_size_unchecked()
+        self.borrow().encoded_size_unchecked()
     }
 
     pub fn set_group(&mut self, group: bool) {
@@ -174,11 +174,11 @@ impl<'data> EncodedData<'data> for EncodedReadFilePropertiesMut<'data> {
     }
 
     fn encoded_size(&self) -> Result<usize, SizeError> {
-        self.as_ref().encoded_size()
+        self.borrow().encoded_size()
     }
 
     fn complete_decoding(&self) -> WithByteSize<Self::DecodedData> {
-        self.as_ref().complete_decoding()
+        self.borrow().complete_decoding()
     }
 }
 
@@ -201,7 +201,7 @@ pub struct ReadFileProperties {
 }
 
 impl ReadFileProperties {
-    pub fn as_ref(&self) -> ReadFilePropertiesRef {
+    pub fn borrow(&self) -> ReadFilePropertiesRef {
         ReadFilePropertiesRef {
             group: self.group,
             response: self.response,

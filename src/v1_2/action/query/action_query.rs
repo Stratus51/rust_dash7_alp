@@ -158,15 +158,15 @@ crate::make_downcastable!(EncodedActionQueryMut, EncodedActionQuery);
 #[cfg(feature = "decode_query")]
 impl<'data> EncodedActionQueryMut<'data> {
     pub fn group(&self) -> bool {
-        self.as_ref().group()
+        self.borrow().group()
     }
 
     pub fn response(&self) -> bool {
-        self.as_ref().response()
+        self.borrow().response()
     }
 
     pub fn query(&self) -> EncodedQuery<'data> {
-        self.as_ref().query()
+        self.borrow().query()
     }
 
     pub fn set_group(&mut self, group: bool) {
@@ -206,11 +206,11 @@ impl<'data> FailableEncodedData<'data> for EncodedActionQueryMut<'data> {
     }
 
     fn encoded_size(&self) -> Result<usize, Self::SizeError> {
-        self.as_ref().encoded_size()
+        self.borrow().encoded_size()
     }
 
     fn complete_decoding(&self) -> Result<WithByteSize<Self::DecodedData>, Self::DecodeError> {
-        self.as_ref().complete_decoding()
+        self.borrow().complete_decoding()
     }
 }
 
@@ -239,11 +239,11 @@ pub struct ActionQuery {
 #[cfg(feature = "query")]
 #[cfg(feature = "alloc")]
 impl ActionQuery {
-    pub fn as_ref(&self) -> ActionQueryRef {
+    pub fn borrow(&self) -> ActionQueryRef {
         ActionQueryRef {
             group: self.group,
             response: self.response,
-            query: self.query.as_ref(),
+            query: self.query.borrow(),
         }
     }
 }

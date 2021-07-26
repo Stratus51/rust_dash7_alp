@@ -110,15 +110,15 @@ crate::make_downcastable!(EncodedNopMut, EncodedNop);
 
 impl<'data> EncodedNopMut<'data> {
     pub fn group(&self) -> bool {
-        self.as_ref().group()
+        self.borrow().group()
     }
 
     pub fn response(&self) -> bool {
-        self.as_ref().response()
+        self.borrow().response()
     }
 
     pub fn encoded_size_unchecked(&self) -> usize {
-        self.as_ref().encoded_size_unchecked()
+        self.borrow().encoded_size_unchecked()
     }
 
     pub fn set_group(&mut self, group: bool) {
@@ -151,11 +151,11 @@ impl<'data> EncodedData<'data> for EncodedNopMut<'data> {
     }
 
     fn encoded_size(&self) -> Result<usize, SizeError> {
-        self.as_ref().encoded_size()
+        self.borrow().encoded_size()
     }
 
     fn complete_decoding(&self) -> WithByteSize<Self::DecodedData> {
-        self.as_ref().complete_decoding()
+        self.borrow().complete_decoding()
     }
 }
 
@@ -176,7 +176,7 @@ pub struct Nop {
 }
 
 impl Nop {
-    pub fn as_ref(&self) -> NopRef {
+    pub fn borrow(&self) -> NopRef {
         NopRef {
             group: self.group,
             response: self.response,
