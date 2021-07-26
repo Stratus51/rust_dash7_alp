@@ -51,7 +51,9 @@
 #![warn(clippy::unseparated_literal_suffix)]
 // Manual review of dangerous stuff
 // Should be deactivated in commited code
-// #![warn(clippy::integer_arithmetic, clippy::indexing_slicing)]
+// TODO Enable the follow after banning it from the test sections
+// #![warn(clippy::indexing_slicing)]
+// #![warn(clippy::integer_arithmetic)]
 
 #[cfg(feature = "alloc")]
 extern crate alloc;
@@ -63,7 +65,7 @@ pub mod encodable;
 pub mod v1_2;
 pub mod varint;
 
-// TODO Verify each item's name against the SPEC
+// TODO Verify each item's name against the SPEC (after implementing everything)
 
 // TODO Int enums: fn from(): find a way to avoid double value definition
 // TODO Int enums: optim: find a way to cast from int to enum instead of calling a matching
@@ -79,8 +81,8 @@ pub mod varint;
 // TODO Optimize struct fields order for repr(C) alignment?
 
 // TODO Add tests to verify the impact of the feature flags on binary size
-// TODO Test all the error cases
 // TODO Review the code: there should not be any operation that could panic used in the code.
 // Either always work, or return the appropriate error.
 
 // TODO Implement packet parser and packet encoder (in addition to action parse and action encoder)
+// TODO Refactor encoding/decoding to spit out remaining buffer instead of size
