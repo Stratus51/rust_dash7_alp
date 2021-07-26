@@ -44,6 +44,7 @@ impl<'data> ReadFilePropertiesRef<'data> {
         ]
     }
 
+    #[allow(clippy::wrong_self_convention)]
     pub fn to_owned(&self) -> ReadFileProperties {
         ReadFileProperties {
             group: self.group,

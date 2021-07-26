@@ -67,6 +67,7 @@ impl<'data> AddresseeWithNlsStateRef<'data> {
         }
     }
 
+    #[allow(clippy::wrong_self_convention)]
     pub fn to_owned(&self) -> AddresseeWithNlsState {
         AddresseeWithNlsState {
             addressee: self.addressee.to_owned(),
@@ -294,6 +295,7 @@ impl<'data> Encodable for Dash7InterfaceStatusRef<'data> {
 }
 
 impl<'data> Dash7InterfaceStatusRef<'data> {
+    #[allow(clippy::wrong_self_convention)]
     pub fn to_owned(&self) -> Dash7InterfaceStatus {
         Dash7InterfaceStatus {
             ch_header: self.ch_header,
@@ -322,6 +324,7 @@ impl<'data> EncodedDash7InterfaceStatus<'data> {
 
     pub fn ch_idx(&self) -> u16 {
         unsafe {
+            #[allow(clippy::uninit_assumed_init)]
             let mut data: [u8; 2] = [core::mem::MaybeUninit::uninit().assume_init(); 2];
             data.as_mut().copy_from_slice(self.data.get_unchecked(1..3));
             // TODO SPEC endianess

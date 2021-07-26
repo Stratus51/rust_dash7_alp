@@ -134,6 +134,7 @@ impl<'data> AddresseeIdentifierRef<'data> {
         }
     }
 
+    #[allow(clippy::wrong_self_convention)]
     pub fn to_owned(&self) -> AddresseeIdentifier {
         match self {
             Self::Nbid(n) => AddresseeIdentifier::Nbid(*n),
@@ -195,6 +196,7 @@ impl<'data> Encodable for AddresseeRef<'data> {
 }
 
 impl<'data> AddresseeRef<'data> {
+    #[allow(clippy::wrong_self_convention)]
     pub fn to_owned(&self) -> Addressee {
         Addressee {
             nls_method: self.nls_method,

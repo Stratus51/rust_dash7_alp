@@ -82,6 +82,7 @@ impl<'data> QueryRef<'data> {
 
     // TODO Move inside when comparison without alloc exists
     #[cfg(feature = "alloc")]
+    #[allow(clippy::wrong_self_convention)]
     pub fn to_owned(&self) -> Query {
         match self {
             #[cfg(feature = "query_compare_with_value")]

@@ -188,6 +188,7 @@ impl<'data> ActionRef<'data> {
     /// # Errors
     /// Fails only if the alloc flag is not set and the owned action requires the
     /// alloc feature.
+    #[allow(clippy::wrong_self_convention)]
     pub fn to_owned(&self) -> Result<Action, ActionToOwnedError> {
         Ok(match self {
             #[cfg(feature = "nop")]

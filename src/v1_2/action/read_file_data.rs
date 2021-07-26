@@ -50,6 +50,7 @@ impl<'data> ReadFileDataRef<'data> {
         }
     }
 
+    #[allow(clippy::wrong_self_convention)]
     pub fn to_owned(&self) -> ReadFileData {
         ReadFileData {
             group: self.group,

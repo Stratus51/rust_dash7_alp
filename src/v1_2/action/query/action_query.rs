@@ -54,6 +54,7 @@ impl<'data> Encodable for ActionQueryRef<'data> {
 impl<'data> ActionQueryRef<'data> {
     // TODO This is not always required once non alloc query are implemented
     #[cfg(feature = "alloc")]
+    #[allow(clippy::wrong_self_convention)]
     pub fn to_owned(&self) -> ActionQuery {
         ActionQuery {
             group: self.group,

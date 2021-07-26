@@ -48,6 +48,7 @@ impl<'data> StatusRef<'data> {
         }
     }
 
+    #[allow(clippy::wrong_self_convention)]
     pub fn to_owned(&self) -> Status {
         match self {
             Self::Interface(status) => Status::Interface(status.to_owned()),

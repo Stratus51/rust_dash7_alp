@@ -91,6 +91,7 @@ impl<'data> Encodable for ComparisonWithRangeRef<'data> {
 
 impl<'data> ComparisonWithRangeRef<'data> {
     #[cfg(feature = "alloc")]
+    #[allow(clippy::wrong_self_convention)]
     pub fn to_owned(&self) -> ComparisonWithRange {
         ComparisonWithRange {
             signed_data: self.signed_data,

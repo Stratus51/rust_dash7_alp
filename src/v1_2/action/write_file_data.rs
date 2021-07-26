@@ -41,6 +41,7 @@ impl<'data> WriteFileDataRef<'data> {
     }
 
     #[cfg(feature = "alloc")]
+    #[allow(clippy::wrong_self_convention)]
     pub fn to_owned(&self) -> WriteFileData {
         WriteFileData {
             group: self.group,

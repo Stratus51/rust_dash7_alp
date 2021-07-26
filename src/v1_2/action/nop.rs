@@ -37,6 +37,7 @@ impl<'data> NopRef<'data> {
             | if self.response { flag::RESPONSE } else { 0 }]
     }
 
+    #[allow(clippy::wrong_self_convention)]
     pub fn to_owned(&self) -> Nop {
         Nop {
             group: self.group,

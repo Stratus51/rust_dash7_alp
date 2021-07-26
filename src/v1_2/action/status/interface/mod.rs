@@ -105,6 +105,7 @@ impl<'data> Encodable for InterfaceStatusRef<'data> {
 }
 
 impl<'data> InterfaceStatusRef<'data> {
+    #[allow(clippy::wrong_self_convention)]
     pub fn to_owned(&self) -> InterfaceStatus {
         match self {
             Self::Host => InterfaceStatus::Host,
