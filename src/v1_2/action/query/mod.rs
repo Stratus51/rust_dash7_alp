@@ -368,6 +368,7 @@ impl Query {
 #[cfg(test)]
 mod test {
     #![allow(clippy::unwrap_in_result, clippy::panic, clippy::expect_used)]
+    #![allow(clippy::indexing_slicing)]
     #[cfg(feature = "decode_query_compare_with_value")]
     use super::define::comparison_type::QueryComparisonType;
     use super::*;

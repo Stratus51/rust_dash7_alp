@@ -254,6 +254,7 @@ impl ActionQuery {
 #[cfg(test)]
 mod test {
     #![allow(clippy::unwrap_in_result, clippy::panic, clippy::expect_used)]
+    #![allow(clippy::indexing_slicing)]
     use super::super::{
         comparison_with_value::ComparisonWithValueRef,
         define::comparison_type::QueryComparisonType, ValidEncodedQueryMut,

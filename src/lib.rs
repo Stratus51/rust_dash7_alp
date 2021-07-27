@@ -49,10 +49,9 @@
 #![warn(clippy::float_arithmetic)]
 // Style
 #![warn(clippy::unseparated_literal_suffix)]
+#![warn(clippy::indexing_slicing)]
 // Manual review of dangerous stuff
 // Should be deactivated in commited code
-// TODO Enable the follow after banning it from the test sections
-// #![warn(clippy::indexing_slicing)]
 // #![warn(clippy::integer_arithmetic)]
 
 #[cfg(feature = "alloc")]

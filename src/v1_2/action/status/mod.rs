@@ -226,6 +226,7 @@ impl Status {
 #[cfg(test)]
 mod test {
     #![allow(clippy::unwrap_in_result, clippy::panic, clippy::expect_used)]
+    #![allow(clippy::indexing_slicing)]
     use super::*;
     use crate::decodable::{FailableDecodable, WithByteSize};
     use crate::v1_2::dash7::{

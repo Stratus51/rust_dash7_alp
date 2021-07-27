@@ -189,6 +189,7 @@ impl Nop {
 #[cfg(test)]
 mod test {
     #![allow(clippy::unwrap_in_result, clippy::panic, clippy::expect_used)]
+    #![allow(clippy::indexing_slicing)]
     use super::*;
     use crate::decodable::{Decodable, EncodedData};
 
