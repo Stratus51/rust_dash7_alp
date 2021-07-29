@@ -21,19 +21,8 @@ impl QueryRangeComparisonType {
     /// # Safety
     /// You are to warrant that n is encoded on 3 bits only.
     /// That means n <= 0x7.
-    pub const unsafe fn from_unchecked(n: u8) -> Self {
-        match n {
-            NOT_IN_RANGE => Self::NotInRange,
-            IN_RANGE => Self::InRange,
-            2 => Self::Rfu2,
-            3 => Self::Rfu3,
-            4 => Self::Rfu4,
-            5 => Self::Rfu5,
-            6 => Self::Rfu6,
-            7 => Self::Rfu7,
-            // Should never occured if used safely
-            _ => Self::NotInRange,
-        }
+    pub unsafe fn from_unchecked(n: u8) -> Self {
+        core::mem::transmute(n)
     }
 
     /// # Errors

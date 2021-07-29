@@ -16,13 +16,8 @@ impl InterfaceId {
     /// # Safety
     /// You have to ensure that the n belongs to the set defined to
     /// [`InterfaceId`](enum.InterfaceId.html)
-    pub const unsafe fn from_unchecked(n: u8) -> Self {
-        match n {
-            HOST => Self::Host,
-            DASH7 => Self::Dash7,
-            // Should never occured if used safely
-            _ => Self::Host,
-        }
+    pub unsafe fn from_unchecked(n: u8) -> Self {
+        core::mem::transmute(n)
     }
 
     /// # Errors

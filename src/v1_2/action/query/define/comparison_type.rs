@@ -25,34 +25,17 @@ impl QueryComparisonType {
     /// # Safety
     /// You are to warrant that n is encoded on 3 bits only.
     /// That means n <= 0x7.
-    pub const unsafe fn from_unchecked(n: u8) -> Self {
-        match n {
-            INEQUAL => Self::Inequal,
-            EQUAL => Self::Equal,
-            LESS_THAN => Self::LessThan,
-            LESS_THAN_OR_EQUAL => Self::LessThanOrEqual,
-            GREATER_THAN => Self::GreaterThan,
-            GREATER_THAN_OR_EQUAL => Self::GreaterThanOrEqual,
-            6 => Self::Rfu6,
-            7 => Self::Rfu7,
-            // Should never occured if used safely
-            _ => Self::Inequal,
-        }
+    pub unsafe fn from_unchecked(n: u8) -> Self {
+        core::mem::transmute(n)
     }
 
     /// # Errors
     /// Returns an error if n > 7
-    pub const fn from(n: u8) -> Result<Self, QueryComparisonTypeError> {
-        Ok(match n {
-            INEQUAL => Self::Inequal,
-            EQUAL => Self::Equal,
-            LESS_THAN => Self::LessThan,
-            LESS_THAN_OR_EQUAL => Self::LessThanOrEqual,
-            GREATER_THAN => Self::GreaterThan,
-            GREATER_THAN_OR_EQUAL => Self::GreaterThanOrEqual,
-            6 => Self::Rfu6,
-            7 => Self::Rfu7,
-            _ => return Err(QueryComparisonTypeError::Invalid),
-        })
+    pub fn from(n: u8) -> Result<Self, QueryComparisonTypeError> {
+        if n > 7 {
+            Err(QueryComparisonTypeError::Invalid)
+        } else {
+            Ok(unsafe { Self::from_unchecked(n) })
+        }
     }
 }

@@ -67,9 +67,6 @@ pub mod varint;
 // TODO Verify each item's name against the SPEC (after implementing everything)
 
 // TODO Int enums: fn from(): find a way to avoid double value definition
-// TODO Int enums: optim: find a way to cast from int to enum instead of calling a matching
-// function (much more resource intensive). Only do that for enums that match all possible
-// values that result from the parsing.
 // TODO usize is target dependent. In other words, on a 16 bit processor, we will run into
 // troubles if we were to convert u32 to usize (even if a 64Ko payload seems a bit big).
 // Maybe we should just embrace this limitation? (Not to be lazy or anything...)
@@ -84,4 +81,4 @@ pub mod varint;
 // Either always work, or return the appropriate error.
 
 // TODO Implement packet parser and packet encoder (in addition to action parse and action encoder)
-// TODO Refactor encoding/decoding to spit out remaining buffer instead of size
+// TODO Refactor encoding/decoding to spit out remaining buffer instead of size // Maybe later

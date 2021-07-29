@@ -50,25 +50,7 @@ impl NlsMethod {
     /// # Safety
     /// You are responsible for checking that `n` < 16.
     pub unsafe fn from_unchecked(n: u8) -> Self {
-        match n {
-            0 => Self::None,
-            1 => Self::AesCtr,
-            2 => Self::AesCbcMac128,
-            3 => Self::AesCbcMac64,
-            4 => Self::AesCbcMac32,
-            5 => Self::AesCcm128,
-            6 => Self::AesCcm64,
-            7 => Self::AesCcm32,
-            8 => Self::Rfu8,
-            9 => Self::Rfu9,
-            10 => Self::Rfu10,
-            11 => Self::Rfu11,
-            12 => Self::Rfu12,
-            13 => Self::Rfu13,
-            14 => Self::Rfu14,
-            15 => Self::Rfu15,
-            _ => Self::None,
-        }
+        core::mem::transmute(n)
     }
 }
 
@@ -95,13 +77,7 @@ impl AddresseeIdentifierType {
     /// # Safety
     /// You are responsible for checking that `n` < 4.
     pub unsafe fn from_unchecked(n: u8) -> Self {
-        match n {
-            0 => Self::Nbid,
-            1 => Self::Noid,
-            2 => Self::Uid,
-            3 => Self::Vid,
-            _ => Self::Nbid,
-        }
+        core::mem::transmute(n)
     }
 }
 

@@ -96,46 +96,8 @@ impl OpCode {
     /// # Safety
     /// You are to warrant that n is encoded on 6 bits only.
     /// That means n <= 0x3F.
-    pub const unsafe fn from_unchecked(n: u8) -> Self {
-        match n {
-            #[cfg(any(feature = "nop", feature = "decode_nop"))]
-            NOP => Self::Nop,
-            #[cfg(any(feature = "read_file_data", feature = "decode_read_file_data"))]
-            READ_FILE_DATA => Self::ReadFileData,
-            #[cfg(any(
-                feature = "read_file_properties",
-                feature = "decode_read_file_properties"
-            ))]
-            READ_FILE_PROPERTIES => Self::ReadFileProperties,
-            #[cfg(any(feature = "write_file_data", feature = "decode_write_file_data"))]
-            WRITE_FILE_DATA => Self::WriteFileData,
-            // WRITE_FILE_PROPERTIES => Self::WriteFileProperties,
-            #[cfg(any(feature = "action_query", feature = "decode_action_query"))]
-            ACTION_QUERY => Self::ActionQuery,
-            // BREAK_QUERY => Self::BreakQuery,
-            // PERMISSION_REQUEST => Self::PermissionRequest,
-            // VERIFY_CHECKSUM => Self::VerifyChecksum,
-            // EXIST_FILE => Self::ExistFile,
-            // CREATE_NEW_FILE => Self::CreateNewFile,
-            // DELETE_FILE => Self::DeleteFile,
-            // RESTORE_FILE => Self::RestoreFile,
-            // FLUSH_FILE => Self::FlushFile,
-            // COPY_FILE => Self::CopyFile,
-            // EXECUTE_FILE => Self::ExecuteFile,
-            // RETURN_FILE_DATA => Self::ReturnFileData,
-            // RETURN_FILE_PROPERTIES => Self::ReturnFileProperties,
-            #[cfg(any(feature = "status", feature = "decode_status"))]
-            STATUS => Self::Status,
-            // RESPONSE_TAG => Self::ResponseTag,
-            // CHUNK => Self::Chunk,
-            // LOGIC => Self::Logic,
-            // FORWARD => Self::Forward,
-            // INDIRECT_FORWARD => Self::IndirectForward,
-            // REQUEST_TAG => Self::RequestTag,
-            // EXTENSION => Self::Extension,
-            // Should never occured if used safely
-            _ => Self::Nop,
-        }
+    pub unsafe fn from_unchecked(n: u8) -> Self {
+        core::mem::transmute(n)
     }
 
     /// # Errors
