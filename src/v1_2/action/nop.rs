@@ -60,26 +60,48 @@ impl<'data> Encodable for NopRef<'data> {
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
-pub struct EncodedNop<'data> {
-    data: &'data [u8],
+pub struct GenericEncodedNop<T> {
+    data: T,
 }
 
-impl<'data> EncodedNop<'data> {
+impl<'a, T: AsRef<[u8]> + 'a> GenericEncodedNop<T> {
     pub fn group(&self) -> bool {
-        unsafe { *self.data.get_unchecked(0) & flag::GROUP != 0 }
+        unsafe { *self.data.as_ref().get_unchecked(0) & flag::GROUP != 0 }
     }
 
     pub fn response(&self) -> bool {
-        unsafe { *self.data.get_unchecked(0) & flag::RESPONSE != 0 }
+        unsafe { *self.data.as_ref().get_unchecked(0) & flag::RESPONSE != 0 }
     }
 
-    pub const fn encoded_size_unchecked(&self) -> usize {
+    pub fn encoded_size_unchecked(&self) -> usize {
         SIZE
     }
 }
 
-impl<'data, 'result> EncodedData<'data> for EncodedNop<'data> {
-    type SourceData = &'data [u8];
+impl<'a, T: AsMut<[u8]> + AsRef<[u8]> + 'a> GenericEncodedNop<T> {
+    pub fn set_group(&mut self, group: bool) {
+        unsafe {
+            if group {
+                *self.data.as_mut().get_unchecked_mut(0) |= flag::GROUP
+            } else {
+                *self.data.as_mut().get_unchecked_mut(0) &= !flag::GROUP
+            }
+        }
+    }
+
+    pub fn set_response(&mut self, response: bool) {
+        unsafe {
+            if response {
+                *self.data.as_mut().get_unchecked_mut(0) |= flag::RESPONSE
+            } else {
+                *self.data.as_mut().get_unchecked_mut(0) &= !flag::RESPONSE
+            }
+        }
+    }
+}
+
+impl<'data, T: AsRef<[u8]> + 'data> EncodedData<'data> for GenericEncodedNop<T> {
+    type SourceData = T;
     type DecodedData = NopRef<'data>;
 
     unsafe fn new(data: Self::SourceData) -> Self {
@@ -102,63 +124,8 @@ impl<'data, 'result> EncodedData<'data> for EncodedNop<'data> {
     }
 }
 
-#[derive(Eq, PartialEq, Debug)]
-pub struct EncodedNopMut<'data> {
-    data: &'data mut [u8],
-}
-
-crate::make_downcastable!(EncodedNopMut, EncodedNop);
-
-impl<'data> EncodedNopMut<'data> {
-    pub fn group(&self) -> bool {
-        self.borrow().group()
-    }
-
-    pub fn response(&self) -> bool {
-        self.borrow().response()
-    }
-
-    pub fn encoded_size_unchecked(&self) -> usize {
-        self.borrow().encoded_size_unchecked()
-    }
-
-    pub fn set_group(&mut self, group: bool) {
-        unsafe {
-            if group {
-                *self.data.get_unchecked_mut(0) |= flag::GROUP
-            } else {
-                *self.data.get_unchecked_mut(0) &= !flag::GROUP
-            }
-        }
-    }
-
-    pub fn set_response(&mut self, response: bool) {
-        unsafe {
-            if response {
-                *self.data.get_unchecked_mut(0) |= flag::RESPONSE
-            } else {
-                *self.data.get_unchecked_mut(0) &= !flag::RESPONSE
-            }
-        }
-    }
-}
-
-impl<'data> EncodedData<'data> for EncodedNopMut<'data> {
-    type SourceData = &'data mut [u8];
-    type DecodedData = NopRef<'data>;
-
-    unsafe fn new(data: Self::SourceData) -> Self {
-        Self { data }
-    }
-
-    fn encoded_size(&self) -> Result<usize, SizeError> {
-        self.borrow().encoded_size()
-    }
-
-    fn complete_decoding(&self) -> WithByteSize<Self::DecodedData> {
-        self.borrow().complete_decoding()
-    }
-}
+pub type EncodedNop<'data> = GenericEncodedNop<&'data [u8]>;
+pub type EncodedNopMut<'data> = GenericEncodedNop<&'data mut [u8]>;
 
 impl<'data> Decodable<'data> for NopRef<'data> {
     type Data = EncodedNop<'data>;
