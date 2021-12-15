@@ -82,3 +82,6 @@ pub mod varint;
 
 // TODO Implement packet parser and packet encoder (in addition to action parse and action encoder)
 // TODO Refactor encoding/decoding to spit out remaining buffer instead of size // Maybe later
+
+// TODO Implement std::fmt::Display for all items
+// TODO Implement std::str::FromStr for all items (to parse generated logs)
