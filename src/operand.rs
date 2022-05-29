@@ -81,14 +81,13 @@ fn test_interface_configuration_d7asp() {
                 resp: dash7::RespMode::Any,
             },
             to: 0x23,
-            te: 0x34,
             addressee: dash7::Addressee {
                 nls_method: dash7::NlsMethod::AesCcm32,
                 access_class: 0xFF,
                 address: dash7::Address::Vid(Box::new([0xAB, 0xCD])),
             },
         }),
-        &hex!("D7   02 23 34   37 FF ABCD"),
+        &hex!("D7   02 23   37 FF ABCD"),
     )
 }
 #[test]

@@ -326,24 +326,24 @@ pub struct InterfaceConfiguration {
     /// Response Execution Delay in Compressed Format, unit is in milliseconds.
     ///
     /// Time given to the target to process the request.
-    pub te: u8,
+    /// // Skipped because unsupported by reference implementation
+    /// // XXX pub te: u8,
     /// Addressee of the target.
     pub addressee: Addressee,
 }
 
 impl Codec for InterfaceConfiguration {
     fn encoded_size(&self) -> usize {
-        self.qos.encoded_size() + 2 + self.addressee.encoded_size()
+        self.qos.encoded_size() + 1 + self.addressee.encoded_size()
     }
     unsafe fn encode(&self, out: &mut [u8]) -> usize {
         self.qos.encode(out);
         out[1] = self.to;
-        out[2] = self.te;
-        3 + self.addressee.encode(&mut out[3..])
+        2 + self.addressee.encode(&mut out[2..])
     }
     fn decode(out: &[u8]) -> ParseResult<Self> {
-        if out.len() < 3 {
-            return Err(ParseFail::MissingBytes(3 - out.len()));
+        if out.len() < 2 {
+            return Err(ParseFail::MissingBytes(2 - out.len()));
         }
         let ParseValue {
             value: qos,
@@ -352,15 +352,14 @@ impl Codec for InterfaceConfiguration {
         let ParseValue {
             value: addressee,
             size: addressee_size,
-        } = Addressee::decode(&out[3..]).inc_offset(3)?;
+        } = Addressee::decode(&out[2..]).inc_offset(2)?;
         Ok(ParseValue {
             value: Self {
                 qos,
                 to: out[1],
-                te: out[2],
                 addressee,
             },
-            size: qos_size + 2 + addressee_size,
+            size: qos_size + 1 + addressee_size,
         })
     }
 }
@@ -373,14 +372,13 @@ fn test_interface_configuration() {
                 resp: RespMode::Any,
             },
             to: 0x23,
-            te: 0x34,
             addressee: Addressee {
                 nls_method: NlsMethod::AesCcm32,
                 access_class: 0xFF,
                 address: Address::Vid(Box::new([0xAB, 0xCD])),
             },
         },
-        &hex!("02 23 34   37 FF ABCD"),
+        &hex!("02 23   37 FF ABCD"),
     )
 }
 
