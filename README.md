@@ -9,13 +9,16 @@
 [doc-badge]: https://docs.rs/dash7_alp/badge.svg
 [doc-url]: https://docs.rs/dash7_alp
 
+WARNING: This is a modified version, incompatible with the real dash7 specification, designed to be
+compatible with the dash7 reference implementation ([Sub-IoT-Stack](https://github.com/Sub-IoT/Sub-IoT-Stack)).
+
 Implementation of a [Dash7](https://dash7-alliance.org/) ALP protocol codec from its public specification.
 
 The goal of this library is to implement a specification with an emphasis on correctness, then
 on usability. Performance and memory usage are currently considered a secondary objective.
 
-Status
-==================================================================================
+# Status
+
 The current specification is fully implemented.
 The API is not ergonomic, but should be usable.
 
