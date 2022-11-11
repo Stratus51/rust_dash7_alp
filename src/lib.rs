@@ -179,12 +179,23 @@ fn test_command() {
                     .build()
                     .unwrap(),
                 ),
+                Action::ReadFileData(
+                    action::new::ReadFileData {
+                        resp: false,
+                        group: true,
+                        file_id: 4,
+                        offset: 2,
+                        size: 3,
+                    }
+                    .build()
+                    .unwrap(),
+                ),
                 Action::Nop(action::Nop {
                     resp: true,
                     group: true,
                 }),
             ],
         },
-        &hex!("B4 42   41 00 00 08   C0"),
+        &hex!("B4 42   41 00 00 08   81 04 02 03  C0"),
     )
 }
