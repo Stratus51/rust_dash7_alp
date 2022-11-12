@@ -1,4 +1,4 @@
-use crate::codec::{Codec, ParseFail, ParseResult, ParseValue};
+use crate::codec::{Codec, StdError, WithOffset, WithSize};
 #[cfg(test)]
 use crate::test_tools::test_item;
 #[cfg(test)]
@@ -76,8 +76,8 @@ pub enum ActionCondition {
     Unknown7 = 7,
 }
 impl ActionCondition {
-    fn from(n: u8) -> Result<Self, ParseFail> {
-        Ok(match n {
+    fn from(n: u8) -> Self {
+        match n {
             0 => ActionCondition::List,
             1 => ActionCondition::Read,
             2 => ActionCondition::Write,
@@ -86,8 +86,9 @@ impl ActionCondition {
             5 => ActionCondition::Unknown5,
             6 => ActionCondition::Unknown6,
             7 => ActionCondition::Unknown7,
+            // Impossible
             _ => panic!(),
-        })
+        }
     }
 }
 /// Type of storage
@@ -134,12 +135,12 @@ impl FileProperties {
         ret |= self.storage_class as u8;
         ret
     }
-    pub fn from_byte(n: u8) -> Result<Self, ParseFail> {
-        Ok(Self {
+    pub fn from_byte(n: u8) -> Self {
+        Self {
             act_en: n & 0x80 != 0,
-            act_cond: ActionCondition::from((n >> 4) & 0x7)?,
+            act_cond: ActionCondition::from((n >> 4) & 0x7),
             storage_class: StorageClass::from(n & 0x03),
-        })
+        }
     }
 }
 
@@ -166,10 +167,11 @@ pub struct FileHeader {
     // declared, less than its size is allocated and then it grows dynamically?
 }
 impl Codec for FileHeader {
+    type Error = StdError;
     fn encoded_size(&self) -> usize {
         12
     }
-    unsafe fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
         out[0] = self.permissions.to_byte();
         out[1] = self.properties.to_byte();
         out[2] = self.alp_cmd_fid;
@@ -178,24 +180,20 @@ impl Codec for FileHeader {
         out[8..8 + 4].clone_from_slice(&self.allocated_size.to_be_bytes());
         12
     }
-    fn decode(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
         if out.len() < 12 {
-            return Err(ParseFail::MissingBytes(12 - out.len()));
+            return Err(WithOffset::new_head(Self::Error::MissingBytes(
+                12 - out.len(),
+            )));
         }
         let mut file_size_bytes = [0u8; 4];
         file_size_bytes.clone_from_slice(&out[4..4 + 4]);
         let mut allocated_size_bytes = [0u8; 4];
         allocated_size_bytes.clone_from_slice(&out[8..8 + 4]);
-        Ok(ParseValue {
+        Ok(WithSize {
             value: Self {
                 permissions: Permissions::from_byte(out[0]),
-                properties: FileProperties::from_byte(out[1]).map_err(|e| match e {
-                    ParseFail::Error { error, offset } => ParseFail::Error {
-                        error,
-                        offset: offset + 1,
-                    },
-                    x => x,
-                })?,
+                properties: FileProperties::from_byte(out[1]),
                 alp_cmd_fid: out[2],
                 interface_file_id: out[3],
                 file_size: u32::from_be_bytes(file_size_bytes),

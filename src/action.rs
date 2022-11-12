@@ -4,8 +4,8 @@ use crate::{dash7, test_tools::test_item};
 use hex_literal::hex;
 
 use crate::{
-    codec::{Codec, ParseError, ParseFail, ParseResult, ParseResultExtension, ParseValue},
-    data, operand, varint, Enum,
+    codec::{Codec, StdError, WithOffset, WithSize},
+    data, operand, varint,
 };
 
 // ===============================================================================
@@ -16,7 +16,7 @@ macro_rules! serialize_all {
         {
             let mut offset = 0;
             $({
-                offset += $x.encode(&mut $out[offset..]);
+                offset += $x.encode_in(&mut $out[offset..]);
             })*
             offset
         }
@@ -49,26 +49,27 @@ macro_rules! control_byte {
 }
 
 macro_rules! impl_op_serialized {
-    ($name: ident, $flag7: ident, $flag6: ident, $op1: ident, $op1_type: ident) => {
+    ($name: ident, $flag7: ident, $flag6: ident, $op1: ident, $op1_type: ident, $error: ty) => {
         impl Codec for $name {
+            type Error = $error;
             fn encoded_size(&self) -> usize {
                 1 + encoded_size!(self.$op1)
             }
-            unsafe fn encode(&self, out: &mut [u8]) -> usize {
+            unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
                 out[0] = control_byte!(self.$flag7, self.$flag6, OpCode::$name);
                 1 + serialize_all!(&mut out[1..], &self.$op1)
             }
-            fn decode(out: &[u8]) -> ParseResult<Self> {
+            fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
                 if (out.is_empty()) {
-                    Err(ParseFail::MissingBytes(1))
+                    Err(WithOffset::new_head(Self::Error::MissingBytes(1)))
                 } else {
                     let mut offset = 1;
-                    let ParseValue {
-                        value: op1,
+                    let WithSize {
                         size: op1_size,
-                    } = operand::$op1_type::decode(&out[offset..]).inc_offset(offset)?;
+                        value: op1,
+                    } = operand::$op1_type::decode(&out[offset..]).map_err(|e| e.shift(offset))?;
                     offset += op1_size;
-                    Ok(ParseValue {
+                    Ok(WithSize {
                         value: Self {
                             $flag6: out[0] & 0x40 != 0,
                             $flag7: out[0] & 0x80 != 0,
@@ -97,7 +98,7 @@ macro_rules! unsafe_varint_serialize {
         {
             let mut offset: usize = 0;
             $({
-                offset += varint::encode($x, &mut $out[offset..]) as usize;
+                offset += varint::encode_in($x, &mut $out[offset..]) as usize;
             })*
             offset
         }
@@ -130,10 +131,11 @@ macro_rules! build_simple_op {
 macro_rules! impl_simple_op {
     ($name: ident, $flag7: ident, $flag6: ident, $($x: ident),* ) => {
         impl Codec for $name {
+            type Error = StdError;
             fn encoded_size(&self) -> usize {
                 1 + count!($( $x )*)
             }
-            unsafe fn encode(&self, out: &mut [u8]) -> usize {
+            unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
                 out[0] = control_byte!(self.$flag7, self.$flag6, OpCode::$name);
                 let mut offset = 1;
                 $({
@@ -142,14 +144,14 @@ macro_rules! impl_simple_op {
                 })*
                 1 + offset
             }
-            fn decode(out: &[u8]) -> ParseResult<Self> {
+            fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
                 const SIZE: usize = 1 + count!($( $x )*);
                 if(out.len() < SIZE) {
-                    Err(ParseFail::MissingBytes(SIZE - out.len()))
+                    Err(WithOffset::new_head( Self::Error::MissingBytes(SIZE - out.len())))
                 } else {
-                    Ok(ParseValue {
-                        value: build_simple_op!($name, out, $flag7, $flag6, $($x),*),
+                    Ok(WithSize {
                         size: SIZE,
+                        value: build_simple_op!($name, out, $flag7, $flag6, $($x),*),
                     })
                 }
             }
@@ -157,27 +159,43 @@ macro_rules! impl_simple_op {
     };
 }
 
+#[derive(Debug, Copy, Clone, Hash, PartialEq)]
+pub enum HeaderActionDecodingError {
+    MissingBytes(usize),
+    FileHeader(StdError),
+}
+
 macro_rules! impl_header_op {
     ($name: ident, $flag7: ident, $flag6: ident, $file_id: ident, $file_header: ident) => {
         impl Codec for $name {
+            type Error = HeaderActionDecodingError;
             fn encoded_size(&self) -> usize {
                 1 + 1 + 12
             }
-            unsafe fn encode(&self, out: &mut [u8]) -> usize {
+            unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
                 out[0] = control_byte!(self.group, self.resp, OpCode::$name);
                 out[1] = self.file_id;
                 let mut offset = 2;
-                offset += self.$file_header.encode(&mut out[offset..]);
+                offset += self.$file_header.encode_in(&mut out[offset..]);
                 offset
             }
-            fn decode(out: &[u8]) -> ParseResult<Self> {
+            fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
                 const SIZE: usize = 1 + 1 + 12;
                 if (out.len() < SIZE) {
-                    Err(ParseFail::MissingBytes(SIZE - out.len()))
+                    Err(WithOffset::new(
+                        0,
+                        Self::Error::MissingBytes(SIZE - out.len()),
+                    ))
                 } else {
-                    let ParseValue { value: header, .. } =
-                        data::FileHeader::decode(&out[2..]).inc_offset(2)?;
-                    Ok(ParseValue {
+                    let WithSize { value: header, .. } = data::FileHeader::decode(&out[2..])
+                        .map_err(|e| {
+                            let WithOffset { offset, value } = e;
+                            WithOffset {
+                                offset: offset + 2,
+                                value: Self::Error::FileHeader(value),
+                            }
+                        })?;
+                    Ok(WithSize {
                         value: Self {
                             $flag6: out[0] & 0x40 != 0,
                             $flag7: out[0] & 0x80 != 0,
@@ -239,7 +257,7 @@ pub enum OpCode {
     Extension = 63,
 }
 impl OpCode {
-    fn from(n: u8) -> Result<Self, ParseFail> {
+    fn from(n: u8) -> Result<Self, u8> {
         Ok(match n {
             // Nop
             0 => OpCode::Nop,
@@ -280,15 +298,7 @@ impl OpCode {
             63 => OpCode::Extension,
 
             // On unknown OpCode return an error
-            x => {
-                return Err(ParseFail::Error {
-                    error: ParseError::ImpossibleValue {
-                        en: Enum::OpCode,
-                        value: x,
-                    },
-                    offset: 0,
-                })
-            }
+            x => return Err(x),
         })
     }
 }
@@ -306,23 +316,25 @@ pub struct Nop {
     pub resp: bool,
 }
 impl Codec for Nop {
+    type Error = StdError;
+
     fn encoded_size(&self) -> usize {
         1
     }
-    unsafe fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
         out[0] = control_byte!(self.group, self.resp, OpCode::Nop);
         1
     }
-    fn decode(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
         if out.is_empty() {
-            Err(ParseFail::MissingBytes(1))
+            Err(WithOffset::new_head(Self::Error::MissingBytes(1)))
         } else {
-            Ok(ParseValue {
+            Ok(WithSize {
+                size: 1,
                 value: Self {
                     resp: out[0] & 0x40 != 0,
                     group: out[0] & 0x80 != 0,
                 },
-                size: 1,
             })
         }
     }
@@ -373,34 +385,44 @@ impl ReadFileData {
 }
 
 impl Codec for ReadFileData {
+    type Error = StdError;
     fn encoded_size(&self) -> usize {
         1 + 1 + unsafe_varint_serialize_sizes!(self.offset, self.size) as usize
     }
-    unsafe fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
         out[0] = control_byte!(self.group, self.resp, OpCode::ReadFileData);
         out[1] = self.file_id;
         1 + 1 + unsafe_varint_serialize!(out[2..], self.offset, self.size)
     }
-    fn decode(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
         let min_size = 1 + 1 + 1 + 1;
         if out.len() < min_size {
-            return Err(ParseFail::MissingBytes(min_size - out.len()));
+            return Err(WithOffset::new(
+                0,
+                Self::Error::MissingBytes(min_size - out.len()),
+            ));
         }
         let group = out[0] & 0x80 != 0;
         let resp = out[0] & 0x40 != 0;
         let file_id = out[1];
         let mut off = 2;
-        let ParseValue {
+        let WithSize {
             value: offset,
             size: offset_size,
-        } = varint::decode(&out[off..])?;
+        } = varint::decode(&out[off..]).map_err(|e| {
+            e.shift(off);
+            e
+        })?;
         off += offset_size;
-        let ParseValue {
+        let WithSize {
             value: size,
             size: size_size,
-        } = varint::decode(&out[off..])?;
+        } = varint::decode(&out[off..]).map_err(|e| {
+            e.shift(off);
+            e
+        })?;
         off += size_size;
-        Ok(ParseValue {
+        Ok(WithSize {
             value: Self {
                 group,
                 resp,
@@ -483,12 +505,13 @@ impl WriteFileData {
     }
 }
 impl Codec for WriteFileData {
+    type Error = StdError;
     fn encoded_size(&self) -> usize {
         1 + 1
             + unsafe_varint_serialize_sizes!(self.offset, self.data.len() as u32) as usize
             + self.data.len()
     }
-    unsafe fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
         out[0] = control_byte!(self.group, self.resp, OpCode::WriteFileData);
         out[1] = self.file_id;
         let mut offset = 2;
@@ -497,21 +520,24 @@ impl Codec for WriteFileData {
         offset += self.data.len();
         offset
     }
-    fn decode(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
         let min_size = 1 + 1 + 1 + 1;
         if out.len() < min_size {
-            return Err(ParseFail::MissingBytes(min_size - out.len()));
+            return Err(WithOffset::new(
+                0,
+                Self::Error::MissingBytes(min_size - out.len()),
+            ));
         }
         let group = out[0] & 0x80 != 0;
         let resp = out[0] & 0x40 != 0;
         let file_id = out[1];
         let mut off = 2;
-        let ParseValue {
+        let WithSize {
             value: offset,
             size: offset_size,
         } = varint::decode(&out[off..])?;
         off += offset_size;
-        let ParseValue {
+        let WithSize {
             value: size,
             size: size_size,
         } = varint::decode(&out[off..])?;
@@ -520,7 +546,7 @@ impl Codec for WriteFileData {
         let mut data = vec![0u8; size].into_boxed_slice();
         data.clone_from_slice(&out[off..off + size]);
         off += size;
-        Ok(ParseValue {
+        Ok(WithSize {
             value: Self {
                 group,
                 resp,
@@ -607,7 +633,14 @@ pub struct ActionQuery {
     pub resp: bool,
     pub query: operand::Query,
 }
-impl_op_serialized!(ActionQuery, group, resp, query, Query);
+impl_op_serialized!(
+    ActionQuery,
+    group,
+    resp,
+    query,
+    Query,
+    operand::QueryDecodingError
+);
 #[test]
 fn test_action_query() {
     test_item(
@@ -640,7 +673,14 @@ pub struct BreakQuery {
     pub resp: bool,
     pub query: operand::Query,
 }
-impl_op_serialized!(BreakQuery, group, resp, query, Query);
+impl_op_serialized!(
+    BreakQuery,
+    group,
+    resp,
+    query,
+    Query,
+    operand::QueryDecodingError
+);
 #[test]
 fn test_break_query() {
     test_item(
@@ -673,28 +713,35 @@ pub struct PermissionRequest {
     pub level: u8,
     pub permission: operand::Permission,
 }
+#[derive(Debug, Copy, Clone, Hash, PartialEq)]
+pub enum PermissionRequestDecodingError {
+    MissingBytes(usize),
+    Permission(operand::PermissionDecodingError),
+}
 impl Codec for PermissionRequest {
+    type Error = PermissionRequestDecodingError;
     fn encoded_size(&self) -> usize {
         1 + 1 + encoded_size!(self.permission)
     }
-    unsafe fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
         out[0] = control_byte!(self.group, self.resp, OpCode::PermissionRequest);
         out[1] = self.level;
         1 + serialize_all!(&mut out[2..], self.permission)
     }
-    fn decode(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
         if out.is_empty() {
-            Err(ParseFail::MissingBytes(1))
+            Err(WithOffset::new_head(Self::Error::MissingBytes(1)))
         } else {
             let mut offset = 1;
             let level = out[offset];
             offset += 1;
-            let ParseValue {
+            let WithSize {
                 value: permission,
                 size,
-            } = operand::Permission::decode(&out[offset..]).inc_offset(offset)?;
+            } = operand::Permission::decode(&out[offset..])
+                .map_err(|e| e.shift(offset).map_value(Self::Error::Permission))?;
             offset += size;
-            Ok(ParseValue {
+            Ok(WithSize {
                 value: Self {
                     group: out[0] & 0x80 != 0,
                     resp: out[0] & 0x40 != 0,
@@ -729,7 +776,14 @@ pub struct VerifyChecksum {
     pub resp: bool,
     pub query: operand::Query,
 }
-impl_op_serialized!(VerifyChecksum, group, resp, query, Query);
+impl_op_serialized!(
+    VerifyChecksum,
+    group,
+    resp,
+    query,
+    Query,
+    operand::QueryDecodingError
+);
 #[test]
 fn test_verify_checksum() {
     test_item(
@@ -977,12 +1031,13 @@ impl ReturnFileData {
     }
 }
 impl Codec for ReturnFileData {
+    type Error = StdError;
     fn encoded_size(&self) -> usize {
         1 + 1
             + unsafe_varint_serialize_sizes!(self.offset, self.data.len() as u32) as usize
             + self.data.len()
     }
-    unsafe fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
         out[0] = control_byte!(self.group, self.resp, OpCode::ReturnFileData);
         out[1] = self.file_id;
         let mut offset = 2;
@@ -991,21 +1046,24 @@ impl Codec for ReturnFileData {
         offset += self.data.len();
         offset
     }
-    fn decode(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
         let min_size = 1 + 1 + 1 + 1;
         if out.len() < min_size {
-            return Err(ParseFail::MissingBytes(min_size - out.len()));
+            return Err(WithOffset::new(
+                0,
+                Self::Error::MissingBytes(min_size - out.len()),
+            ));
         }
         let group = out[0] & 0x80 != 0;
         let resp = out[0] & 0x40 != 0;
         let file_id = out[1];
         let mut off = 2;
-        let ParseValue {
+        let WithSize {
             value: offset,
             size: offset_size,
         } = varint::decode(&out[off..])?;
         off += offset_size;
-        let ParseValue {
+        let WithSize {
             value: size,
             size: size_size,
         } = varint::decode(&out[off..])?;
@@ -1014,7 +1072,7 @@ impl Codec for ReturnFileData {
         let mut data = vec![0u8; size].into_boxed_slice();
         data.clone_from_slice(&out[off..off + size]);
         off += size;
-        Ok(ParseValue {
+        Ok(WithSize {
             value: Self {
                 group,
                 resp,
@@ -1096,19 +1154,11 @@ pub enum StatusType {
     Interface = 1,
 }
 impl StatusType {
-    fn from(n: u8) -> Result<Self, ParseFail> {
+    fn from(n: u8) -> Result<Self, u8> {
         Ok(match n {
             0 => StatusType::Action,
             1 => StatusType::Interface,
-            x => {
-                return Err(ParseFail::Error {
-                    error: ParseError::ImpossibleValue {
-                        en: Enum::StatusType,
-                        value: x,
-                    },
-                    offset: 0,
-                })
-            }
+            x => return Err(x),
         })
     }
 }
@@ -1122,14 +1172,22 @@ pub enum Status {
     Interface(operand::InterfaceStatus),
     // ALP SPEC: Where are the stack errors?
 }
+#[derive(Debug, Copy, Clone, Hash, PartialEq)]
+pub enum StatusDecodingError {
+    MissingBytes(usize),
+    UnknownType(u8),
+    Action(StdError),
+    Interface(operand::InterfaceStatusDecodingError),
+}
 impl Codec for Status {
+    type Error = StatusDecodingError;
     fn encoded_size(&self) -> usize {
         1 + match self {
             Status::Action(op) => op.encoded_size(),
             Status::Interface(op) => op.encoded_size(),
         }
     }
-    unsafe fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
         out[0] = OpCode::Status as u8
             + ((match self {
                 Status::Action(_) => StatusType::Action,
@@ -1138,23 +1196,37 @@ impl Codec for Status {
                 << 6);
         let out = &mut out[1..];
         1 + match self {
-            Status::Action(op) => op.encode(out),
-            Status::Interface(op) => op.encode(out),
+            Status::Action(op) => op.encode_in(out),
+            Status::Interface(op) => op.encode_in(out),
         }
     }
-    fn decode(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
         if out.is_empty() {
-            return Err(ParseFail::MissingBytes(1));
+            return Err(WithOffset::new_head(Self::Error::MissingBytes(1)));
         }
         let status_type = out[0] >> 6;
-        Ok(match StatusType::from(status_type)? {
-            StatusType::Action => {
-                operand::Status::decode(&out[1..])?.map(|v, size| (Status::Action(v), size + 1))
-            }
-            StatusType::Interface => operand::InterfaceStatus::decode(&out[1..])
-                .inc_offset(1)?
-                .map(|v, size| (Status::Interface(v), size + 1)),
-        })
+        Ok(
+            match StatusType::from(status_type)
+                .map_err(|e| WithOffset::new_head(Self::Error::UnknownType(e)))?
+            {
+                StatusType::Action => {
+                    let WithSize { size, value } = operand::Status::decode(&out[1..])
+                        .map_err(|e| e.shift(1).map_value(Self::Error::Action))?;
+                    WithSize {
+                        size: size + 1,
+                        value: Self::Action(value),
+                    }
+                }
+                StatusType::Interface => {
+                    let WithSize { size, value } = operand::InterfaceStatus::decode(&out[1..])
+                        .map_err(|e| e.shift(1).map_value(Self::Error::Interface))?;
+                    WithSize {
+                        size: size + 1,
+                        value: Self::Interface(value),
+                    }
+                }
+            },
+        )
     }
 }
 #[test]
@@ -1226,18 +1298,19 @@ pub struct Chunk {
     pub step: ChunkStep,
 }
 impl Codec for Chunk {
+    type Error = StdError;
     fn encoded_size(&self) -> usize {
         1
     }
-    unsafe fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
         out[0] = OpCode::Chunk as u8 + ((self.step as u8) << 6);
         1
     }
-    fn decode(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
         if out.is_empty() {
-            return Err(ParseFail::MissingBytes(1));
+            return Err(WithOffset::new_head(Self::Error::MissingBytes(1)));
         }
-        Ok(ParseValue {
+        Ok(WithSize {
             value: Self {
                 step: ChunkStep::from(out[0] >> 6),
             },
@@ -1280,18 +1353,19 @@ pub struct Logic {
     pub logic: LogicOp,
 }
 impl Codec for Logic {
+    type Error = StdError;
     fn encoded_size(&self) -> usize {
         1
     }
-    unsafe fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
         out[0] = OpCode::Logic as u8 + ((self.logic as u8) << 6);
         1
     }
-    fn decode(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
         if out.is_empty() {
-            return Err(ParseFail::MissingBytes(1));
+            return Err(WithOffset::new_head(Self::Error::MissingBytes(1)));
         }
-        Ok(ParseValue {
+        Ok(WithSize {
             value: Self {
                 logic: LogicOp::from(out[0] >> 6),
             },
@@ -1317,23 +1391,27 @@ pub struct Forward {
     pub conf: operand::InterfaceConfiguration,
 }
 impl Codec for Forward {
+    type Error = operand::InterfaceConfigurationDecodingError;
     fn encoded_size(&self) -> usize {
         1 + self.conf.encoded_size()
     }
-    unsafe fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
         out[0] = control_byte!(false, self.resp, OpCode::Forward);
-        1 + self.conf.encode(&mut out[1..])
+        1 + self.conf.encode_in(&mut out[1..])
     }
-    fn decode(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
         let min_size = 1 + 1;
         if out.len() < min_size {
-            return Err(ParseFail::MissingBytes(min_size - out.len()));
+            return Err(WithOffset::new(
+                0,
+                Self::Error::MissingBytes(min_size - out.len()),
+            ));
         }
-        let ParseValue {
+        let WithSize {
             value: conf,
             size: conf_size,
-        } = operand::InterfaceConfiguration::decode(&out[1..]).inc_offset(1)?;
-        Ok(ParseValue {
+        } = operand::InterfaceConfiguration::decode(&out[1..]).map_err(|e| e.shift(1))?;
+        Ok(WithSize {
             value: Self {
                 resp: out[0] & 0x40 != 0,
                 conf,
@@ -1361,10 +1439,11 @@ pub struct IndirectForward {
     pub interface: operand::IndirectInterface,
 }
 impl Codec for IndirectForward {
+    type Error = operand::IndirectInterfaceDecodingError;
     fn encoded_size(&self) -> usize {
         1 + self.interface.encoded_size()
     }
-    unsafe fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
         let overload = match self.interface {
             operand::IndirectInterface::Overloaded(_) => true,
             operand::IndirectInterface::NonOverloaded(_) => false,
@@ -1372,17 +1451,17 @@ impl Codec for IndirectForward {
         out[0] = control_byte!(overload, self.resp, OpCode::IndirectForward);
         1 + serialize_all!(&mut out[1..], &self.interface)
     }
-    fn decode(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
         if out.is_empty() {
-            Err(ParseFail::MissingBytes(1))
+            Err(WithOffset::new_head(Self::Error::MissingBytes(1)))
         } else {
             let mut offset = 0;
-            let ParseValue {
+            let WithSize {
                 value: op1,
                 size: op1_size,
             } = operand::IndirectInterface::decode(out)?;
             offset += op1_size;
-            Ok(ParseValue {
+            Ok(WithSize {
                 value: Self {
                     resp: out[0] & 0x40 != 0,
                     interface: op1,
@@ -1422,20 +1501,24 @@ pub struct RequestTag {
     pub id: u8,
 }
 impl Codec for RequestTag {
+    type Error = StdError;
     fn encoded_size(&self) -> usize {
         1 + 1
     }
-    unsafe fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
         out[0] = control_byte!(self.eop, false, OpCode::RequestTag);
         out[1] = self.id;
         1 + 1
     }
-    fn decode(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
         let min_size = 1 + 1;
         if out.len() < min_size {
-            return Err(ParseFail::MissingBytes(min_size - out.len()));
+            return Err(WithOffset::new(
+                0,
+                Self::Error::MissingBytes(min_size - out.len()),
+            ));
         }
-        Ok(ParseValue {
+        Ok(WithSize {
             value: Self {
                 eop: out[0] & 0x80 != 0,
                 id: out[1],
@@ -1458,13 +1541,14 @@ pub struct Extension {
     pub resp: bool,
 }
 impl Codec for Extension {
+    type Error = ();
     fn encoded_size(&self) -> usize {
         todo!()
     }
-    unsafe fn encode(&self, _out: &mut [u8]) -> usize {
+    unsafe fn encode_in(&self, _out: &mut [u8]) -> usize {
         todo!()
     }
-    fn decode(_out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
         todo!()
     }
 }
@@ -1513,7 +1597,109 @@ pub enum Action {
     Extension(Extension),
 }
 
+#[derive(Debug, Copy, Clone, Hash, PartialEq)]
+pub enum ActionDecodingError {
+    NoData,
+    UnknownOpCode(u8),
+    Nop(StdError),
+    ReadFileData(StdError),
+    ReadFileProperties(StdError),
+    WriteFileData(StdError),
+    WriteFileProperties(HeaderActionDecodingError),
+    ActionQuery(operand::QueryDecodingError),
+    BreakQuery(operand::QueryDecodingError),
+    PermissionRequest(PermissionRequestDecodingError),
+    VerifyChecksum(operand::QueryDecodingError),
+    ExistFile(StdError),
+    CreateNewFile(HeaderActionDecodingError),
+    DeleteFile(StdError),
+    RestoreFile(StdError),
+    FlushFile(StdError),
+    CopyFile(StdError),
+    ExecuteFile(StdError),
+    ReturnFileData(StdError),
+    ReturnFileProperties(HeaderActionDecodingError),
+    Status(StatusDecodingError),
+    ResponseTag(StdError),
+    Chunk(StdError),
+    Logic(StdError),
+    Forward(operand::InterfaceConfigurationDecodingError),
+    IndirectForward(operand::IndirectInterfaceDecodingError),
+    RequestTag(StdError),
+    Extension(()),
+}
+
+macro_rules! impl_std_error_map {
+    ($name: ident, $variant: ident, $error: ty) => {
+        fn $name(o: WithOffset<$error>) -> WithOffset<ActionDecodingError> {
+            let WithOffset { offset, value } = o;
+            WithOffset {
+                offset,
+                value: Self::$variant(value),
+            }
+        }
+    };
+}
+
+impl ActionDecodingError {
+    impl_std_error_map!(map_nop, Nop, StdError);
+    impl_std_error_map!(map_read_file_data, ReadFileData, StdError);
+    impl_std_error_map!(map_read_file_properties, ReadFileProperties, StdError);
+    impl_std_error_map!(map_write_file_data, WriteFileData, StdError);
+    impl_std_error_map!(
+        map_write_file_properties,
+        WriteFileProperties,
+        HeaderActionDecodingError
+    );
+    impl_std_error_map!(map_action_query, ActionQuery, operand::QueryDecodingError);
+    impl_std_error_map!(map_break_query, BreakQuery, operand::QueryDecodingError);
+    impl_std_error_map!(
+        map_permission_request,
+        PermissionRequest,
+        PermissionRequestDecodingError
+    );
+    impl_std_error_map!(
+        map_verify_checksum,
+        VerifyChecksum,
+        operand::QueryDecodingError
+    );
+    impl_std_error_map!(map_exist_file, ExistFile, StdError);
+    impl_std_error_map!(
+        map_create_new_file,
+        CreateNewFile,
+        HeaderActionDecodingError
+    );
+    impl_std_error_map!(map_delete_file, DeleteFile, StdError);
+    impl_std_error_map!(map_restore_file, RestoreFile, StdError);
+    impl_std_error_map!(map_flush_file, FlushFile, StdError);
+    impl_std_error_map!(map_copy_file, CopyFile, StdError);
+    impl_std_error_map!(map_execute_file, ExecuteFile, StdError);
+    impl_std_error_map!(map_return_file_data, ReturnFileData, StdError);
+    impl_std_error_map!(
+        map_return_file_properties,
+        ReturnFileProperties,
+        HeaderActionDecodingError
+    );
+    impl_std_error_map!(map_status, Status, StatusDecodingError);
+    impl_std_error_map!(map_response_tag, ResponseTag, StdError);
+    impl_std_error_map!(map_chunk, Chunk, StdError);
+    impl_std_error_map!(map_logic, Logic, StdError);
+    impl_std_error_map!(
+        map_forward,
+        Forward,
+        operand::InterfaceConfigurationDecodingError
+    );
+    impl_std_error_map!(
+        map_indirect_forward,
+        IndirectForward,
+        operand::IndirectInterfaceDecodingError
+    );
+    impl_std_error_map!(map_request_tag, RequestTag, StdError);
+    impl_std_error_map!(map_extension, Extension, ());
+}
+
 impl Codec for Action {
+    type Error = ActionDecodingError;
     fn encoded_size(&self) -> usize {
         match self {
             Action::Nop(x) => x.encoded_size(),
@@ -1545,86 +1731,126 @@ impl Codec for Action {
             Action::Extension(x) => x.encoded_size(),
         }
     }
-    unsafe fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
         match self {
-            Action::Nop(x) => x.encode(out),
-            Action::ReadFileData(x) => x.encode(out),
-            Action::ReadFileProperties(x) => x.encode(out),
-            Action::WriteFileData(x) => x.encode(out),
-            // Action::WriteFileDataFlush(x) => x.encode(out),
-            Action::WriteFileProperties(x) => x.encode(out),
-            Action::ActionQuery(x) => x.encode(out),
-            Action::BreakQuery(x) => x.encode(out),
-            Action::PermissionRequest(x) => x.encode(out),
-            Action::VerifyChecksum(x) => x.encode(out),
-            Action::ExistFile(x) => x.encode(out),
-            Action::CreateNewFile(x) => x.encode(out),
-            Action::DeleteFile(x) => x.encode(out),
-            Action::RestoreFile(x) => x.encode(out),
-            Action::FlushFile(x) => x.encode(out),
-            Action::CopyFile(x) => x.encode(out),
-            Action::ExecuteFile(x) => x.encode(out),
-            Action::ReturnFileData(x) => x.encode(out),
-            Action::ReturnFileProperties(x) => x.encode(out),
-            Action::Status(x) => x.encode(out),
-            Action::ResponseTag(x) => x.encode(out),
-            Action::Chunk(x) => x.encode(out),
-            Action::Logic(x) => x.encode(out),
-            Action::Forward(x) => x.encode(out),
-            Action::IndirectForward(x) => x.encode(out),
-            Action::RequestTag(x) => x.encode(out),
-            Action::Extension(x) => x.encode(out),
+            Action::Nop(x) => x.encode_in(out),
+            Action::ReadFileData(x) => x.encode_in(out),
+            Action::ReadFileProperties(x) => x.encode_in(out),
+            Action::WriteFileData(x) => x.encode_in(out),
+            // Action::WriteFileDataFlush(x) => x.encode_in(out),
+            Action::WriteFileProperties(x) => x.encode_in(out),
+            Action::ActionQuery(x) => x.encode_in(out),
+            Action::BreakQuery(x) => x.encode_in(out),
+            Action::PermissionRequest(x) => x.encode_in(out),
+            Action::VerifyChecksum(x) => x.encode_in(out),
+            Action::ExistFile(x) => x.encode_in(out),
+            Action::CreateNewFile(x) => x.encode_in(out),
+            Action::DeleteFile(x) => x.encode_in(out),
+            Action::RestoreFile(x) => x.encode_in(out),
+            Action::FlushFile(x) => x.encode_in(out),
+            Action::CopyFile(x) => x.encode_in(out),
+            Action::ExecuteFile(x) => x.encode_in(out),
+            Action::ReturnFileData(x) => x.encode_in(out),
+            Action::ReturnFileProperties(x) => x.encode_in(out),
+            Action::Status(x) => x.encode_in(out),
+            Action::ResponseTag(x) => x.encode_in(out),
+            Action::Chunk(x) => x.encode_in(out),
+            Action::Logic(x) => x.encode_in(out),
+            Action::Forward(x) => x.encode_in(out),
+            Action::IndirectForward(x) => x.encode_in(out),
+            Action::RequestTag(x) => x.encode_in(out),
+            Action::Extension(x) => x.encode_in(out),
         }
     }
-    fn decode(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
         if out.is_empty() {
-            return Err(ParseFail::MissingBytes(1));
+            return Err(WithOffset::new_head(Self::Error::NoData));
         }
-        let opcode = OpCode::from(out[0] & 0x3F)?;
+        let opcode = OpCode::from(out[0] & 0x3F)
+            .map_err(Self::Error::UnknownOpCode)
+            .map_err(WithOffset::new_head)?;
         Ok(match opcode {
-            OpCode::Nop => Nop::decode(&out)?.map_value(Action::Nop),
-            OpCode::ReadFileData => ReadFileData::decode(&out)?.map_value(Action::ReadFileData),
-            OpCode::ReadFileProperties => {
-                ReadFileProperties::decode(&out)?.map_value(Action::ReadFileProperties)
-            }
-            OpCode::WriteFileData => WriteFileData::decode(&out)?.map_value(Action::WriteFileData),
+            OpCode::Nop => Nop::decode(&out)
+                .map_err(ActionDecodingError::map_nop)?
+                .map_value(Action::Nop),
+            OpCode::ReadFileData => ReadFileData::decode(&out)
+                .map_err(ActionDecodingError::map_read_file_data)?
+                .map_value(Action::ReadFileData),
+            OpCode::ReadFileProperties => ReadFileProperties::decode(&out)
+                .map_err(ActionDecodingError::map_read_file_properties)?
+                .map_value(Action::ReadFileProperties),
+            OpCode::WriteFileData => WriteFileData::decode(&out)
+                .map_err(ActionDecodingError::map_write_file_data)?
+                .map_value(Action::WriteFileData),
             // OpCode::WriteFileDataFlush => {
             //     WriteFileDataFlush::decode(&out)?.map_value( Action::WriteFileDataFlush)
             // }
-            OpCode::WriteFileProperties => {
-                WriteFileProperties::decode(&out)?.map_value(Action::WriteFileProperties)
-            }
-            OpCode::ActionQuery => ActionQuery::decode(&out)?.map_value(Action::ActionQuery),
-            OpCode::BreakQuery => BreakQuery::decode(&out)?.map_value(Action::BreakQuery),
-            OpCode::PermissionRequest => {
-                PermissionRequest::decode(&out)?.map_value(Action::PermissionRequest)
-            }
-            OpCode::VerifyChecksum => {
-                VerifyChecksum::decode(&out)?.map_value(Action::VerifyChecksum)
-            }
-            OpCode::ExistFile => ExistFile::decode(&out)?.map_value(Action::ExistFile),
-            OpCode::CreateNewFile => CreateNewFile::decode(&out)?.map_value(Action::CreateNewFile),
-            OpCode::DeleteFile => DeleteFile::decode(&out)?.map_value(Action::DeleteFile),
-            OpCode::RestoreFile => RestoreFile::decode(&out)?.map_value(Action::RestoreFile),
-            OpCode::FlushFile => FlushFile::decode(&out)?.map_value(Action::FlushFile),
-            OpCode::CopyFile => CopyFile::decode(&out)?.map_value(Action::CopyFile),
-            OpCode::ExecuteFile => ExecuteFile::decode(&out)?.map_value(Action::ExecuteFile),
-            OpCode::ReturnFileData => {
-                ReturnFileData::decode(&out)?.map_value(Action::ReturnFileData)
-            }
-            OpCode::ReturnFileProperties => {
-                ReturnFileProperties::decode(&out)?.map_value(Action::ReturnFileProperties)
-            }
-            OpCode::Status => Status::decode(&out)?.map_value(Action::Status),
-            OpCode::ResponseTag => ResponseTag::decode(&out)?.map_value(Action::ResponseTag),
-            OpCode::Chunk => Chunk::decode(&out)?.map_value(Action::Chunk),
-            OpCode::Logic => Logic::decode(&out)?.map_value(Action::Logic),
-            OpCode::Forward => Forward::decode(&out)?.map_value(Action::Forward),
-            OpCode::IndirectForward => {
-                IndirectForward::decode(&out)?.map_value(Action::IndirectForward)
-            }
-            OpCode::RequestTag => RequestTag::decode(&out)?.map_value(Action::RequestTag),
-            OpCode::Extension => Extension::decode(&out)?.map_value(Action::Extension),
+            OpCode::WriteFileProperties => WriteFileProperties::decode(&out)
+                .map_err(ActionDecodingError::map_write_file_properties)?
+                .map_value(Action::WriteFileProperties),
+            OpCode::ActionQuery => ActionQuery::decode(&out)
+                .map_err(ActionDecodingError::map_action_query)?
+                .map_value(Action::ActionQuery),
+            OpCode::BreakQuery => BreakQuery::decode(&out)
+                .map_err(ActionDecodingError::map_break_query)?
+                .map_value(Action::BreakQuery),
+            OpCode::PermissionRequest => PermissionRequest::decode(&out)
+                .map_err(ActionDecodingError::map_permission_request)?
+                .map_value(Action::PermissionRequest),
+            OpCode::VerifyChecksum => VerifyChecksum::decode(&out)
+                .map_err(ActionDecodingError::map_verify_checksum)?
+                .map_value(Action::VerifyChecksum),
+            OpCode::ExistFile => ExistFile::decode(&out)
+                .map_err(ActionDecodingError::map_exist_file)?
+                .map_value(Action::ExistFile),
+            OpCode::CreateNewFile => CreateNewFile::decode(&out)
+                .map_err(ActionDecodingError::map_create_new_file)?
+                .map_value(Action::CreateNewFile),
+            OpCode::DeleteFile => DeleteFile::decode(&out)
+                .map_err(ActionDecodingError::map_delete_file)?
+                .map_value(Action::DeleteFile),
+            OpCode::RestoreFile => RestoreFile::decode(&out)
+                .map_err(ActionDecodingError::map_restore_file)?
+                .map_value(Action::RestoreFile),
+            OpCode::FlushFile => FlushFile::decode(&out)
+                .map_err(ActionDecodingError::map_flush_file)?
+                .map_value(Action::FlushFile),
+            OpCode::CopyFile => CopyFile::decode(&out)
+                .map_err(ActionDecodingError::map_copy_file)?
+                .map_value(Action::CopyFile),
+            OpCode::ExecuteFile => ExecuteFile::decode(&out)
+                .map_err(ActionDecodingError::map_execute_file)?
+                .map_value(Action::ExecuteFile),
+            OpCode::ReturnFileData => ReturnFileData::decode(&out)
+                .map_err(ActionDecodingError::map_return_file_data)?
+                .map_value(Action::ReturnFileData),
+            OpCode::ReturnFileProperties => ReturnFileProperties::decode(&out)
+                .map_err(ActionDecodingError::map_return_file_properties)?
+                .map_value(Action::ReturnFileProperties),
+            OpCode::Status => Status::decode(&out)
+                .map_err(ActionDecodingError::map_status)?
+                .map_value(Action::Status),
+            OpCode::ResponseTag => ResponseTag::decode(&out)
+                .map_err(ActionDecodingError::map_response_tag)?
+                .map_value(Action::ResponseTag),
+            OpCode::Chunk => Chunk::decode(&out)
+                .map_err(ActionDecodingError::map_chunk)?
+                .map_value(Action::Chunk),
+            OpCode::Logic => Logic::decode(&out)
+                .map_err(ActionDecodingError::map_logic)?
+                .map_value(Action::Logic),
+            OpCode::Forward => Forward::decode(&out)
+                .map_err(ActionDecodingError::map_forward)?
+                .map_value(Action::Forward),
+            OpCode::IndirectForward => IndirectForward::decode(&out)
+                .map_err(ActionDecodingError::map_indirect_forward)?
+                .map_value(Action::IndirectForward),
+            OpCode::RequestTag => RequestTag::decode(&out)
+                .map_err(ActionDecodingError::map_request_tag)?
+                .map_value(Action::RequestTag),
+            OpCode::Extension => Extension::decode(&out)
+                .map_err(ActionDecodingError::map_extension)?
+                .map_value(Action::Extension),
         })
     }
 }

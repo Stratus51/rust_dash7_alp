@@ -1,8 +1,8 @@
 #[cfg(test)]
 use crate::test_tools::test_item;
 use crate::{
-    codec::{Codec, ParseError, ParseFail, ParseResult, ParseResultExtension, ParseValue},
-    dash7, varint, Enum,
+    codec::{Codec, StdError, WithOffset, WithSize},
+    dash7, varint,
 };
 #[cfg(test)]
 use hex_literal::hex;
@@ -22,14 +22,21 @@ pub enum InterfaceConfiguration {
     Host,
     D7asp(dash7::InterfaceConfiguration),
 }
+#[derive(Debug, Copy, Clone, Hash, PartialEq)]
+pub enum InterfaceConfigurationDecodingError {
+    MissingBytes(usize),
+    D7asp(dash7::InterfaceConfigurationDecodingError),
+    BadInterfaceId(u8),
+}
 impl Codec for InterfaceConfiguration {
+    type Error = InterfaceConfigurationDecodingError;
     fn encoded_size(&self) -> usize {
         1 + match self {
             InterfaceConfiguration::Host => 0,
             InterfaceConfiguration::D7asp(v) => v.encoded_size(),
         }
     }
-    unsafe fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
         match self {
             InterfaceConfiguration::Host => {
                 out[0] = InterfaceId::Host as u8;
@@ -37,35 +44,32 @@ impl Codec for InterfaceConfiguration {
             }
             InterfaceConfiguration::D7asp(v) => {
                 out[0] = InterfaceId::D7asp as u8;
-                1 + v.encode(&mut out[1..])
+                1 + v.encode_in(&mut out[1..])
             }
         }
     }
-    fn decode(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
         if out.is_empty() {
-            return Err(ParseFail::MissingBytes(1));
+            return Err(WithOffset::new_head(Self::Error::MissingBytes(1)));
         }
         const HOST: u8 = InterfaceId::Host as u8;
         const D7ASP: u8 = InterfaceId::D7asp as u8;
         Ok(match out[0] {
-            HOST => ParseValue {
+            HOST => WithSize {
                 value: InterfaceConfiguration::Host,
                 size: 1,
             },
             D7ASP => {
-                let ParseValue { value, size } =
-                    dash7::InterfaceConfiguration::decode(&out[1..]).inc_offset(1)?;
-                ParseValue {
+                let WithSize { value, size } = dash7::InterfaceConfiguration::decode(&out[1..])
+                    .map_err(|e| e.map_value(InterfaceConfigurationDecodingError::D7asp))?;
+                WithSize {
                     value: InterfaceConfiguration::D7asp(value),
                     size: size + 1,
                 }
             }
             id => {
-                return Err(ParseFail::Error {
-                    error: ParseError::ImpossibleValue {
-                        en: Enum::InterfaceId,
-                        value: id,
-                    },
+                return Err(WithOffset {
+                    value: Self::Error::BadInterfaceId(id),
                     offset: 0,
                 })
             }
@@ -121,7 +125,15 @@ pub enum InterfaceStatus {
     D7asp(dash7::InterfaceStatus),
     Unknown(InterfaceStatusUnknown),
 }
+#[derive(Debug, Copy, Clone, Hash, PartialEq)]
+pub enum InterfaceStatusDecodingError {
+    MissingBytes(usize),
+    Size(StdError),
+    D7asp(dash7::InterfaceStatusDecodingError),
+    BadInterfaceId(u8),
+}
 impl Codec for InterfaceStatus {
+    type Error = InterfaceStatusDecodingError;
     fn encoded_size(&self) -> usize {
         let data_size = match self {
             InterfaceStatus::Host => 0,
@@ -130,7 +142,7 @@ impl Codec for InterfaceStatus {
         };
         1 + unsafe { varint::size(data_size as u32) } as usize + data_size
     }
-    unsafe fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
         let mut offset = 1;
         match self {
             InterfaceStatus::Host => {
@@ -141,14 +153,14 @@ impl Codec for InterfaceStatus {
             InterfaceStatus::D7asp(v) => {
                 out[0] = InterfaceId::D7asp as u8;
                 let size = v.encoded_size() as u32;
-                let size_size = varint::encode(size, &mut out[offset..]);
+                let size_size = varint::encode_in(size, &mut out[offset..]);
                 offset += size_size as usize;
-                offset += v.encode(&mut out[offset..]);
+                offset += v.encode_in(&mut out[offset..]);
             }
             InterfaceStatus::Unknown(InterfaceStatusUnknown { id, data, .. }) => {
                 out[0] = *id;
                 let size = data.len() as u32;
-                let size_size = varint::encode(size, &mut out[offset..]);
+                let size_size = varint::encode_in(size, &mut out[offset..]);
                 offset += size_size as usize;
                 out[offset..offset + data.len()].clone_from_slice(data);
                 offset += data.len();
@@ -156,9 +168,9 @@ impl Codec for InterfaceStatus {
         };
         offset
     }
-    fn decode(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
         if out.is_empty() {
-            return Err(ParseFail::MissingBytes(1));
+            return Err(WithOffset::new_head(Self::Error::MissingBytes(1)));
         }
         const HOST: u8 = InterfaceId::Host as u8;
         const D7ASP: u8 = InterfaceId::D7asp as u8;
@@ -169,27 +181,47 @@ impl Codec for InterfaceStatus {
                 InterfaceStatus::Host
             }
             D7ASP => {
-                let ParseValue {
+                let WithSize {
                     value: size,
                     size: size_size,
-                } = varint::decode(&out[offset..])?;
+                } = varint::decode(&out[offset..]).map_err(|e| {
+                    let WithOffset { offset: off, value } = e;
+                    WithOffset {
+                        offset: offset + off,
+                        value: Self::Error::Size(value),
+                    }
+                })?;
                 let size = size as usize;
                 offset += size_size;
-                let ParseValue { value, size } =
-                    dash7::InterfaceStatus::decode(&out[offset..offset + size])
-                        .inc_offset(offset)?;
+                let WithSize { value, size } =
+                    dash7::InterfaceStatus::decode(&out[offset..offset + size]).map_err(|e| {
+                        let WithOffset { offset: off, value } = e;
+                        WithOffset {
+                            offset: offset + off,
+                            value: Self::Error::D7asp(value),
+                        }
+                    })?;
                 offset += size;
                 InterfaceStatus::D7asp(value)
             }
             id => {
-                let ParseValue {
+                let WithSize {
                     value: size,
                     size: size_size,
-                } = varint::decode(&out[offset..])?;
+                } = varint::decode(&out[offset..]).map_err(|e| {
+                    let WithOffset { offset: off, value } = e;
+                    WithOffset {
+                        offset: offset + off,
+                        value: Self::Error::Size(value),
+                    }
+                })?;
                 let size = size as usize;
                 offset += size_size;
                 if out.len() < offset + size {
-                    return Err(ParseFail::MissingBytes(offset + size - out.len()));
+                    return Err(WithOffset::new(
+                        offset,
+                        Self::Error::MissingBytes(offset + size - out.len()),
+                    ));
                 }
                 let mut data = vec![0u8; size].into_boxed_slice();
                 data.clone_from_slice(&out[offset..size]);
@@ -201,7 +233,7 @@ impl Codec for InterfaceStatus {
                 })
             }
         };
-        Ok(ParseValue {
+        Ok(WithSize {
             value,
             size: offset,
         })
@@ -269,23 +301,37 @@ impl FileOffset {
     }
 }
 
+#[derive(Debug, Copy, Clone, Hash, PartialEq)]
+pub enum FileOffsetDecodingError {
+    MissingBytes(usize),
+    Offset(StdError),
+}
 impl Codec for FileOffset {
+    type Error = FileOffsetDecodingError;
     fn encoded_size(&self) -> usize {
         1 + unsafe { varint::size(self.offset) } as usize
     }
-    unsafe fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
         out[0] = self.id;
-        1 + varint::encode(self.offset, &mut out[1..]) as usize
+        1 + varint::encode_in(self.offset, &mut out[1..]) as usize
     }
-    fn decode(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
         if out.len() < 2 {
-            return Err(ParseFail::MissingBytes(2 - out.len()));
+            return Err(WithOffset::new_head(Self::Error::MissingBytes(
+                2 - out.len(),
+            )));
         }
-        let ParseValue {
+        let WithSize {
             value: offset,
             size,
-        } = varint::decode(&out[1..])?;
-        Ok(ParseValue {
+        } = varint::decode(&out[1..]).map_err(|e| {
+            let WithOffset { offset, value } = e;
+            WithOffset {
+                offset: offset + 1,
+                value: FileOffsetDecodingError::Offset(value),
+            }
+        })?;
+        Ok(WithSize {
             value: Self {
                 id: out[0],
                 offset,
@@ -340,19 +386,22 @@ pub struct Status {
     pub status: u8,
 }
 impl Codec for Status {
+    type Error = StdError;
     fn encoded_size(&self) -> usize {
         1 + 1
     }
-    unsafe fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
         out[0] = self.action_id;
         out[1] = self.status as u8;
         2
     }
-    fn decode(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
         if out.len() < 2 {
-            return Err(ParseFail::MissingBytes(2 - out.len()));
+            return Err(WithOffset::new_head(Self::Error::MissingBytes(
+                2 - out.len(),
+            )));
         }
-        Ok(ParseValue {
+        Ok(WithSize {
             value: Self {
                 action_id: out[0],
                 status: out[1],
@@ -386,13 +435,20 @@ impl Permission {
     }
 }
 
+#[derive(Debug, Copy, Clone, Hash, PartialEq)]
+pub enum PermissionDecodingError {
+    MissingBytes(usize),
+    UnknownId(u8),
+}
+
 impl Codec for Permission {
+    type Error = PermissionDecodingError;
     fn encoded_size(&self) -> usize {
         1 + match self {
             Permission::Dash7(_) => 8,
         }
     }
-    unsafe fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
         out[0] = self.id();
         1 + match self {
             Permission::Dash7(token) => {
@@ -401,9 +457,9 @@ impl Codec for Permission {
             }
         }
     }
-    fn decode(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
         if out.is_empty() {
-            return Err(ParseFail::MissingBytes(1));
+            return Err(WithOffset::new_head(Self::Error::MissingBytes(1)));
         }
         let mut offset = 1;
         match out[0] {
@@ -411,18 +467,12 @@ impl Codec for Permission {
                 let mut token = [0; 8];
                 token.clone_from_slice(&out[offset..offset + 8]);
                 offset += 8;
-                Ok(ParseValue {
+                Ok(WithSize {
                     value: Permission::Dash7(token),
                     size: offset,
                 })
             }
-            x => Err(ParseFail::Error {
-                error: ParseError::ImpossibleValue {
-                    en: Enum::PermissionId,
-                    value: x,
-                },
-                offset: 0,
-            }),
+            x => Err(WithOffset::new_head(Self::Error::UnknownId(x))),
         }
     }
 }
@@ -443,7 +493,7 @@ pub enum QueryComparisonType {
     GreaterThanOrEqual = 5,
 }
 impl QueryComparisonType {
-    fn from(n: u8) -> Result<Self, ParseFail> {
+    fn from(n: u8) -> Result<Self, u8> {
         Ok(match n {
             0 => QueryComparisonType::Inequal,
             1 => QueryComparisonType::Equal,
@@ -451,15 +501,7 @@ impl QueryComparisonType {
             3 => QueryComparisonType::LessThanOrEqual,
             4 => QueryComparisonType::GreaterThan,
             5 => QueryComparisonType::GreaterThanOrEqual,
-            x => {
-                return Err(ParseFail::Error {
-                    error: ParseError::ImpossibleValue {
-                        en: Enum::QueryComparisonType,
-                        value: x,
-                    },
-                    offset: 0,
-                })
-            }
+            x => return Err(x),
         })
     }
 }
@@ -470,19 +512,11 @@ pub enum QueryRangeComparisonType {
     InRange = 1,
 }
 impl QueryRangeComparisonType {
-    fn from(n: u8) -> Result<Self, ParseFail> {
+    fn from(n: u8) -> Result<Self, u8> {
         Ok(match n {
             0 => QueryRangeComparisonType::NotInRange,
             1 => QueryRangeComparisonType::InRange,
-            x => {
-                return Err(ParseFail::Error {
-                    error: ParseError::ImpossibleValue {
-                        en: Enum::QueryRangeComparisonType,
-                        value: x,
-                    },
-                    offset: 0,
-                })
-            }
+            x => return Err(x),
         })
     }
 }
@@ -496,7 +530,7 @@ pub enum QueryCode {
     StringTokenSearch = 7,
 }
 impl QueryCode {
-    fn from(n: u8) -> Result<Self, ParseFail> {
+    fn from(n: u8) -> Result<Self, u8> {
         Ok(match n {
             0 => QueryCode::NonVoid,
             1 => QueryCode::ComparisonWithZero,
@@ -504,17 +538,18 @@ impl QueryCode {
             3 => QueryCode::ComparisonWithOtherFile,
             4 => QueryCode::BitmapRangeComparison,
             7 => QueryCode::StringTokenSearch,
-            x => {
-                return Err(ParseFail::Error {
-                    error: ParseError::ImpossibleValue {
-                        en: Enum::QueryCode,
-                        value: x,
-                    },
-                    offset: 0,
-                })
-            }
+            x => return Err(n),
         })
     }
+}
+
+#[derive(Debug, Copy, Clone, Hash, PartialEq)]
+pub enum QueryOperandDecodingError {
+    MissingBytes(usize),
+    Size(StdError),
+    FileOffset1(FileOffsetDecodingError),
+    FileOffset2(FileOffsetDecodingError),
+    UnknownComparisonType(u8),
 }
 
 // ALP_SPEC Does this fail if the content overflows the file?
@@ -538,32 +573,47 @@ impl NonVoid {
     }
 }
 impl Codec for NonVoid {
+    type Error = QueryOperandDecodingError;
     fn encoded_size(&self) -> usize {
         1 + unsafe { varint::size(self.size) } as usize + self.file.encoded_size()
     }
-    unsafe fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
         out[0] = QueryCode::NonVoid as u8;
         let mut offset = 1;
-        offset += varint::encode(self.size, &mut out[offset..]) as usize;
-        offset += self.file.encode(&mut out[offset..]);
+        offset += varint::encode_in(self.size, &mut out[offset..]) as usize;
+        offset += self.file.encode_in(&mut out[offset..]);
         offset
     }
-    fn decode(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
         if out.len() < 3 {
-            return Err(ParseFail::MissingBytes(3 - out.len()));
+            return Err(WithOffset::new_head(Self::Error::MissingBytes(
+                3 - out.len(),
+            )));
         }
         let mut offset = 1;
-        let ParseValue {
+        let WithSize {
             value: size,
             size: size_size,
-        } = varint::decode(&out[offset..])?;
+        } = varint::decode(&out[offset..]).map_err(|e| {
+            let WithOffset { offset: off, value } = e;
+            WithOffset {
+                offset: offset + off,
+                value: Self::Error::Size(value),
+            }
+        })?;
         offset += size_size;
-        let ParseValue {
+        let WithSize {
             value: file,
             size: file_size,
-        } = FileOffset::decode(&out[offset..])?;
+        } = FileOffset::decode(&out[offset..]).map_err(|e| {
+            let WithOffset { offset: off, value } = e;
+            WithOffset {
+                offset: offset + off,
+                value: Self::Error::FileOffset1(value),
+            }
+        })?;
         offset += file_size;
-        Ok(ParseValue {
+        Ok(WithSize {
             value: Self {
                 size,
                 file,
@@ -620,6 +670,7 @@ impl ComparisonWithZero {
     }
 }
 impl Codec for ComparisonWithZero {
+    type Error = QueryOperandDecodingError;
     fn encoded_size(&self) -> usize {
         let mask_size = match self.mask {
             Some(_) => self.size as usize,
@@ -627,7 +678,7 @@ impl Codec for ComparisonWithZero {
         };
         1 + unsafe { varint::size(self.size) } as usize + mask_size + self.file.encoded_size()
     }
-    unsafe fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
         let mask_flag = match self.mask {
             Some(_) => 1,
             None => 0,
@@ -639,25 +690,34 @@ impl Codec for ComparisonWithZero {
             | (signed_flag << 3)
             | self.comparison_type as u8;
         offset += 1;
-        offset += varint::encode(self.size, &mut out[offset..]) as usize;
+        offset += varint::encode_in(self.size, &mut out[offset..]) as usize;
         if let Some(mask) = &self.mask {
             out[offset..offset + (self.size as usize)].clone_from_slice(&mask);
             offset += mask.len();
         }
-        offset += self.file.encode(&mut out[offset..]);
+        offset += self.file.encode_in(&mut out[offset..]);
         offset
     }
-    fn decode(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
         if out.len() < 1 + 1 + 2 {
-            return Err(ParseFail::MissingBytes(1 + 1 + 2 - out.len()));
+            return Err(WithOffset::new_head(Self::Error::MissingBytes(
+                1 + 1 + 2 - out.len(),
+            )));
         }
         let mask_flag = out[0] & (1 << 4) != 0;
         let signed_data = out[0] & (1 << 3) != 0;
-        let comparison_type = QueryComparisonType::from(out[0] & 0x07)?;
-        let ParseValue {
+        let comparison_type = QueryComparisonType::from(out[0] & 0x07)
+            .map_err(|e| WithOffset::new_head(Self::Error::UnknownComparisonType(e)))?;
+        let WithSize {
             value: size,
             size: size_size,
-        } = varint::decode(&out[1..])?;
+        } = varint::decode(&out[1..]).map_err(|e| {
+            let WithOffset { offset, value } = e;
+            WithOffset {
+                offset: offset + 1,
+                value: Self::Error::Size(value),
+            }
+        })?;
         let mut offset = 1 + size_size;
         let mask = if mask_flag {
             let mut data = vec![0u8; size as usize].into_boxed_slice();
@@ -667,12 +727,18 @@ impl Codec for ComparisonWithZero {
         } else {
             None
         };
-        let ParseValue {
+        let WithSize {
             value: file,
             size: offset_size,
-        } = FileOffset::decode(&out[offset..])?;
+        } = FileOffset::decode(&out[offset..]).map_err(|e| {
+            let WithOffset { offset: off, value } = e;
+            WithOffset {
+                offset: offset + off,
+                value: Self::Error::FileOffset1(value),
+            }
+        })?;
         offset += offset_size;
-        Ok(ParseValue {
+        Ok(WithSize {
             value: Self {
                 signed_data,
                 comparison_type,
@@ -738,6 +804,7 @@ impl ComparisonWithValue {
     }
 }
 impl Codec for ComparisonWithValue {
+    type Error = QueryOperandDecodingError;
     fn encoded_size(&self) -> usize {
         let mask_size = match self.mask {
             Some(_) => self.size as usize,
@@ -748,7 +815,7 @@ impl Codec for ComparisonWithValue {
             + self.value.len()
             + self.file.encoded_size()
     }
-    unsafe fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
         let mask_flag = match self.mask {
             Some(_) => 1,
             None => 0,
@@ -760,27 +827,36 @@ impl Codec for ComparisonWithValue {
             | (signed_flag << 3)
             | self.comparison_type as u8;
         offset += 1;
-        offset += varint::encode(self.size, &mut out[offset..]) as usize;
+        offset += varint::encode_in(self.size, &mut out[offset..]) as usize;
         if let Some(mask) = &self.mask {
             out[offset..offset + self.size as usize].clone_from_slice(&mask);
             offset += mask.len();
         }
         out[offset..offset + self.size as usize].clone_from_slice(&self.value[..]);
         offset += self.value.len();
-        offset += self.file.encode(&mut out[offset..]);
+        offset += self.file.encode_in(&mut out[offset..]);
         offset
     }
-    fn decode(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
         if out.len() < 1 + 1 + 2 {
-            return Err(ParseFail::MissingBytes(1 + 1 + 2 - out.len()));
+            return Err(WithOffset::new_head(Self::Error::MissingBytes(
+                1 + 1 + 2 - out.len(),
+            )));
         }
         let mask_flag = out[0] & (1 << 4) != 0;
         let signed_data = out[0] & (1 << 3) != 0;
-        let comparison_type = QueryComparisonType::from(out[0] & 0x07)?;
-        let ParseValue {
+        let comparison_type = QueryComparisonType::from(out[0] & 0x07)
+            .map_err(|e| WithOffset::new_head(Self::Error::UnknownComparisonType(e)))?;
+        let WithSize {
             value: size,
             size: size_size,
-        } = varint::decode(&out[1..])?;
+        } = varint::decode(&out[1..]).map_err(|e| {
+            let WithOffset { offset, value } = e;
+            WithOffset {
+                offset: offset + 1,
+                value: Self::Error::Size(value),
+            }
+        })?;
         let mut offset = 1 + size_size;
         let mask = if mask_flag {
             let mut data = vec![0u8; size as usize].into_boxed_slice();
@@ -793,12 +869,18 @@ impl Codec for ComparisonWithValue {
         let mut value = vec![0u8; size as usize].into_boxed_slice();
         value.clone_from_slice(&out[offset..offset + size as usize]);
         offset += size as usize;
-        let ParseValue {
+        let WithSize {
             value: file,
             size: offset_size,
-        } = FileOffset::decode(&out[offset..])?;
+        } = FileOffset::decode(&out[offset..]).map_err(|e| {
+            let WithOffset { offset: off, value } = e;
+            WithOffset {
+                offset: offset + off,
+                value: Self::Error::FileOffset1(value),
+            }
+        })?;
         offset += offset_size;
-        Ok(ParseValue {
+        Ok(WithSize {
             value: Self {
                 signed_data,
                 comparison_type,
@@ -865,6 +947,7 @@ impl ComparisonWithOtherFile {
     }
 }
 impl Codec for ComparisonWithOtherFile {
+    type Error = QueryOperandDecodingError;
     fn encoded_size(&self) -> usize {
         let mask_size = match self.mask {
             Some(_) => self.size as usize,
@@ -875,7 +958,7 @@ impl Codec for ComparisonWithOtherFile {
             + self.file1.encoded_size()
             + self.file2.encoded_size()
     }
-    unsafe fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
         let mask_flag = match self.mask {
             Some(_) => 1,
             None => 0,
@@ -887,26 +970,35 @@ impl Codec for ComparisonWithOtherFile {
             | (signed_flag << 3)
             | self.comparison_type as u8;
         offset += 1;
-        offset += varint::encode(self.size, &mut out[offset..]) as usize;
+        offset += varint::encode_in(self.size, &mut out[offset..]) as usize;
         if let Some(mask) = &self.mask {
             out[offset..offset + self.size as usize].clone_from_slice(&mask);
             offset += mask.len();
         }
-        offset += self.file1.encode(&mut out[offset..]);
-        offset += self.file2.encode(&mut out[offset..]);
+        offset += self.file1.encode_in(&mut out[offset..]);
+        offset += self.file2.encode_in(&mut out[offset..]);
         offset
     }
-    fn decode(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
         if out.len() < 1 + 1 + 2 + 2 {
-            return Err(ParseFail::MissingBytes(1 + 1 + 2 + 2 - out.len()));
+            return Err(WithOffset::new_head(Self::Error::MissingBytes(
+                1 + 1 + 2 + 2 - out.len(),
+            )));
         }
         let mask_flag = out[0] & (1 << 4) != 0;
         let signed_data = out[0] & (1 << 3) != 0;
-        let comparison_type = QueryComparisonType::from(out[0] & 0x07)?;
-        let ParseValue {
+        let comparison_type = QueryComparisonType::from(out[0] & 0x07)
+            .map_err(|e| WithOffset::new_head(Self::Error::UnknownComparisonType(e)))?;
+        let WithSize {
             value: size,
             size: size_size,
-        } = varint::decode(&out[1..])?;
+        } = varint::decode(&out[1..]).map_err(|e| {
+            let WithOffset { offset, value } = e;
+            WithOffset {
+                offset: 1,
+                value: Self::Error::Size(value),
+            }
+        })?;
         let mut offset = 1 + size_size;
         let mask = if mask_flag {
             let mut data = vec![0u8; size as usize].into_boxed_slice();
@@ -916,17 +1008,29 @@ impl Codec for ComparisonWithOtherFile {
         } else {
             None
         };
-        let ParseValue {
+        let WithSize {
             value: file1,
             size: file1_size,
-        } = FileOffset::decode(&out[offset..])?;
+        } = FileOffset::decode(&out[offset..]).map_err(|e| {
+            let WithOffset { offset: off, value } = e;
+            WithOffset {
+                offset: offset + off,
+                value: Self::Error::FileOffset1(value),
+            }
+        })?;
         offset += file1_size;
-        let ParseValue {
+        let WithSize {
             value: file2,
             size: file2_size,
-        } = FileOffset::decode(&out[offset..])?;
+        } = FileOffset::decode(&out[offset..]).map_err(|e| {
+            let WithOffset { offset: off, value } = e;
+            WithOffset {
+                offset: offset + off,
+                value: Self::Error::FileOffset2(value),
+            }
+        })?;
         offset += file2_size;
-        Ok(ParseValue {
+        Ok(WithSize {
             value: Self {
                 signed_data,
                 comparison_type,
@@ -1018,13 +1122,14 @@ impl BitmapRangeComparison {
     }
 }
 impl Codec for BitmapRangeComparison {
+    type Error = QueryOperandDecodingError;
     fn encoded_size(&self) -> usize {
         1 + unsafe { varint::size(self.size) } as usize
             + 2 * self.size as usize
             + self.bitmap.len()
             + self.file.encoded_size()
     }
-    unsafe fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
         let mut offset = 0;
         let signed_flag = if self.signed_data { 1 } else { 0 };
         out[0] = ((QueryCode::BitmapRangeComparison as u8) << 5)
@@ -1032,26 +1137,35 @@ impl Codec for BitmapRangeComparison {
             | (signed_flag << 3)
             | self.comparison_type as u8;
         offset += 1;
-        offset += varint::encode(self.size, &mut out[offset..]) as usize;
+        offset += varint::encode_in(self.size, &mut out[offset..]) as usize;
         out[offset..offset + self.size as usize].clone_from_slice(&self.start[..]);
         offset += self.start.len();
         out[offset..offset + self.size as usize].clone_from_slice(&self.stop[..]);
         offset += self.stop.len();
         out[offset..offset + self.bitmap.len()].clone_from_slice(&self.bitmap[..]);
         offset += self.bitmap.len();
-        offset += self.file.encode(&mut out[offset..]);
+        offset += self.file.encode_in(&mut out[offset..]);
         offset
     }
-    fn decode(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
         if out.len() < 1 + 1 + 2 {
-            return Err(ParseFail::MissingBytes(1 + 1 + 2 - out.len()));
+            return Err(WithOffset::new_head(Self::Error::MissingBytes(
+                1 + 1 + 2 - out.len(),
+            )));
         }
         let signed_data = out[0] & (1 << 3) != 0;
-        let comparison_type = QueryRangeComparisonType::from(out[0] & 0x07)?;
-        let ParseValue {
+        let comparison_type = QueryRangeComparisonType::from(out[0] & 0x07)
+            .map_err(|e| WithOffset::new_head(Self::Error::UnknownComparisonType(e)))?;
+        let WithSize {
             value: size32,
             size: size_size,
-        } = varint::decode(&out[1..])?;
+        } = varint::decode(&out[1..]).map_err(|e| {
+            let WithOffset { offset, value } = e;
+            WithOffset {
+                offset: offset + 1,
+                value: Self::Error::Size(value),
+            }
+        })?;
         let size = size32 as usize;
         let mut offset = 1 + size_size;
         let mut start = vec![0u8; size].into_boxed_slice();
@@ -1073,12 +1187,18 @@ impl Codec for BitmapRangeComparison {
         let mut bitmap = vec![0u8; bitmap_size as usize].into_boxed_slice();
         bitmap.clone_from_slice(&out[offset..offset + bitmap_size as usize]);
         offset += bitmap_size as usize;
-        let ParseValue {
+        let WithSize {
             value: file,
             size: file_size,
-        } = FileOffset::decode(&out[offset..])?;
+        } = FileOffset::decode(&out[offset..]).map_err(|e| {
+            let WithOffset { offset: off, value } = e;
+            WithOffset {
+                offset: offset + off,
+                value: Self::Error::FileOffset1(value),
+            }
+        })?;
         offset += file_size;
-        Ok(ParseValue {
+        Ok(WithSize {
             value: Self {
                 signed_data,
                 comparison_type,
@@ -1149,6 +1269,7 @@ impl StringTokenSearch {
     }
 }
 impl Codec for StringTokenSearch {
+    type Error = QueryOperandDecodingError;
     fn encoded_size(&self) -> usize {
         let mask_size = match self.mask {
             Some(_) => self.size as usize,
@@ -1159,7 +1280,7 @@ impl Codec for StringTokenSearch {
             + self.value.len()
             + self.file.encoded_size()
     }
-    unsafe fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
         let mask_flag = match self.mask {
             Some(_) => 1,
             None => 0,
@@ -1170,26 +1291,34 @@ impl Codec for StringTokenSearch {
             // | (0 << 3)
             | self.max_errors;
         offset += 1;
-        offset += varint::encode(self.size, &mut out[offset..]) as usize;
+        offset += varint::encode_in(self.size, &mut out[offset..]) as usize;
         if let Some(mask) = &self.mask {
             out[offset..offset + self.size as usize].clone_from_slice(&mask);
             offset += mask.len();
         }
         out[offset..offset + self.size as usize].clone_from_slice(&self.value[..]);
         offset += self.value.len();
-        offset += self.file.encode(&mut out[offset..]);
+        offset += self.file.encode_in(&mut out[offset..]);
         offset
     }
-    fn decode(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
         if out.len() < 1 + 1 + 2 {
-            return Err(ParseFail::MissingBytes(1 + 1 + 2 - out.len()));
+            return Err(WithOffset::new_head(Self::Error::MissingBytes(
+                1 + 1 + 2 - out.len(),
+            )));
         }
         let mask_flag = out[0] & (1 << 4) != 0;
         let max_errors = out[0] & 0x07;
-        let ParseValue {
+        let WithSize {
             value: size32,
             size: size_size,
-        } = varint::decode(&out[1..])?;
+        } = varint::decode(&out[1..]).map_err(|e| {
+            let WithOffset { offset, value } = e;
+            WithOffset {
+                offset: offset + 1,
+                value: Self::Error::Size(value),
+            }
+        })?;
         let size = size32 as usize;
         let mut offset = 1 + size_size;
         let mask = if mask_flag {
@@ -1203,12 +1332,18 @@ impl Codec for StringTokenSearch {
         let mut value = vec![0u8; size].into_boxed_slice();
         value.clone_from_slice(&out[offset..offset + size]);
         offset += size;
-        let ParseValue {
+        let WithSize {
             value: file,
             size: offset_size,
-        } = FileOffset::decode(&out[offset..])?;
+        } = FileOffset::decode(&out[offset..]).map_err(|e| {
+            let WithOffset { offset: off, value } = e;
+            WithOffset {
+                offset: offset + off,
+                value: Self::Error::FileOffset1(value),
+            }
+        })?;
         offset += offset_size;
-        Ok(ParseValue {
+        Ok(WithSize {
             value: Self {
                 max_errors,
                 size: size32,
@@ -1250,7 +1385,19 @@ pub enum Query {
     BitmapRangeComparison(BitmapRangeComparison),
     StringTokenSearch(StringTokenSearch),
 }
+#[derive(Debug, Copy, Clone, Hash, PartialEq)]
+pub enum QueryDecodingError {
+    MissingBytes(usize),
+    UnknownQueryCode(u8),
+    NonVoid(QueryOperandDecodingError),
+    ComparisonWithZero(QueryOperandDecodingError),
+    ComparisonWithValue(QueryOperandDecodingError),
+    ComparisonWithOtherFile(QueryOperandDecodingError),
+    BitmapRangeComparison(QueryOperandDecodingError),
+    StringTokenSearch(QueryOperandDecodingError),
+}
 impl Codec for Query {
+    type Error = QueryDecodingError;
     fn encoded_size(&self) -> usize {
         match self {
             Query::NonVoid(v) => v.encoded_size(),
@@ -1261,32 +1408,38 @@ impl Codec for Query {
             Query::StringTokenSearch(v) => v.encoded_size(),
         }
     }
-    unsafe fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
         match self {
-            Query::NonVoid(v) => v.encode(out),
-            Query::ComparisonWithZero(v) => v.encode(out),
-            Query::ComparisonWithValue(v) => v.encode(out),
-            Query::ComparisonWithOtherFile(v) => v.encode(out),
-            Query::BitmapRangeComparison(v) => v.encode(out),
-            Query::StringTokenSearch(v) => v.encode(out),
+            Query::NonVoid(v) => v.encode_in(out),
+            Query::ComparisonWithZero(v) => v.encode_in(out),
+            Query::ComparisonWithValue(v) => v.encode_in(out),
+            Query::ComparisonWithOtherFile(v) => v.encode_in(out),
+            Query::BitmapRangeComparison(v) => v.encode_in(out),
+            Query::StringTokenSearch(v) => v.encode_in(out),
         }
     }
-    fn decode(out: &[u8]) -> ParseResult<Self> {
-        Ok(match QueryCode::from(out[0] >> 5)? {
-            QueryCode::NonVoid => NonVoid::decode(out).map(|ok| ok.map_value(Query::NonVoid)),
-            QueryCode::ComparisonWithZero => {
-                ComparisonWithZero::decode(out).map(|ok| ok.map_value(Query::ComparisonWithZero))
-            }
-            QueryCode::ComparisonWithValue => {
-                ComparisonWithValue::decode(out).map(|ok| ok.map_value(Query::ComparisonWithValue))
-            }
+    fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
+        Ok(match QueryCode::from(out[0] >> 5)
+            .map_err(|e| WithOffset::new_head(Self::Error::UnknownQueryCode(e)))?
+        {
+            QueryCode::NonVoid => NonVoid::decode(out)
+                .map(|ok| ok.map_value(Query::NonVoid))
+                .map_err(|e| e.map_value(Self::Error::NonVoid)),
+            QueryCode::ComparisonWithZero => ComparisonWithZero::decode(out)
+                .map(|ok| ok.map_value(Query::ComparisonWithZero))
+                .map_err(|e| e.map_value(Self::Error::ComparisonWithZero)),
+            QueryCode::ComparisonWithValue => ComparisonWithValue::decode(out)
+                .map(|ok| ok.map_value(Query::ComparisonWithValue))
+                .map_err(|e| e.map_value(Self::Error::ComparisonWithValue)),
             QueryCode::ComparisonWithOtherFile => ComparisonWithOtherFile::decode(out)
-                .map(|ok| ok.map_value(Query::ComparisonWithOtherFile)),
+                .map(|ok| ok.map_value(Query::ComparisonWithOtherFile))
+                .map_err(|e| e.map_value(Self::Error::ComparisonWithOtherFile)),
             QueryCode::BitmapRangeComparison => BitmapRangeComparison::decode(out)
-                .map(|ok| ok.map_value(Query::BitmapRangeComparison)),
-            QueryCode::StringTokenSearch => {
-                StringTokenSearch::decode(out).map(|ok| ok.map_value(Query::StringTokenSearch))
-            }
+                .map(|ok| ok.map_value(Query::BitmapRangeComparison))
+                .map_err(|e| e.map_value(Self::Error::BitmapRangeComparison)),
+            QueryCode::StringTokenSearch => StringTokenSearch::decode(out)
+                .map(|ok| ok.map_value(Query::StringTokenSearch))
+                .map_err(|e| e.map_value(Self::Error::StringTokenSearch)),
         }?)
     }
 }
@@ -1300,24 +1453,39 @@ pub struct OverloadedIndirectInterface {
     pub addressee: dash7::Addressee,
 }
 
+#[derive(Debug, Copy, Clone, Hash, PartialEq)]
+pub enum OverloadedIndirectInterfaceDecodingError {
+    MissingBytes(usize),
+    Addressee(dash7::AddresseeDecodingError),
+}
+
 impl Codec for OverloadedIndirectInterface {
+    type Error = OverloadedIndirectInterfaceDecodingError;
     fn encoded_size(&self) -> usize {
         1 + self.addressee.encoded_size()
     }
-    unsafe fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
         out[0] = self.interface_file_id;
-        1 + self.addressee.encode(&mut out[1..])
+        1 + self.addressee.encode_in(&mut out[1..])
     }
-    fn decode(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
         if out.len() < 1 + 2 {
-            return Err(ParseFail::MissingBytes(1 + 2 - out.len()));
+            return Err(WithOffset::new_head(Self::Error::MissingBytes(
+                1 + 2 - out.len(),
+            )));
         }
         let interface_file_id = out[0];
-        let ParseValue {
+        let WithSize {
             value: addressee,
             size: addressee_size,
-        } = dash7::Addressee::decode(&out[1..]).inc_offset(1)?;
-        Ok(ParseValue {
+        } = dash7::Addressee::decode(&out[1..]).map_err(|e| {
+            let WithOffset { offset, value } = e;
+            WithOffset {
+                offset: offset + 1,
+                value: Self::Error::Addressee(value),
+            }
+        })?;
+        Ok(WithSize {
             value: Self {
                 interface_file_id,
                 addressee,
@@ -1351,18 +1519,21 @@ pub struct NonOverloadedIndirectInterface {
     pub data: Box<[u8]>,
 }
 
+pub type NonOverloadedIndirectInterfaceDecodingError = ();
+
 impl Codec for NonOverloadedIndirectInterface {
+    type Error = NonOverloadedIndirectInterfaceDecodingError;
     fn encoded_size(&self) -> usize {
         1 + self.data.len()
     }
-    unsafe fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
         out[0] = self.interface_file_id;
         let mut offset = 1;
         out[offset..offset + self.data.len()].clone_from_slice(&self.data);
         offset += self.data.len();
         offset
     }
-    fn decode(_out: &[u8]) -> ParseResult<Self> {
+    fn decode(_out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
         todo!("TODO")
     }
 }
@@ -1373,29 +1544,56 @@ pub enum IndirectInterface {
     NonOverloaded(NonOverloadedIndirectInterface),
 }
 
+#[derive(Debug, Copy, Clone, Hash, PartialEq)]
+pub enum IndirectInterfaceDecodingError {
+    MissingBytes(usize),
+    Overloaded(OverloadedIndirectInterfaceDecodingError),
+    NonOverloaded(NonOverloadedIndirectInterfaceDecodingError),
+}
 impl Codec for IndirectInterface {
+    type Error = IndirectInterfaceDecodingError;
     fn encoded_size(&self) -> usize {
         match self {
             IndirectInterface::Overloaded(v) => v.encoded_size(),
             IndirectInterface::NonOverloaded(v) => v.encoded_size(),
         }
     }
-    unsafe fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
         match self {
-            IndirectInterface::Overloaded(v) => v.encode(out),
-            IndirectInterface::NonOverloaded(v) => v.encode(out),
+            IndirectInterface::Overloaded(v) => v.encode_in(out),
+            IndirectInterface::NonOverloaded(v) => v.encode_in(out),
         }
     }
-    fn decode(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
         if out.is_empty() {
-            return Err(ParseFail::MissingBytes(1));
+            return Err(WithOffset::new_head(Self::Error::MissingBytes(1)));
         }
         Ok(if out[0] & 0x80 != 0 {
-            OverloadedIndirectInterface::decode(&out[1..])?
-                .map(|v, i| (IndirectInterface::Overloaded(v), i + 1))
+            let WithSize { size, value } =
+                OverloadedIndirectInterface::decode(&out[1..]).map_err(|e| {
+                    let WithOffset { offset, value } = e;
+                    WithOffset {
+                        offset: offset + 1,
+                        value: Self::Error::Overloaded(value),
+                    }
+                })?;
+            WithSize {
+                size: size + 1,
+                value: Self::Overloaded(value),
+            }
         } else {
-            NonOverloadedIndirectInterface::decode(&out[1..])?
-                .map(|v, i| (IndirectInterface::NonOverloaded(v), i + 1))
+            let WithSize { size, value } = NonOverloadedIndirectInterface::decode(&out[1..])
+                .map_err(|e| {
+                    let WithOffset { offset, value } = e;
+                    WithOffset {
+                        offset: offset + 1,
+                        value: Self::Error::NonOverloaded(value),
+                    }
+                })?;
+            WithSize {
+                size: size + 1,
+                value: Self::NonOverloaded(value),
+            }
         })
     }
 }
