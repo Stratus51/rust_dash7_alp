@@ -1,9 +1,6 @@
+use crate::codec::{Codec, WithOffset, WithSize};
 #[cfg(test)]
 use crate::test_tools::test_item;
-use crate::{
-    codec::{Codec, ParseError, ParseFail, ParseResult, ParseResultExtension, ParseValue},
-    Enum,
-};
 #[cfg(test)]
 use hex_literal::hex;
 
@@ -20,7 +17,7 @@ pub enum NlsMethod {
     AesCcm32 = 7,
 }
 impl NlsMethod {
-    fn from(n: u8) -> Result<NlsMethod, ParseFail> {
+    fn from(n: u8) -> Result<NlsMethod, u8> {
         Ok(match n {
             0 => NlsMethod::None,
             1 => NlsMethod::AesCtr,
@@ -30,15 +27,7 @@ impl NlsMethod {
             5 => NlsMethod::AesCcm128,
             6 => NlsMethod::AesCcm64,
             7 => NlsMethod::AesCcm32,
-            x => {
-                return Err(ParseFail::Error {
-                    error: ParseError::ImpossibleValue {
-                        en: Enum::NlsMethod,
-                        value: x,
-                    },
-                    offset: 0,
-                })
-            }
+            x => return Err(x),
         })
     }
 }
@@ -66,7 +55,13 @@ pub struct Addressee {
     /// Address of the target
     pub address: Address,
 }
+#[derive(Debug, Copy, Clone, Hash, PartialEq)]
+pub enum AddresseeDecodingError {
+    MissingBytes(usize),
+    UnknownNlsMethod(u8),
+}
 impl Codec for Addressee {
+    type Error = AddresseeDecodingError;
     fn encoded_size(&self) -> usize {
         1 + 1
             + match self.address {
@@ -76,7 +71,7 @@ impl Codec for Addressee {
                 Address::Vid(_) => 2,
             }
     }
-    unsafe fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
         let (id_type, id): (u8, Box<[u8]>) = match &self.address {
             Address::NbId(n) => (0, Box::new([*n])),
             Address::NoId => (1, Box::new([])),
@@ -89,25 +84,30 @@ impl Codec for Addressee {
         out[2..2 + id.len()].clone_from_slice(&id);
         2 + id.len()
     }
-    fn decode(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
         const SIZE: usize = 1 + 1;
         if out.len() < SIZE {
-            return Err(ParseFail::MissingBytes(SIZE - out.len()));
+            return Err(WithOffset::new_head(Self::Error::MissingBytes(
+                SIZE - out.len(),
+            )));
         }
         let id_type = (out[0] & 0x30) >> 4;
-        let nls_method = NlsMethod::from(out[0] & 0x0F)?;
+        let nls_method = NlsMethod::from(out[0] & 0x0F)
+            .map_err(|e| WithOffset::new_head(Self::Error::UnknownNlsMethod(e)))?;
         let access_class = out[1];
         let (address, address_size) = match id_type {
             0 => {
                 if out.len() < 3 {
-                    return Err(ParseFail::MissingBytes(1));
+                    return Err(WithOffset::new_head(Self::Error::MissingBytes(1)));
                 }
                 (Address::NbId(out[2]), 1)
             }
             1 => (Address::NoId, 0),
             2 => {
                 if out.len() < 2 + 8 {
-                    return Err(ParseFail::MissingBytes(2 + 8 - out.len()));
+                    return Err(WithOffset::new_head(Self::Error::MissingBytes(
+                        2 + 8 - out.len(),
+                    )));
                 }
                 let mut data = Box::new([0u8; 8]);
                 data.clone_from_slice(&out[2..2 + 8]);
@@ -115,7 +115,9 @@ impl Codec for Addressee {
             }
             3 => {
                 if out.len() < 2 + 2 {
-                    return Err(ParseFail::MissingBytes(2 + 2 - out.len()));
+                    return Err(WithOffset::new_head(Self::Error::MissingBytes(
+                        2 + 2 - out.len(),
+                    )));
                 }
                 let mut data = Box::new([0u8; 2]);
                 data.clone_from_slice(&out[2..2 + 2]);
@@ -123,7 +125,7 @@ impl Codec for Addressee {
             }
             x => panic!("Impossible id_type = {}", x),
         };
-        Ok(ParseValue {
+        Ok(WithSize {
             value: Self {
                 nls_method,
                 access_class,
@@ -187,18 +189,10 @@ pub enum RetryMode {
     No = 0,
 }
 impl RetryMode {
-    fn from(n: u8) -> Result<Self, ParseFail> {
+    fn from(n: u8) -> Result<Self, u8> {
         Ok(match n {
             0 => RetryMode::No,
-            x => {
-                return Err(ParseFail::Error {
-                    error: ParseError::ImpossibleValue {
-                        en: Enum::RetryMode,
-                        value: x,
-                    },
-                    offset: 0,
-                })
-            }
+            x => return Err(x),
         })
     }
 }
@@ -247,7 +241,7 @@ pub enum RespMode {
     RespPreferred = 6,
 }
 impl RespMode {
-    fn from(n: u8) -> Result<Self, ParseFail> {
+    fn from(n: u8) -> Result<Self, u8> {
         Ok(match n {
             0 => RespMode::No,
             1 => RespMode::All,
@@ -255,15 +249,7 @@ impl RespMode {
             4 => RespMode::RespNoRpt,
             5 => RespMode::RespOnData,
             6 => RespMode::RespPreferred,
-            x => {
-                return Err(ParseFail::Error {
-                    error: ParseError::ImpossibleValue {
-                        en: Enum::RespMode,
-                        value: x,
-                    },
-                    offset: 0,
-                })
-            }
+            x => return Err(x),
         })
     }
 }
@@ -274,21 +260,30 @@ pub struct Qos {
     pub retry: RetryMode,
     pub resp: RespMode,
 }
+#[derive(Debug, Copy, Clone, Hash, PartialEq)]
+pub enum QosDecodingError {
+    MissingBytes(u8),
+    UnknownRetryMode(u8),
+    UnknownRespMode(u8),
+}
 impl Codec for Qos {
+    type Error = QosDecodingError;
     fn encoded_size(&self) -> usize {
         1
     }
-    unsafe fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
         out[0] = ((self.retry as u8) << 3) + self.resp as u8;
         1
     }
-    fn decode(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
         if out.is_empty() {
-            return Err(ParseFail::MissingBytes(1));
+            return Err(WithOffset::new_head(Self::Error::MissingBytes(1)));
         }
-        let retry = RetryMode::from((out[0] & 0x38) >> 3)?;
-        let resp = RespMode::from(out[0] & 0x07)?;
-        Ok(ParseValue {
+        let retry = RetryMode::from((out[0] & 0x38) >> 3)
+            .map_err(|e| WithOffset::new_head(Self::Error::UnknownRetryMode(e)))?;
+        let resp = RespMode::from(out[0] & 0x07)
+            .map_err(|e| WithOffset::new_head(Self::Error::UnknownRespMode(e)))?;
+        Ok(WithSize {
             value: Self { retry, resp },
             size: 1,
         })
@@ -331,29 +326,45 @@ pub struct InterfaceConfiguration {
     pub addressee: Addressee,
 }
 
+#[derive(Debug, Copy, Clone, Hash, PartialEq)]
+pub enum InterfaceConfigurationDecodingError {
+    MissingBytes(usize),
+    Qos(QosDecodingError),
+    Addressee(AddresseeDecodingError),
+}
+
 impl Codec for InterfaceConfiguration {
+    type Error = InterfaceConfigurationDecodingError;
     fn encoded_size(&self) -> usize {
         self.qos.encoded_size() + 2 + self.addressee.encoded_size()
     }
-    unsafe fn encode(&self, out: &mut [u8]) -> usize {
-        self.qos.encode(out);
+    unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
+        self.qos.encode_in(out);
         out[1] = self.to;
         out[2] = self.te;
-        3 + self.addressee.encode(&mut out[3..])
+        3 + self.addressee.encode_in(&mut out[3..])
     }
-    fn decode(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
         if out.len() < 3 {
-            return Err(ParseFail::MissingBytes(3 - out.len()));
+            return Err(WithOffset::new_head(
+                InterfaceConfigurationDecodingError::MissingBytes(3 - out.len()),
+            ));
         }
-        let ParseValue {
+        let WithSize {
             value: qos,
             size: qos_size,
-        } = Qos::decode(out)?;
-        let ParseValue {
+        } = Qos::decode(out).map_err(|e| e.map_value(InterfaceConfigurationDecodingError::Qos))?;
+        let WithSize {
             value: addressee,
             size: addressee_size,
-        } = Addressee::decode(&out[3..]).inc_offset(3)?;
-        Ok(ParseValue {
+        } = Addressee::decode(&out[3..]).map_err(|e| {
+            let WithOffset { offset, value } = e;
+            WithOffset {
+                offset: offset + 3,
+                value: InterfaceConfigurationDecodingError::Addressee(value),
+            }
+        })?;
+        Ok(WithSize {
             value: Self {
                 qos,
                 to: out[1],
@@ -480,7 +491,13 @@ impl InterfaceStatus {
         })
     }
 }
+#[derive(Debug, Copy, Clone, Hash, PartialEq)]
+pub enum InterfaceStatusDecodingError {
+    MissingBytes(usize),
+    Addressee(AddresseeDecodingError),
+}
 impl Codec for InterfaceStatus {
+    type Error = InterfaceStatusDecodingError;
     fn encoded_size(&self) -> usize {
         10 + self.addressee.encoded_size()
             + match self.nls_state {
@@ -488,7 +505,7 @@ impl Codec for InterfaceStatus {
                 None => 0,
             }
     }
-    unsafe fn encode(&self, out: &mut [u8]) -> usize {
+    unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
         let mut i = 0;
         out[i] = self.ch_header;
         i += 1;
@@ -508,27 +525,38 @@ impl Codec for InterfaceStatus {
         i += 1;
         out[i] = self.resp_to;
         i += 1;
-        i += self.addressee.encode(&mut out[i..]);
+        i += self.addressee.encode_in(&mut out[i..]);
         if let Some(nls_state) = &self.nls_state {
             out[i..i + 5].clone_from_slice(&nls_state[..]);
             i += 5;
         }
         i
     }
-    fn decode(out: &[u8]) -> ParseResult<Self> {
+    fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
         if out.len() < 10 {
-            return Err(ParseFail::MissingBytes(10 - out.len()));
+            return Err(WithOffset::new_head(Self::Error::MissingBytes(
+                10 - out.len(),
+            )));
         }
-        let ParseValue {
+        let WithSize {
             value: addressee,
             size: addressee_size,
-        } = Addressee::decode(&out[10..]).inc_offset(10)?;
+        } = Addressee::decode(&out[10..]).map_err(|e| {
+            let WithOffset { offset, value } = e;
+            WithOffset {
+                offset: offset + 10,
+                value: Self::Error::Addressee(value),
+            }
+        })?;
         let offset = 10 + addressee_size;
         let nls_state = match addressee.nls_method {
             NlsMethod::None => None,
             _ => {
                 if out.len() < offset + 5 {
-                    return Err(ParseFail::MissingBytes(offset + 5 - out.len()));
+                    return Err(WithOffset::new(
+                        offset,
+                        Self::Error::MissingBytes(offset + 5 - out.len()),
+                    ));
                 } else {
                     let mut nls_state = [0u8; 5];
                     nls_state.clone_from_slice(&out[offset..offset + 5]);
@@ -541,7 +569,7 @@ impl Codec for InterfaceStatus {
                 Some(_) => 5,
                 None => 0,
             };
-        Ok(ParseValue {
+        Ok(WithSize {
             value: Self {
                 ch_header: out[0],
                 ch_idx: ((out[1] as u16) << 8) + out[2] as u16,

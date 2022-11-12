@@ -58,7 +58,7 @@ pub mod operand;
 /// ALP variable int codec implementation
 pub mod varint;
 pub use action::Action;
-pub use codec::Codec;
+pub use codec::{Codec, WithOffset, WithSize};
 
 // TODO Verify each item's name against the SPEC
 
@@ -81,25 +81,6 @@ pub use codec::Codec;
 // TODO Add function to encode without having to define a temporary structure
 
 // ===============================================================================
-// Definitions
-// ===============================================================================
-#[derive(Clone, Debug, PartialEq)]
-pub enum Enum {
-    OpCode,
-    NlsMethod,
-    RetryMode,
-    RespMode,
-    InterfaceId,
-    PermissionId,
-    PermissionLevel,
-    QueryComparisonType,
-    QueryRangeComparisonType,
-    QueryCode,
-    StatusType,
-    ActionCondition,
-}
-
-// ===============================================================================
 // Command
 // ===============================================================================
 /// ALP request that can be sent to an ALP compatible device.
@@ -109,10 +90,10 @@ pub struct Command {
     // Does that impact application that don't use the structure?
     pub actions: Vec<Action>,
 }
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CommandParseFail {
     pub actions: Vec<Action>,
-    pub error: codec::ParseFail,
+    pub error: action::ActionDecodingError,
 }
 
 impl Default for Command {
@@ -120,8 +101,19 @@ impl Default for Command {
         Self { actions: vec![] }
     }
 }
-impl Command {
-    fn partial_decode(out: &[u8]) -> Result<codec::ParseValue<Command>, CommandParseFail> {
+impl Codec for Command {
+    type Error = CommandParseFail;
+    fn encoded_size(&self) -> usize {
+        self.actions.iter().map(|act| act.encoded_size()).sum()
+    }
+    unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
+        let mut offset = 0;
+        for action in self.actions.iter() {
+            offset += action.encode_in(&mut out[offset..]);
+        }
+        offset
+    }
+    fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
         let mut actions = vec![];
         let mut offset = 0;
         loop {
@@ -129,37 +121,26 @@ impl Command {
                 break;
             }
             match Action::decode(&out[offset..]) {
-                Ok(codec::ParseValue { value, size }) => {
+                Ok(WithSize { value, size }) => {
                     actions.push(value);
                     offset += size;
                 }
                 Err(error) => {
-                    return Err(CommandParseFail {
-                        actions,
-                        error: error.inc_offset(offset),
-                    })
+                    let WithOffset { offset: off, value } = error;
+                    return Err(WithOffset {
+                        offset: offset + off,
+                        value: CommandParseFail {
+                            actions,
+                            error: value,
+                        },
+                    });
                 }
             }
         }
-        Ok(codec::ParseValue {
+        Ok(codec::WithSize {
             value: Self { actions },
             size: offset,
         })
-    }
-}
-impl Codec for Command {
-    fn encoded_size(&self) -> usize {
-        self.actions.iter().map(|act| act.encoded_size()).sum()
-    }
-    unsafe fn encode(&self, out: &mut [u8]) -> usize {
-        let mut offset = 0;
-        for action in self.actions.iter() {
-            offset += action.encode(&mut out[offset..]);
-        }
-        offset
-    }
-    fn decode(out: &[u8]) -> codec::ParseResult<Self> {
-        Self::partial_decode(out).map_err(|v| v.error)
     }
 }
 #[test]

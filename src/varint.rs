@@ -1,4 +1,4 @@
-use crate::codec::{ParseFail, ParseResult, ParseValue};
+use crate::codec::{StdError, WithOffset, WithSize};
 pub const MAX: u32 = 0x3F_FF_FF_FF;
 /// Returns whether the value is encodable into a varint or not.
 pub fn is_valid(n: u32) -> Result<(), ()> {
@@ -35,7 +35,7 @@ pub unsafe fn size(n: u32) -> u8 {
 ///
 /// Calling this on a large integer will return an unpredictable
 /// result (it won't crash).
-pub unsafe fn encode(n: u32, out: &mut [u8]) -> u8 {
+pub unsafe fn encode_in(n: u32, out: &mut [u8]) -> u8 {
     let u8_size = size(n);
     let size = u8_size as usize;
     for (i, byte) in out.iter_mut().enumerate().take(size) {
@@ -46,19 +46,22 @@ pub unsafe fn encode(n: u32, out: &mut [u8]) -> u8 {
 }
 
 /// Decode a byte array as a varint.
-pub fn decode(out: &[u8]) -> ParseResult<u32> {
+pub fn decode(out: &[u8]) -> Result<WithSize<u32>, WithOffset<StdError>> {
     if out.is_empty() {
-        return Err(ParseFail::MissingBytes(1));
+        return Err(WithOffset::new(0, StdError::MissingBytes(1)));
     }
     let size = ((out[0] >> 6) + 1) as usize;
     if out.len() < size as usize {
-        return Err(ParseFail::MissingBytes(size as usize - out.len()));
+        return Err(WithOffset::new(
+            0,
+            StdError::MissingBytes(size as usize - out.len()),
+        ));
     }
     let mut ret = (out[0] & 0x3F) as u32;
     for byte in out.iter().take(size).skip(1) {
         ret = (ret << 8) + *byte as u32;
     }
-    Ok(ParseValue { value: ret, size })
+    Ok(WithSize { value: ret, size })
 }
 
 #[cfg(test)]
@@ -84,10 +87,10 @@ mod test {
     }
 
     #[test]
-    fn test_encode() {
+    fn test_encode_in() {
         fn test(n: u32, truth: &[u8]) {
             let mut encoded = vec![0u8; truth.len()];
-            assert_eq!(unsafe { encode(n, &mut encoded[..]) }, truth.len() as u8);
+            assert_eq!(unsafe { encode_in(n, &mut encoded[..]) }, truth.len() as u8);
             assert_eq!(*truth, encoded[..]);
         }
         test(0x00, &[0]);
@@ -100,7 +103,7 @@ mod test {
     #[test]
     fn test_decode() {
         fn test_ok(data: &[u8], value: u32, size: usize) {
-            assert_eq!(decode(data), Ok(ParseValue { value, size: size }),);
+            assert_eq!(decode(data), Ok(WithSize { value, size }),);
         }
         test_ok(&[0], 0x00, 1);
         test_ok(&hex!("3F"), 0x3F, 1);
