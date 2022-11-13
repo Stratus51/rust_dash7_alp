@@ -538,7 +538,7 @@ impl QueryCode {
             3 => QueryCode::ComparisonWithOtherFile,
             4 => QueryCode::BitmapRangeComparison,
             7 => QueryCode::StringTokenSearch,
-            x => return Err(n),
+            x => return Err(x),
         })
     }
 }
@@ -692,7 +692,7 @@ impl Codec for ComparisonWithZero {
         offset += 1;
         offset += varint::encode_in(self.size, &mut out[offset..]) as usize;
         if let Some(mask) = &self.mask {
-            out[offset..offset + (self.size as usize)].clone_from_slice(&mask);
+            out[offset..offset + (self.size as usize)].clone_from_slice(mask);
             offset += mask.len();
         }
         offset += self.file.encode_in(&mut out[offset..]);
@@ -972,7 +972,7 @@ impl Codec for ComparisonWithOtherFile {
         offset += 1;
         offset += varint::encode_in(self.size, &mut out[offset..]) as usize;
         if let Some(mask) = &self.mask {
-            out[offset..offset + self.size as usize].clone_from_slice(&mask);
+            out[offset..offset + self.size as usize].clone_from_slice(mask);
             offset += mask.len();
         }
         offset += self.file1.encode_in(&mut out[offset..]);
@@ -993,7 +993,7 @@ impl Codec for ComparisonWithOtherFile {
             value: size,
             size: size_size,
         } = varint::decode(&out[1..]).map_err(|e| {
-            let WithOffset { offset, value } = e;
+            let WithOffset { offset: _, value } = e;
             WithOffset {
                 offset: 1,
                 value: Self::Error::Size(value),
@@ -1293,7 +1293,7 @@ impl Codec for StringTokenSearch {
         offset += 1;
         offset += varint::encode_in(self.size, &mut out[offset..]) as usize;
         if let Some(mask) = &self.mask {
-            out[offset..offset + self.size as usize].clone_from_slice(&mask);
+            out[offset..offset + self.size as usize].clone_from_slice(mask);
             offset += mask.len();
         }
         out[offset..offset + self.size as usize].clone_from_slice(&self.value[..]);
@@ -1419,7 +1419,7 @@ impl Codec for Query {
         }
     }
     fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
-        Ok(match QueryCode::from(out[0] >> 5)
+        match QueryCode::from(out[0] >> 5)
             .map_err(|e| WithOffset::new_head(Self::Error::UnknownQueryCode(e)))?
         {
             QueryCode::NonVoid => NonVoid::decode(out)
@@ -1440,7 +1440,7 @@ impl Codec for Query {
             QueryCode::StringTokenSearch => StringTokenSearch::decode(out)
                 .map(|ok| ok.map_value(Query::StringTokenSearch))
                 .map_err(|e| e.map_value(Self::Error::StringTokenSearch)),
-        }?)
+        }
     }
 }
 

@@ -1548,7 +1548,7 @@ impl Codec for Extension {
     unsafe fn encode_in(&self, _out: &mut [u8]) -> usize {
         todo!()
     }
-    fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
+    fn decode(_out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
         todo!()
     }
 }
@@ -1770,85 +1770,85 @@ impl Codec for Action {
             .map_err(Self::Error::UnknownOpCode)
             .map_err(WithOffset::new_head)?;
         Ok(match opcode {
-            OpCode::Nop => Nop::decode(&out)
+            OpCode::Nop => Nop::decode(out)
                 .map_err(ActionDecodingError::map_nop)?
                 .map_value(Action::Nop),
-            OpCode::ReadFileData => ReadFileData::decode(&out)
+            OpCode::ReadFileData => ReadFileData::decode(out)
                 .map_err(ActionDecodingError::map_read_file_data)?
                 .map_value(Action::ReadFileData),
-            OpCode::ReadFileProperties => ReadFileProperties::decode(&out)
+            OpCode::ReadFileProperties => ReadFileProperties::decode(out)
                 .map_err(ActionDecodingError::map_read_file_properties)?
                 .map_value(Action::ReadFileProperties),
-            OpCode::WriteFileData => WriteFileData::decode(&out)
+            OpCode::WriteFileData => WriteFileData::decode(out)
                 .map_err(ActionDecodingError::map_write_file_data)?
                 .map_value(Action::WriteFileData),
             // OpCode::WriteFileDataFlush => {
             //     WriteFileDataFlush::decode(&out)?.map_value( Action::WriteFileDataFlush)
             // }
-            OpCode::WriteFileProperties => WriteFileProperties::decode(&out)
+            OpCode::WriteFileProperties => WriteFileProperties::decode(out)
                 .map_err(ActionDecodingError::map_write_file_properties)?
                 .map_value(Action::WriteFileProperties),
-            OpCode::ActionQuery => ActionQuery::decode(&out)
+            OpCode::ActionQuery => ActionQuery::decode(out)
                 .map_err(ActionDecodingError::map_action_query)?
                 .map_value(Action::ActionQuery),
-            OpCode::BreakQuery => BreakQuery::decode(&out)
+            OpCode::BreakQuery => BreakQuery::decode(out)
                 .map_err(ActionDecodingError::map_break_query)?
                 .map_value(Action::BreakQuery),
-            OpCode::PermissionRequest => PermissionRequest::decode(&out)
+            OpCode::PermissionRequest => PermissionRequest::decode(out)
                 .map_err(ActionDecodingError::map_permission_request)?
                 .map_value(Action::PermissionRequest),
-            OpCode::VerifyChecksum => VerifyChecksum::decode(&out)
+            OpCode::VerifyChecksum => VerifyChecksum::decode(out)
                 .map_err(ActionDecodingError::map_verify_checksum)?
                 .map_value(Action::VerifyChecksum),
-            OpCode::ExistFile => ExistFile::decode(&out)
+            OpCode::ExistFile => ExistFile::decode(out)
                 .map_err(ActionDecodingError::map_exist_file)?
                 .map_value(Action::ExistFile),
-            OpCode::CreateNewFile => CreateNewFile::decode(&out)
+            OpCode::CreateNewFile => CreateNewFile::decode(out)
                 .map_err(ActionDecodingError::map_create_new_file)?
                 .map_value(Action::CreateNewFile),
-            OpCode::DeleteFile => DeleteFile::decode(&out)
+            OpCode::DeleteFile => DeleteFile::decode(out)
                 .map_err(ActionDecodingError::map_delete_file)?
                 .map_value(Action::DeleteFile),
-            OpCode::RestoreFile => RestoreFile::decode(&out)
+            OpCode::RestoreFile => RestoreFile::decode(out)
                 .map_err(ActionDecodingError::map_restore_file)?
                 .map_value(Action::RestoreFile),
-            OpCode::FlushFile => FlushFile::decode(&out)
+            OpCode::FlushFile => FlushFile::decode(out)
                 .map_err(ActionDecodingError::map_flush_file)?
                 .map_value(Action::FlushFile),
-            OpCode::CopyFile => CopyFile::decode(&out)
+            OpCode::CopyFile => CopyFile::decode(out)
                 .map_err(ActionDecodingError::map_copy_file)?
                 .map_value(Action::CopyFile),
-            OpCode::ExecuteFile => ExecuteFile::decode(&out)
+            OpCode::ExecuteFile => ExecuteFile::decode(out)
                 .map_err(ActionDecodingError::map_execute_file)?
                 .map_value(Action::ExecuteFile),
-            OpCode::ReturnFileData => ReturnFileData::decode(&out)
+            OpCode::ReturnFileData => ReturnFileData::decode(out)
                 .map_err(ActionDecodingError::map_return_file_data)?
                 .map_value(Action::ReturnFileData),
-            OpCode::ReturnFileProperties => ReturnFileProperties::decode(&out)
+            OpCode::ReturnFileProperties => ReturnFileProperties::decode(out)
                 .map_err(ActionDecodingError::map_return_file_properties)?
                 .map_value(Action::ReturnFileProperties),
-            OpCode::Status => Status::decode(&out)
+            OpCode::Status => Status::decode(out)
                 .map_err(ActionDecodingError::map_status)?
                 .map_value(Action::Status),
-            OpCode::ResponseTag => ResponseTag::decode(&out)
+            OpCode::ResponseTag => ResponseTag::decode(out)
                 .map_err(ActionDecodingError::map_response_tag)?
                 .map_value(Action::ResponseTag),
-            OpCode::Chunk => Chunk::decode(&out)
+            OpCode::Chunk => Chunk::decode(out)
                 .map_err(ActionDecodingError::map_chunk)?
                 .map_value(Action::Chunk),
-            OpCode::Logic => Logic::decode(&out)
+            OpCode::Logic => Logic::decode(out)
                 .map_err(ActionDecodingError::map_logic)?
                 .map_value(Action::Logic),
-            OpCode::Forward => Forward::decode(&out)
+            OpCode::Forward => Forward::decode(out)
                 .map_err(ActionDecodingError::map_forward)?
                 .map_value(Action::Forward),
-            OpCode::IndirectForward => IndirectForward::decode(&out)
+            OpCode::IndirectForward => IndirectForward::decode(out)
                 .map_err(ActionDecodingError::map_indirect_forward)?
                 .map_value(Action::IndirectForward),
-            OpCode::RequestTag => RequestTag::decode(&out)
+            OpCode::RequestTag => RequestTag::decode(out)
                 .map_err(ActionDecodingError::map_request_tag)?
                 .map_value(Action::RequestTag),
-            OpCode::Extension => Extension::decode(&out)
+            OpCode::Extension => Extension::decode(out)
                 .map_err(ActionDecodingError::map_extension)?
                 .map_value(Action::Extension),
         })
