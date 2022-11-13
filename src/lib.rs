@@ -39,9 +39,6 @@ mod test_tools;
 #[cfg(test)]
 use hex_literal::hex;
 
-#[cfg(test)]
-use test_tools::test_item;
-
 /// ALP basic Actions used to build Commands
 pub mod action;
 /// A Codec module specifying how to encode/decode each encodable items
@@ -101,19 +98,23 @@ impl Default for Command {
         Self { actions: vec![] }
     }
 }
-impl Codec for Command {
-    type Error = CommandParseFail;
-    fn encoded_size(&self) -> usize {
+impl Command {
+    pub fn encoded_size(&self) -> usize {
         self.actions.iter().map(|act| act.encoded_size()).sum()
     }
-    unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
+    pub unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
         let mut offset = 0;
         for action in self.actions.iter() {
             offset += action.encode_in(&mut out[offset..]);
         }
         offset
     }
-    fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
+    pub fn encode(&self) -> Box<[u8]> {
+        let mut data = vec![0; self.encoded_size()].into_boxed_slice();
+        unsafe { self.encode_in(&mut data) };
+        data
+    }
+    pub fn decode(out: &[u8]) -> Result<Self, WithOffset<CommandParseFail>> {
         let mut actions = vec![];
         let mut offset = 0;
         loop {
@@ -137,46 +138,47 @@ impl Codec for Command {
                 }
             }
         }
-        Ok(codec::WithSize {
-            value: Self { actions },
-            size: offset,
-        })
+        Ok(Self { actions })
     }
 }
 #[test]
 fn test_command() {
-    test_item(
-        Command {
-            actions: vec![
-                Action::RequestTag(action::RequestTag { id: 66, eop: true }),
-                Action::ReadFileData(
-                    action::new::ReadFileData {
-                        resp: true,
-                        group: false,
-                        file_id: 0,
-                        offset: 0,
-                        size: 8,
-                    }
-                    .build()
-                    .unwrap(),
-                ),
-                Action::ReadFileData(
-                    action::new::ReadFileData {
-                        resp: false,
-                        group: true,
-                        file_id: 4,
-                        offset: 2,
-                        size: 3,
-                    }
-                    .build()
-                    .unwrap(),
-                ),
-                Action::Nop(action::Nop {
+    let cmd = Command {
+        actions: vec![
+            Action::RequestTag(action::RequestTag { id: 66, eop: true }),
+            Action::ReadFileData(
+                action::new::ReadFileData {
                     resp: true,
+                    group: false,
+                    file_id: 0,
+                    offset: 0,
+                    size: 8,
+                }
+                .build()
+                .unwrap(),
+            ),
+            Action::ReadFileData(
+                action::new::ReadFileData {
+                    resp: false,
                     group: true,
-                }),
-            ],
-        },
-        &hex!("B4 42   41 00 00 08   81 04 02 03  C0"),
-    )
+                    file_id: 4,
+                    offset: 2,
+                    size: 3,
+                }
+                .build()
+                .unwrap(),
+            ),
+            Action::Nop(action::Nop {
+                resp: true,
+                group: true,
+            }),
+        ],
+    };
+    let data = &hex!("B4 42   41 00 00 08   81 04 02 03  C0") as &[u8];
+
+    assert_eq!(&cmd.encode()[..], data);
+    assert_eq!(
+        Command::decode(data).expect("should be parsed without error"),
+        cmd,
+    );
 }
