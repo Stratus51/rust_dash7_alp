@@ -1,4 +1,4 @@
-use crate::codec::{Codec, WithOffset, WithSize};
+use crate::codec::{Codec, StdError, WithOffset, WithSize};
 #[cfg(test)]
 use crate::test_tools::test_item;
 #[cfg(test)]
@@ -6,6 +6,7 @@ use hex_literal::hex;
 
 /// Encryption algorigthm for over-the-air packets
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[repr(u8)]
 pub enum NlsMethod {
     None = 0,
     AesCtr = 1,
@@ -17,8 +18,8 @@ pub enum NlsMethod {
     AesCcm32 = 7,
 }
 impl NlsMethod {
-    fn from(n: u8) -> Result<NlsMethod, u8> {
-        Ok(match n {
+    pub(crate) unsafe fn from(n: u8) -> NlsMethod {
+        match n {
             0 => NlsMethod::None,
             1 => NlsMethod::AesCtr,
             2 => NlsMethod::AesCbcMac128,
@@ -27,8 +28,89 @@ impl NlsMethod {
             5 => NlsMethod::AesCcm128,
             6 => NlsMethod::AesCcm64,
             7 => NlsMethod::AesCcm32,
-            x => return Err(x),
-        })
+            _ => panic!(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum NlsState {
+    None,
+    AesCtr([u8; 5]),
+    AesCbcMac128([u8; 5]),
+    AesCbcMac64([u8; 5]),
+    AesCbcMac32([u8; 5]),
+    AesCcm128([u8; 5]),
+    AesCcm64([u8; 5]),
+    AesCcm32([u8; 5]),
+}
+
+impl NlsState {
+    fn build_non_none(method: NlsMethod, state: [u8; 5]) -> Self {
+        match method {
+            NlsMethod::None => panic!(),
+            NlsMethod::AesCtr => Self::AesCtr(state),
+            NlsMethod::AesCbcMac128 => Self::AesCbcMac128(state),
+            NlsMethod::AesCbcMac64 => Self::AesCbcMac64(state),
+            NlsMethod::AesCbcMac32 => Self::AesCbcMac32(state),
+            NlsMethod::AesCcm128 => Self::AesCcm128(state),
+            NlsMethod::AesCcm64 => Self::AesCcm64(state),
+            NlsMethod::AesCcm32 => Self::AesCcm32(state),
+        }
+    }
+
+    fn method(&self) -> NlsMethod {
+        match self {
+            Self::None => NlsMethod::None,
+            Self::AesCtr(state) => NlsMethod::AesCtr,
+            Self::AesCbcMac128(state) => NlsMethod::AesCbcMac128,
+            Self::AesCbcMac64(state) => NlsMethod::AesCbcMac64,
+            Self::AesCbcMac32(state) => NlsMethod::AesCbcMac32,
+            Self::AesCcm128(state) => NlsMethod::AesCcm128,
+            Self::AesCcm64(state) => NlsMethod::AesCcm64,
+            Self::AesCcm32(state) => NlsMethod::AesCcm32,
+        }
+    }
+
+    fn encoded_size(&self) -> usize {
+        match self {
+            Self::None => 0,
+            _ => 5,
+        }
+    }
+
+    fn get_data(&self) -> Option<&[u8; 5]> {
+        match self {
+            Self::None => None,
+            Self::AesCtr(state) => Some(state),
+            Self::AesCbcMac128(state) => Some(state),
+            Self::AesCbcMac64(state) => Some(state),
+            Self::AesCbcMac32(state) => Some(state),
+            Self::AesCcm128(state) => Some(state),
+            Self::AesCcm64(state) => Some(state),
+            Self::AesCcm32(state) => Some(state),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+#[repr(u8)]
+pub enum AddressType {
+    NoId = 0,
+    NbId = 1,
+    Uid = 2,
+    Vid = 3,
+}
+
+impl From<u8> for AddressType {
+    fn from(n: u8) -> Self {
+        match n {
+            0 => Self::NoId,
+            1 => Self::NbId,
+            2 => Self::Uid,
+            3 => Self::Vid,
+            _ => panic!(),
+        }
     }
 }
 
@@ -41,143 +123,91 @@ pub enum Address {
     /// Broadcast to everyone
     NoId,
     /// Unicast to target via its UID (Unique Dash7 ID)
-    Uid(Box<[u8; 8]>),
+    Uid([u8; 8]),
     /// Unicast to target via its VID (Virtual ID)
-    Vid(Box<[u8; 2]>),
+    Vid([u8; 2]),
 }
-/// All the parameters required to address a target
-#[derive(Clone, Debug, PartialEq)]
-pub struct Addressee {
-    /// Encrypting method
-    pub nls_method: NlsMethod,
-    /// Listening access class of the target
-    pub access_class: u8,
-    /// Address of the target
-    pub address: Address,
-}
-#[derive(Debug, Copy, Clone, Hash, PartialEq)]
-pub enum AddresseeDecodingError {
-    MissingBytes(usize),
-    UnknownNlsMethod(u8),
-}
-impl Codec for Addressee {
-    type Error = AddresseeDecodingError;
-    fn encoded_size(&self) -> usize {
-        1 + 1
-            + match self.address {
-                Address::NbId(_) => 1,
-                Address::NoId => 0,
-                Address::Uid(_) => 8,
-                Address::Vid(_) => 2,
-            }
-    }
-    unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
-        let (id_type, id): (u8, Box<[u8]>) = match &self.address {
-            Address::NbId(n) => (0, Box::new([*n])),
-            Address::NoId => (1, Box::new([])),
-            Address::Uid(uid) => (2, uid.clone()),
-            Address::Vid(vid) => (3, vid.clone()),
-        };
-
-        out[0] = (id_type << 4) | (self.nls_method as u8);
-        out[1] = self.access_class;
-        out[2..2 + id.len()].clone_from_slice(&id);
-        2 + id.len()
-    }
-    fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
-        const SIZE: usize = 1 + 1;
-        if out.len() < SIZE {
-            return Err(WithOffset::new_head(Self::Error::MissingBytes(
-                SIZE - out.len(),
-            )));
+impl Address {
+    pub fn id_type(&self) -> AddressType {
+        match self {
+            Self::NoId => AddressType::NoId,
+            Self::NbId(_) => AddressType::NbId,
+            Self::Uid(_) => AddressType::Uid,
+            Self::Vid(_) => AddressType::Vid,
         }
-        let id_type = (out[0] & 0x30) >> 4;
-        let nls_method = NlsMethod::from(out[0] & 0x0F)
-            .map_err(|e| WithOffset::new_head(Self::Error::UnknownNlsMethod(e)))?;
-        let access_class = out[1];
-        let (address, address_size) = match id_type {
-            0 => {
-                if out.len() < 3 {
-                    return Err(WithOffset::new_head(Self::Error::MissingBytes(1)));
-                }
-                (Address::NbId(out[2]), 1)
+    }
+}
+impl Address {
+    pub(crate) fn encoded_size(&self) -> usize {
+        match self {
+            Address::NbId(_) => 1,
+            Address::NoId => 0,
+            Address::Uid(_) => 8,
+            Address::Vid(_) => 2,
+        }
+    }
+
+    pub(crate) unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
+        match self {
+            Self::NoId => 0,
+            Self::NbId(id) => {
+                out[0] = *id;
+                1
             }
-            1 => (Address::NoId, 0),
-            2 => {
-                if out.len() < 2 + 8 {
-                    return Err(WithOffset::new_head(Self::Error::MissingBytes(
-                        2 + 8 - out.len(),
-                    )));
-                }
-                let mut data = Box::new([0u8; 8]);
-                data.clone_from_slice(&out[2..2 + 8]);
-                (Address::Uid(data), 8)
+            Self::Uid(uid) => {
+                out[..8].copy_from_slice(uid);
+                8
             }
-            3 => {
-                if out.len() < 2 + 2 {
-                    return Err(WithOffset::new_head(Self::Error::MissingBytes(
-                        2 + 2 - out.len(),
-                    )));
-                }
-                let mut data = Box::new([0u8; 2]);
-                data.clone_from_slice(&out[2..2 + 2]);
-                (Address::Vid(data), 2)
+            Self::Vid(vid) => {
+                out[..2].copy_from_slice(vid);
+                2
             }
-            x => panic!("Impossible id_type = {}", x),
-        };
-        Ok(WithSize {
-            value: Self {
-                nls_method,
-                access_class,
-                address,
+        }
+    }
+
+    pub(crate) fn parse(
+        ty: AddressType,
+        data: &[u8],
+    ) -> Result<WithSize<Self>, WithOffset<StdError>> {
+        Ok(match ty {
+            AddressType::NoId => WithSize {
+                size: 0,
+                value: Self::NoId,
             },
-            size: SIZE + address_size,
+            AddressType::NbId => WithSize {
+                size: 1,
+                value: Self::NbId(
+                    *data
+                        .get(0)
+                        .ok_or(WithOffset::new_head(StdError::MissingBytes(1)))?,
+                ),
+            },
+            AddressType::Uid => {
+                let mut uid = [0u8; 8];
+                uid.copy_from_slice(
+                    &data
+                        .get(..8)
+                        .ok_or(WithOffset::new_head(StdError::MissingBytes(data.len() - 8)))?,
+                );
+                WithSize {
+                    size: 8,
+                    value: Self::Uid(uid),
+                }
+            }
+            AddressType::Vid => {
+                let mut vid = [0u8; 2];
+                vid.copy_from_slice(
+                    &data
+                        .get(..2)
+                        .ok_or(WithOffset::new_head(StdError::MissingBytes(data.len() - 2)))?,
+                );
+                WithSize {
+                    size: 2,
+                    value: Self::Vid(vid),
+                }
+            }
         })
     }
-}
-#[test]
-fn test_addressee_nbid() {
-    test_item(
-        Addressee {
-            nls_method: NlsMethod::None,
-            access_class: 0x00,
-            address: Address::NbId(0x15),
-        },
-        &hex!("00 00 15"),
-    )
-}
-#[test]
-fn test_addressee_noid() {
-    test_item(
-        Addressee {
-            nls_method: NlsMethod::AesCbcMac128,
-            access_class: 0x24,
-            address: Address::NoId,
-        },
-        &hex!("12 24"),
-    )
-}
-#[test]
-fn test_addressee_uid() {
-    test_item(
-        Addressee {
-            nls_method: NlsMethod::AesCcm64,
-            access_class: 0x48,
-            address: Address::Uid(Box::new([0, 1, 2, 3, 4, 5, 6, 7])),
-        },
-        &hex!("26 48 0001020304050607"),
-    )
-}
-#[test]
-fn test_addressee_vid() {
-    test_item(
-        Addressee {
-            nls_method: NlsMethod::AesCcm32,
-            access_class: 0xFF,
-            address: Address::Vid(Box::new([0xAB, 0xCD])),
-        },
-        &hex!("37 FF AB CD"),
-    )
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -322,46 +352,64 @@ pub struct InterfaceConfiguration {
     ///
     /// Time given to the target to process the request.
     pub te: u8,
-    /// Addressee of the target.
-    pub addressee: Addressee,
+    /// Access class of the targeted listening device
+    pub access_class: u8,
+    /// Security method
+    pub nls_method: NlsMethod,
+    /// Address of the target.
+    pub address: Address,
 }
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq)]
 pub enum InterfaceConfigurationDecodingError {
     MissingBytes(usize),
     Qos(QosDecodingError),
-    Addressee(AddresseeDecodingError),
+}
+
+impl From<StdError> for InterfaceConfigurationDecodingError {
+    fn from(e: StdError) -> Self {
+        match e {
+            StdError::MissingBytes(n) => Self::MissingBytes(n),
+        }
+    }
 }
 
 impl Codec for InterfaceConfiguration {
     type Error = InterfaceConfigurationDecodingError;
     fn encoded_size(&self) -> usize {
-        self.qos.encoded_size() + 2 + self.addressee.encoded_size()
+        self.qos.encoded_size() + 2 + self.address.encoded_size()
     }
     unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
         self.qos.encode_in(out);
         out[1] = self.to;
         out[2] = self.te;
-        3 + self.addressee.encode_in(&mut out[3..])
+        out[3] = ((self.address.id_type() as u8) << 4) | (self.nls_method as u8);
+        out[4] = self.access_class;
+        5 + self.address.encode_in(&mut out[5..])
     }
     fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
         if out.len() < 3 {
-            return Err(WithOffset::new_head(
-                InterfaceConfigurationDecodingError::MissingBytes(3 - out.len()),
-            ));
+            return Err(WithOffset::new_head(Self::Error::MissingBytes(
+                3 - out.len(),
+            )));
         }
         let WithSize {
             value: qos,
             size: qos_size,
-        } = Qos::decode(out).map_err(|e| e.map_value(InterfaceConfigurationDecodingError::Qos))?;
+        } = Qos::decode(out).map_err(|e| e.map_value(Self::Error::Qos))?;
+        let to = out[1];
+        let te = out[2];
+        let address_type = AddressType::from((out[3] & 0x30) >> 4);
+        let nls_method = unsafe { NlsMethod::from(out[3] & 0x0F) };
+        let access_class = out[4];
         let WithSize {
-            value: addressee,
-            size: addressee_size,
-        } = Addressee::decode(&out[3..]).map_err(|e| {
+            value: address,
+            size: address_size,
+        } = Address::parse(address_type, &out[5..]).map_err(|e| {
             let WithOffset { offset, value } = e;
             WithOffset {
-                offset: offset + 3,
-                value: InterfaceConfigurationDecodingError::Addressee(value),
+                offset: offset + 5,
+                value: value.into(),
             }
         })?;
         Ok(WithSize {
@@ -369,9 +417,11 @@ impl Codec for InterfaceConfiguration {
                 qos,
                 to: out[1],
                 te: out[2],
-                addressee,
+                access_class,
+                nls_method,
+                address,
             },
-            size: qos_size + 2 + addressee_size,
+            size: qos_size + 2 + address_size,
         })
     }
 }
@@ -385,51 +435,81 @@ fn test_interface_configuration() {
             },
             to: 0x23,
             te: 0x34,
-            addressee: Addressee {
-                nls_method: NlsMethod::AesCcm32,
-                access_class: 0xFF,
-                address: Address::Vid(Box::new([0xAB, 0xCD])),
-            },
+            nls_method: NlsMethod::AesCcm32,
+            access_class: 0xFF,
+            address: Address::Vid([0xAB, 0xCD]),
         },
         &hex!("02 23 34   37 FF ABCD"),
     )
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct Status {
-    pub missed: bool,
-    pub retry: bool,
-    /// Encoded on 2 bits (max 3)
-    pub id_type: u8,
-    _private: (),
+#[test]
+fn test_interface_configuration_with_address_nbid() {
+    test_item(
+        InterfaceConfiguration {
+            qos: Qos {
+                retry: RetryMode::No,
+                resp: RespMode::Any,
+            },
+            to: 0x23,
+            te: 0x34,
+            nls_method: NlsMethod::None,
+            access_class: 0x00,
+            address: Address::NbId(0x15),
+        },
+        &hex!("02 23 34   00 00 15"),
+    )
 }
-impl Status {
-    pub fn new(new: new::Status) -> Result<Self, new::Error> {
-        if new.id_type > 3 {
-            return Err(new::Error::IdTypeTooBig);
-        }
-        Ok(Self {
-            missed: new.missed,
-            retry: new.retry,
-            id_type: new.id_type,
-            _private: (),
-        })
-    }
-    fn from_byte(n: u8) -> Self {
-        Self {
-            missed: n & 0x80 != 0,
-            retry: n & 0x40 != 0,
-            id_type: (n >> 4 & 0x03),
-            _private: (),
-        }
-    }
-    fn to_byte(&self) -> u8 {
-        let mut ret = 0;
-        ret |= (self.missed as u8) << 7;
-        ret |= (self.retry as u8) << 6;
-        ret |= self.id_type << 4;
-        ret
-    }
+#[test]
+fn test_interface_configuration_with_address_noid() {
+    test_item(
+        InterfaceConfiguration {
+            qos: Qos {
+                retry: RetryMode::No,
+                resp: RespMode::Any,
+            },
+            to: 0x23,
+            te: 0x34,
+            nls_method: NlsMethod::AesCbcMac128,
+            access_class: 0x24,
+            address: Address::NoId,
+        },
+        &hex!("02 23 34   12 24"),
+    )
+}
+#[test]
+fn test_interface_configuration_with_address_uid() {
+    test_item(
+        InterfaceConfiguration {
+            qos: Qos {
+                retry: RetryMode::No,
+                resp: RespMode::Any,
+            },
+            to: 0x23,
+            te: 0x34,
+            nls_method: NlsMethod::AesCcm64,
+            access_class: 0x48,
+            address: Address::Uid([0, 1, 2, 3, 4, 5, 6, 7]),
+        },
+        &hex!("02 23 34   26 48 0001020304050607"),
+    )
+}
+#[test]
+fn test_interface_configuration_with_address_vid() {
+    test_item(
+        InterfaceConfiguration {
+            qos: Qos {
+                retry: RetryMode::No,
+                resp: RespMode::Any,
+            },
+            to: 0x23,
+            te: 0x34,
+            nls_method: NlsMethod::AesCcm32,
+            access_class: 0xFF,
+            address: Address::Vid([0xAB, 0xCD]),
+        },
+        &hex!("02 23 34   37 FF AB CD"),
+    )
 }
 
 /// Dash7 metadata upon packet reception.
@@ -446,8 +526,8 @@ pub struct InterfaceStatus {
     pub lb: u8,
     /// Signal-to-noise Ratio (in dB)
     pub snr: u8,
-    /// D7ASP Status
-    pub status: Status,
+    /// TODO
+    pub status: u8,
     /// Value of the D7ATP Dialog ID
     pub token: u8,
     /// Value of the D7ATP Transaction ID
@@ -457,54 +537,19 @@ pub struct InterfaceStatus {
     pub resp_to: u8,
     // TODO Should I digress from the pure ALP description to restructure (addressee + nls_state)
     // into a type protected NLS based structure? Maybe yes.
-    /// D7ANP Origin Addressee.
-    pub addressee: Addressee,
-    /// Security token
-    ///
-    /// Required if a non NONE NlsMethod is specified in the addressee
-    pub nls_state: Option<[u8; 5]>,
-    _private: (),
-}
-impl InterfaceStatus {
-    pub fn new(new: new::InterfaceStatus) -> Result<Self, new::Error> {
-        match &new.addressee.nls_method {
-            NlsMethod::None => (),
-            _ => {
-                if new.nls_state.is_none() {
-                    return Err(new::Error::MissingNlsState);
-                }
-            }
-        }
-        Ok(Self {
-            ch_header: new.ch_header,
-            ch_idx: new.ch_idx,
-            rxlev: new.rxlev,
-            lb: new.lb,
-            snr: new.snr,
-            status: new.status,
-            token: new.token,
-            seq: new.seq,
-            resp_to: new.resp_to,
-            addressee: new.addressee,
-            nls_state: new.nls_state,
-            _private: (),
-        })
-    }
-}
-#[derive(Debug, Copy, Clone, Hash, PartialEq)]
-pub enum InterfaceStatusDecodingError {
-    MissingBytes(usize),
-    Addressee(AddresseeDecodingError),
+    /// Listening access class of the sender
+    pub access_class: u8,
+    /// Address of source
+    pub address: Address,
+    /// Security data
+    pub nls_state: NlsState,
 }
 impl Codec for InterfaceStatus {
-    type Error = InterfaceStatusDecodingError;
+    type Error = StdError;
     fn encoded_size(&self) -> usize {
-        10 + self.addressee.encoded_size()
-            + match self.nls_state {
-                Some(_) => 5,
-                None => 0,
-            }
+        10 + self.address.encoded_size() + self.nls_state.encoded_size()
     }
+
     unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
         let mut i = 0;
         out[i] = self.ch_header;
@@ -517,7 +562,7 @@ impl Codec for InterfaceStatus {
         i += 1;
         out[i] = self.snr;
         i += 1;
-        out[i] = self.status.to_byte();
+        out[i] = self.status;
         i += 1;
         out[i] = self.token;
         i += 1;
@@ -525,9 +570,13 @@ impl Codec for InterfaceStatus {
         i += 1;
         out[i] = self.resp_to;
         i += 1;
-        i += self.addressee.encode_in(&mut out[i..]);
-        if let Some(nls_state) = &self.nls_state {
-            out[i..i + 5].clone_from_slice(&nls_state[..]);
+        out[i] = ((self.address.id_type() as u8) << 4) | (self.nls_state.method() as u8);
+        i += 1;
+        out[i] = self.access_class;
+        i += 1;
+        i += self.address.encode_in(&mut out[i..]);
+        if let Some(data) = self.nls_state.get_data() {
+            out[i..i + 5].clone_from_slice(&data[..]);
             i += 5;
         }
         i
@@ -538,20 +587,31 @@ impl Codec for InterfaceStatus {
                 10 - out.len(),
             )));
         }
+        let ch_header = out[0];
+        let ch_idx = ((out[1] as u16) << 8) + out[2] as u16;
+        let rxlev = out[3];
+        let lb = out[4];
+        let snr = out[5];
+        let status = out[6];
+        // TODO Bypass checks for faster parsing?
+        let token = out[7];
+        let seq = out[8];
+        let resp_to = out[9];
+
+        let address_type = AddressType::from((out[10] & 0x30) >> 4);
+        let nls_method = unsafe { NlsMethod::from(out[10] & 0x0F) };
+        let access_class = out[11];
+
         let WithSize {
-            value: addressee,
-            size: addressee_size,
-        } = Addressee::decode(&out[10..]).map_err(|e| {
-            let WithOffset { offset, value } = e;
-            WithOffset {
-                offset: offset + 10,
-                value: Self::Error::Addressee(value),
-            }
-        })?;
-        let offset = 10 + addressee_size;
-        let nls_state = match addressee.nls_method {
-            NlsMethod::None => None,
-            _ => {
+            size: address_size,
+            value: address,
+        } = Address::parse(address_type, &out[12..]).map_err(|e| e.shift(12))?;
+
+        let offset = 12 + address_size;
+        let nls_state = match nls_method {
+            NlsMethod::None => NlsState::None,
+            method => {
+                offset += 5;
                 if out.len() < offset + 5 {
                     return Err(WithOffset::new(
                         offset,
@@ -560,29 +620,25 @@ impl Codec for InterfaceStatus {
                 } else {
                     let mut nls_state = [0u8; 5];
                     nls_state.clone_from_slice(&out[offset..offset + 5]);
-                    Some(nls_state)
+                    NlsState::build_non_none(method, nls_state)
                 }
             }
         };
-        let size = offset
-            + match &nls_state {
-                Some(_) => 5,
-                None => 0,
-            };
+        let size = offset;
         Ok(WithSize {
             value: Self {
-                ch_header: out[0],
-                ch_idx: ((out[1] as u16) << 8) + out[2] as u16,
-                rxlev: out[3],
-                lb: out[4],
-                snr: out[5],
-                status: Status::from_byte(out[6]),
-                token: out[7],
-                seq: out[8],
-                resp_to: out[9],
-                addressee,
+                ch_header,
+                ch_idx,
+                rxlev,
+                lb,
+                snr,
+                status,
+                token,
+                seq,
+                resp_to,
+                access_class,
+                address,
                 nls_state,
-                _private: (),
             },
             size,
         })
@@ -597,25 +653,15 @@ fn test_interface_status() {
             rxlev: 2,
             lb: 3,
             snr: 4,
-            status: new::Status {
-                missed: true,
-                retry: false,
-                id_type: 3,
-            }
-            .build()
-            .unwrap(),
+            status: 5,
             token: 6,
             seq: 7,
             resp_to: 8,
-            addressee: Addressee {
-                nls_method: NlsMethod::AesCcm32,
-                access_class: 0xFF,
-                address: Address::Vid(Box::new([0xAB, 0xCD])),
-            },
-            nls_state: Some(hex!("00 11 22 33 44")),
-            _private: (),
+            access_class: 0xFF,
+            address: Address::Vid([0xAB, 0xCD]),
+            nls_state: NlsState::AesCcm32(hex!("00 11 22 33 44")),
         },
-        &hex!("01 0123 02 03 04 B0 06 07 08   37 FF ABCD  0011223344"),
+        &hex!("01 0123 02 03 04 05 06 07 08   37 FF ABCD  0011223344"),
     )
 }
 
@@ -650,36 +696,4 @@ pub mod file {
         pub const RTC: u8 = 0x1C;
     }
     // TODO Write standard file structs
-}
-
-pub mod new {
-    pub use crate::new::Error;
-    pub struct Status {
-        pub missed: bool,
-        pub retry: bool,
-        pub id_type: u8,
-    }
-    impl Status {
-        pub fn build(self) -> Result<super::Status, Error> {
-            super::Status::new(self)
-        }
-    }
-    pub struct InterfaceStatus {
-        pub ch_header: u8,
-        pub ch_idx: u16,
-        pub rxlev: u8,
-        pub lb: u8,
-        pub snr: u8,
-        pub status: super::Status,
-        pub token: u8,
-        pub seq: u8,
-        pub resp_to: u8,
-        pub addressee: super::Addressee,
-        pub nls_state: Option<[u8; 5]>,
-    }
-    impl InterfaceStatus {
-        pub fn build(self) -> Result<super::InterfaceStatus, Error> {
-            super::InterfaceStatus::new(self)
-        }
-    }
 }

@@ -350,6 +350,14 @@ fn test_nop() {
     )
 }
 
+#[derive(Debug, Copy, Clone, Hash, PartialEq)]
+pub enum OperandValidationError {
+    /// Offset is too big to be encoded in a varint
+    OffsetTooBig,
+    /// Size is too big to be encoded in a varint
+    SizeTooBig,
+}
+
 // Read
 /// Read data from a file
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -363,24 +371,16 @@ pub struct ReadFileData {
     pub file_id: u8,
     pub offset: u32,
     pub size: u32,
-    _private: (),
 }
 impl ReadFileData {
-    pub fn new(new: new::ReadFileData) -> Result<Self, new::Error> {
-        if new.offset > varint::MAX {
-            return Err(new::Error::OffsetTooBig);
+    pub fn validate(self) -> Result<(), OperandValidationError> {
+        if self.offset > varint::MAX {
+            return Err(OperandValidationError::OffsetTooBig);
         }
-        if new.size > varint::MAX {
-            return Err(new::Error::SizeTooBig);
+        if self.size > varint::MAX {
+            return Err(OperandValidationError::SizeTooBig);
         }
-        Ok(Self {
-            group: new.group,
-            resp: new.resp,
-            file_id: new.file_id,
-            offset: new.offset,
-            size: new.size,
-            _private: (),
-        })
+        Ok(())
     }
 }
 
@@ -429,7 +429,6 @@ impl Codec for ReadFileData {
                 file_id,
                 offset,
                 size,
-                _private: (),
             },
             size: off,
         })
@@ -444,7 +443,6 @@ fn test_read_file_data() {
             file_id: 1,
             offset: 2,
             size: 3,
-            _private: (),
         },
         &hex!("41 01 02 03"),
     )
@@ -483,25 +481,17 @@ pub struct WriteFileData {
     pub file_id: u8,
     pub offset: u32,
     pub data: Box<[u8]>,
-    _private: (),
 }
 impl WriteFileData {
-    pub fn new(new: new::WriteFileData) -> Result<Self, new::Error> {
-        if new.offset > varint::MAX {
-            return Err(new::Error::OffsetTooBig);
+    pub fn validate(&self) -> Result<(), OperandValidationError> {
+        if self.offset > varint::MAX {
+            return Err(OperandValidationError::OffsetTooBig);
         }
-        let size = new.data.len() as u32;
+        let size = self.data.len() as u32;
         if size > varint::MAX {
-            return Err(new::Error::SizeTooBig);
+            return Err(OperandValidationError::SizeTooBig);
         }
-        Ok(Self {
-            group: new.group,
-            resp: new.resp,
-            file_id: new.file_id,
-            offset: new.offset,
-            data: new.data,
-            _private: (),
-        })
+        Ok(())
     }
 }
 impl Codec for WriteFileData {
@@ -553,7 +543,6 @@ impl Codec for WriteFileData {
                 file_id,
                 offset,
                 data,
-                _private: (),
             },
             size: off,
         })
@@ -568,7 +557,6 @@ fn test_write_file_data() {
             file_id: 9,
             offset: 5,
             data: Box::new(hex!("01 02 03")),
-            _private: (),
         },
         &hex!("84   09 05 03  010203"),
     )
@@ -647,16 +635,10 @@ fn test_action_query() {
         ActionQuery {
             group: true,
             resp: true,
-            query: operand::Query::NonVoid(
-                operand::new::NonVoid {
-                    size: 4,
-                    file: operand::new::FileOffset { id: 5, offset: 6 }
-                        .build()
-                        .unwrap(),
-                }
-                .build()
-                .unwrap(),
-            ),
+            query: operand::Query::NonVoid(operand::NonVoid {
+                size: 4,
+                file: operand::FileOffset { id: 5, offset: 6 },
+            }),
         },
         &hex!("C8   00 04  05 06"),
     )
@@ -687,16 +669,10 @@ fn test_break_query() {
         BreakQuery {
             group: true,
             resp: true,
-            query: operand::Query::NonVoid(
-                operand::new::NonVoid {
-                    size: 4,
-                    file: operand::new::FileOffset { id: 5, offset: 6 }
-                        .build()
-                        .unwrap(),
-                }
-                .build()
-                .unwrap(),
-            ),
+            query: operand::Query::NonVoid(operand::NonVoid {
+                size: 4,
+                file: operand::FileOffset { id: 5, offset: 6 },
+            }),
         },
         &hex!("C9   00 04  05 06"),
     )
@@ -790,16 +766,10 @@ fn test_verify_checksum() {
         VerifyChecksum {
             group: false,
             resp: false,
-            query: operand::Query::NonVoid(
-                operand::new::NonVoid {
-                    size: 4,
-                    file: operand::new::FileOffset { id: 5, offset: 6 }
-                        .build()
-                        .unwrap(),
-                }
-                .build()
-                .unwrap(),
-            ),
+            query: operand::Query::NonVoid(operand::NonVoid {
+                size: 4,
+                file: operand::FileOffset { id: 5, offset: 6 },
+            }),
         },
         &hex!("0B   00 04  05 06"),
     )
@@ -1009,25 +979,17 @@ pub struct ReturnFileData {
     pub file_id: u8,
     pub offset: u32,
     pub data: Box<[u8]>,
-    _private: (),
 }
 impl ReturnFileData {
-    pub fn new(new: new::ReturnFileData) -> Result<Self, new::Error> {
-        if new.offset > varint::MAX {
-            return Err(new::Error::OffsetTooBig);
+    pub fn validate(&self) -> Result<(), OperandValidationError> {
+        if self.offset > varint::MAX {
+            return Err(OperandValidationError::OffsetTooBig);
         }
-        let size = new.data.len() as u32;
+        let size = self.data.len() as u32;
         if size > varint::MAX {
-            return Err(new::Error::SizeTooBig);
+            return Err(OperandValidationError::SizeTooBig);
         }
-        Ok(Self {
-            group: new.group,
-            resp: new.resp,
-            file_id: new.file_id,
-            offset: new.offset,
-            data: new.data,
-            _private: (),
-        })
+        Ok(())
     }
 }
 impl Codec for ReturnFileData {
@@ -1079,7 +1041,6 @@ impl Codec for ReturnFileData {
                 file_id,
                 offset,
                 data,
-                _private: (),
             },
             size: off,
         })
@@ -1094,7 +1055,6 @@ fn test_return_file_data() {
             file_id: 9,
             offset: 5,
             data: Box::new(hex!("01 02 03")),
-            _private: (),
         },
         &hex!("20   09 05 03  010203"),
     )
@@ -1439,7 +1399,7 @@ pub struct IndirectForward {
     pub interface: operand::IndirectInterface,
 }
 impl Codec for IndirectForward {
-    type Error = operand::IndirectInterfaceDecodingError;
+    type Error = StdError;
     fn encoded_size(&self) -> usize {
         1 + self.interface.encoded_size()
     }
@@ -1479,11 +1439,9 @@ fn test_indirect_forward() {
             interface: operand::IndirectInterface::Overloaded(
                 operand::OverloadedIndirectInterface {
                     interface_file_id: 4,
-                    addressee: dash7::Addressee {
-                        nls_method: dash7::NlsMethod::AesCcm32,
-                        access_class: 0xFF,
-                        address: dash7::Address::Vid(Box::new([0xAB, 0xCD])),
-                    },
+                    nls_method: dash7::NlsMethod::AesCcm32,
+                    access_class: 0xFF,
+                    address: dash7::Address::Vid([0xAB, 0xCD]),
                 },
             ),
         },
@@ -1624,7 +1582,7 @@ pub enum ActionDecodingError {
     Chunk(StdError),
     Logic(StdError),
     Forward(operand::InterfaceConfigurationDecodingError),
-    IndirectForward(operand::IndirectInterfaceDecodingError),
+    IndirectForward(StdError),
     RequestTag(StdError),
     Extension(()),
 }
@@ -1689,11 +1647,7 @@ impl ActionDecodingError {
         Forward,
         operand::InterfaceConfigurationDecodingError
     );
-    impl_std_error_map!(
-        map_indirect_forward,
-        IndirectForward,
-        operand::IndirectInterfaceDecodingError
-    );
+    impl_std_error_map!(map_indirect_forward, IndirectForward, StdError);
     impl_std_error_map!(map_request_tag, RequestTag, StdError);
     impl_std_error_map!(map_extension, Extension, ());
 }
@@ -1852,46 +1806,5 @@ impl Codec for Action {
                 .map_err(ActionDecodingError::map_extension)?
                 .map_value(Action::Extension),
         })
-    }
-}
-
-pub mod new {
-    pub use crate::new::Error;
-
-    pub struct ReadFileData {
-        pub group: bool,
-        pub resp: bool,
-        pub file_id: u8,
-        pub offset: u32,
-        pub size: u32,
-    }
-    impl ReadFileData {
-        pub fn build(self) -> Result<super::ReadFileData, Error> {
-            super::ReadFileData::new(self)
-        }
-    }
-    pub struct WriteFileData {
-        pub group: bool,
-        pub resp: bool,
-        pub file_id: u8,
-        pub offset: u32,
-        pub data: Box<[u8]>,
-    }
-    impl WriteFileData {
-        pub fn build(self) -> Result<super::WriteFileData, Error> {
-            super::WriteFileData::new(self)
-        }
-    }
-    pub struct ReturnFileData {
-        pub group: bool,
-        pub resp: bool,
-        pub file_id: u8,
-        pub offset: u32,
-        pub data: Box<[u8]>,
-    }
-    impl ReturnFileData {
-        pub fn build(self) -> Result<super::ReturnFileData, Error> {
-            super::ReturnFileData::new(self)
-        }
     }
 }

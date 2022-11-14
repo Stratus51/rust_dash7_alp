@@ -76,6 +76,8 @@ pub use codec::{Codec, WithOffset, WithSize};
 //      read...
 // TODO is {out = &out[offset..]; out[..size]} more efficient than {out[offset..offset+size]} ?
 // TODO Add function to encode without having to define a temporary structure
+// TODO Build a consistent validation API that encourages the user to check
+// the validity of its structures
 
 // ===============================================================================
 // Command
@@ -146,28 +148,20 @@ fn test_command() {
     let cmd = Command {
         actions: vec![
             Action::RequestTag(action::RequestTag { id: 66, eop: true }),
-            Action::ReadFileData(
-                action::new::ReadFileData {
-                    resp: true,
-                    group: false,
-                    file_id: 0,
-                    offset: 0,
-                    size: 8,
-                }
-                .build()
-                .unwrap(),
-            ),
-            Action::ReadFileData(
-                action::new::ReadFileData {
-                    resp: false,
-                    group: true,
-                    file_id: 4,
-                    offset: 2,
-                    size: 3,
-                }
-                .build()
-                .unwrap(),
-            ),
+            Action::ReadFileData(action::ReadFileData {
+                resp: true,
+                group: false,
+                file_id: 0,
+                offset: 0,
+                size: 8,
+            }),
+            Action::ReadFileData(action::ReadFileData {
+                resp: false,
+                group: true,
+                file_id: 4,
+                offset: 2,
+                size: 3,
+            }),
             Action::Nop(action::Nop {
                 resp: true,
                 group: true,
