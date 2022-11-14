@@ -14,10 +14,18 @@ Implementation of a [Dash7](https://dash7-alliance.org/) ALP protocol codec from
 The goal of this library is to implement a specification with an emphasis on correctness, then
 on usability. Performance and memory usage are currently considered a secondary objective.
 
-Status
-==================================================================================
+# Status
+
 The current specification is fully implemented.
 The API is not ergonomic, but should be usable.
 
 This library was not used in any project yet, so there are probably a few bugs lying around.
 Plus there are probably some obvious ergonomy problems.
+
+# CHANGELOG
+
+## 0.2.0
+
+- Refactor codec trait (parsing/building API).
+- Refactor error model.
+- Refactor bloated constructors.
