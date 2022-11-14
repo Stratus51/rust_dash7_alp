@@ -607,7 +607,7 @@ impl Codec for InterfaceStatus {
             value: address,
         } = Address::parse(address_type, &out[12..]).map_err(|e| e.shift(12))?;
 
-        let offset = 12 + address_size;
+        let mut offset = 12 + address_size;
         let nls_state = match nls_method {
             NlsMethod::None => NlsState::None,
             method => {
