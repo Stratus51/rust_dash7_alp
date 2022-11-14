@@ -67,8 +67,8 @@ mod test {
 
     #[test]
     fn test_is_valid() {
-        assert_eq!(is_valid(0x3F_FF_FF_FF), Ok(()));
-        assert_eq!(is_valid(0x40_00_00_00), Err(()));
+        assert!(is_valid(0x3F_FF_FF_FF));
+        assert!(!is_valid(0x40_00_00_00));
     }
 
     #[test]
