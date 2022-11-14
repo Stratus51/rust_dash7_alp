@@ -96,8 +96,8 @@ impl NlsState {
 #[derive(Clone, Debug, PartialEq)]
 #[repr(u8)]
 pub enum AddressType {
-    NoId = 0,
-    NbId = 1,
+    NbId = 0,
+    NoId = 1,
     Uid = 2,
     Vid = 3,
 }
@@ -105,8 +105,8 @@ pub enum AddressType {
 impl From<u8> for AddressType {
     fn from(n: u8) -> Self {
         match n {
-            0 => Self::NoId,
-            1 => Self::NbId,
+            0 => Self::NbId,
+            1 => Self::NoId,
             2 => Self::Uid,
             3 => Self::Vid,
             _ => panic!(),
