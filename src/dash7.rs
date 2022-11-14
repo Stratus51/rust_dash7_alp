@@ -62,13 +62,13 @@ impl NlsState {
     fn method(&self) -> NlsMethod {
         match self {
             Self::None => NlsMethod::None,
-            Self::AesCtr(state) => NlsMethod::AesCtr,
-            Self::AesCbcMac128(state) => NlsMethod::AesCbcMac128,
-            Self::AesCbcMac64(state) => NlsMethod::AesCbcMac64,
-            Self::AesCbcMac32(state) => NlsMethod::AesCbcMac32,
-            Self::AesCcm128(state) => NlsMethod::AesCcm128,
-            Self::AesCcm64(state) => NlsMethod::AesCcm64,
-            Self::AesCcm32(state) => NlsMethod::AesCcm32,
+            Self::AesCtr(_) => NlsMethod::AesCtr,
+            Self::AesCbcMac128(_) => NlsMethod::AesCbcMac128,
+            Self::AesCbcMac64(_) => NlsMethod::AesCbcMac64,
+            Self::AesCbcMac32(_) => NlsMethod::AesCbcMac32,
+            Self::AesCcm128(_) => NlsMethod::AesCcm128,
+            Self::AesCcm64(_) => NlsMethod::AesCcm64,
+            Self::AesCcm32(_) => NlsMethod::AesCcm32,
         }
     }
 
@@ -179,15 +179,15 @@ impl Address {
                 value: Self::NbId(
                     *data
                         .get(0)
-                        .ok_or(WithOffset::new_head(StdError::MissingBytes(1)))?,
+                        .ok_or_else(|| WithOffset::new_head(StdError::MissingBytes(1)))?,
                 ),
             },
             AddressType::Uid => {
                 let mut uid = [0u8; 8];
                 uid.copy_from_slice(
-                    &data
-                        .get(..8)
-                        .ok_or(WithOffset::new_head(StdError::MissingBytes(data.len() - 8)))?,
+                    data.get(..8).ok_or_else(|| {
+                        WithOffset::new_head(StdError::MissingBytes(data.len() - 8))
+                    })?,
                 );
                 WithSize {
                     size: 8,
@@ -197,9 +197,9 @@ impl Address {
             AddressType::Vid => {
                 let mut vid = [0u8; 2];
                 vid.copy_from_slice(
-                    &data
-                        .get(..2)
-                        .ok_or(WithOffset::new_head(StdError::MissingBytes(data.len() - 2)))?,
+                    data.get(..2).ok_or_else(|| {
+                        WithOffset::new_head(StdError::MissingBytes(data.len() - 2))
+                    })?,
                 );
                 WithSize {
                     size: 2,

@@ -83,7 +83,7 @@ pub use codec::{Codec, WithOffset, WithSize};
 // Command
 // ===============================================================================
 /// ALP request that can be sent to an ALP compatible device.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Default)]
 pub struct Command {
     // TODO This Vec makes us ::collection dependent.
     // Does that impact application that don't use the structure?
@@ -95,15 +95,16 @@ pub struct CommandParseFail {
     pub error: action::ActionDecodingError,
 }
 
-impl Default for Command {
-    fn default() -> Self {
-        Self { actions: vec![] }
-    }
-}
 impl Command {
     pub fn encoded_size(&self) -> usize {
         self.actions.iter().map(|act| act.encoded_size()).sum()
     }
+    /// Encode the item into a given byte array.
+    /// # Safety
+    /// You have to ensure there is enough space in the given array (compared to what
+    /// [encoded_size](#encoded_size) returns) or this method will panic.
+    /// # Panics
+    /// Panics if the given `out` array is too small.
     pub unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
         let mut offset = 0;
         for action in self.actions.iter() {

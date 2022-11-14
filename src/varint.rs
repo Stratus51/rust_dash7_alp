@@ -1,12 +1,8 @@
 use crate::codec::{StdError, WithOffset, WithSize};
 pub const MAX: u32 = 0x3F_FF_FF_FF;
 /// Returns whether the value is encodable into a varint or not.
-pub fn is_valid(n: u32) -> Result<(), ()> {
-    if n > MAX {
-        Err(())
-    } else {
-        Ok(())
-    }
+pub fn is_valid(n: u32) -> bool {
+    n <= MAX
 }
 
 /// Calculate the size in bytes of the value encoded as a varint.

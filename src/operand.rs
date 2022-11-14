@@ -710,7 +710,6 @@ pub struct ComparisonWithValue {
     pub mask: Option<Box<[u8]>>,
     pub value: Box<[u8]>,
     pub file: FileOffset,
-    _private: (),
 }
 impl ComparisonWithValue {
     pub fn validate(&self) -> Result<(), QueryValidationError> {
@@ -752,7 +751,7 @@ impl Codec for ComparisonWithValue {
         offset += 1;
         offset += varint::encode_in(self.size, &mut out[offset..]) as usize;
         if let Some(mask) = &self.mask {
-            out[offset..offset + self.size as usize].clone_from_slice(&mask);
+            out[offset..offset + self.size as usize].clone_from_slice(mask);
             offset += mask.len();
         }
         out[offset..offset + self.size as usize].clone_from_slice(&self.value[..]);
@@ -811,7 +810,6 @@ impl Codec for ComparisonWithValue {
                 mask,
                 value,
                 file,
-                _private: (),
             },
             size: offset,
         })
@@ -827,7 +825,6 @@ fn test_comparison_with_value_operand() {
             mask: None,
             value: vec![9, 9, 9].into_boxed_slice(),
             file: FileOffset { id: 4, offset: 5 },
-            _private: (),
         },
         &hex!("41 03   090909  04 05"),
     )
@@ -989,16 +986,6 @@ impl BitmapRangeComparison {
         if self.start > self.stop {
             return Err(QueryValidationError::StartGreaterThanStop);
         }
-        let max = self.size;
-        let size: u32 = if max <= 0xFF {
-            1
-        } else if max <= 0xFF_FF {
-            2
-        } else if max <= 0xFF_FF_FF {
-            3
-        } else {
-            4
-        };
 
         let bitmap_size = (self.stop - self.start + 6) / 8; // ALP SPEC: Thanks for the calculation
         if self.bitmap.len() != bitmap_size as usize {
@@ -1024,10 +1011,11 @@ impl Codec for BitmapRangeComparison {
             | self.comparison_type as u8;
         offset += 1;
         offset += varint::encode_in(self.size, &mut out[offset..]) as usize;
-        out[offset..offset + self.size as usize].clone_from_slice(&self.start.to_be_bytes());
-        offset += self.size as usize;
-        out[offset..offset + self.size as usize].clone_from_slice(&self.stop.to_be_bytes());
-        offset += self.size as usize;
+        let size = self.size as usize;
+        out[offset..offset + size].clone_from_slice(&self.start.to_be_bytes()[4 - size..]);
+        offset += size;
+        out[offset..offset + size].clone_from_slice(&self.stop.to_be_bytes()[4 - size..]);
+        offset += size;
         out[offset..offset + self.bitmap.len()].clone_from_slice(&self.bitmap[..]);
         offset += self.bitmap.len();
         offset += self.file.encode_in(&mut out[offset..]);
