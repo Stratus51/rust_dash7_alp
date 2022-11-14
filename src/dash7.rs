@@ -377,7 +377,7 @@ impl From<StdError> for InterfaceConfigurationDecodingError {
 impl Codec for InterfaceConfiguration {
     type Error = InterfaceConfigurationDecodingError;
     fn encoded_size(&self) -> usize {
-        self.qos.encoded_size() + 2 + self.address.encoded_size()
+        self.qos.encoded_size() + 4 + self.address.encoded_size()
     }
     unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
         self.qos.encode_in(out);
@@ -388,9 +388,9 @@ impl Codec for InterfaceConfiguration {
         5 + self.address.encode_in(&mut out[5..])
     }
     fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
-        if out.len() < 3 {
+        if out.len() < 5 {
             return Err(WithOffset::new_head(Self::Error::MissingBytes(
-                3 - out.len(),
+                5 - out.len(),
             )));
         }
         let WithSize {
@@ -415,13 +415,13 @@ impl Codec for InterfaceConfiguration {
         Ok(WithSize {
             value: Self {
                 qos,
-                to: out[1],
-                te: out[2],
+                to,
+                te,
                 access_class,
                 nls_method,
                 address,
             },
-            size: qos_size + 2 + address_size,
+            size: qos_size + 4 + address_size,
         })
     }
 }
@@ -547,7 +547,7 @@ pub struct InterfaceStatus {
 impl Codec for InterfaceStatus {
     type Error = StdError;
     fn encoded_size(&self) -> usize {
-        10 + self.address.encoded_size() + self.nls_state.encoded_size()
+        12 + self.address.encoded_size() + self.nls_state.encoded_size()
     }
 
     unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
@@ -611,7 +611,6 @@ impl Codec for InterfaceStatus {
         let nls_state = match nls_method {
             NlsMethod::None => NlsState::None,
             method => {
-                offset += 5;
                 if out.len() < offset + 5 {
                     return Err(WithOffset::new(
                         offset,
@@ -620,6 +619,7 @@ impl Codec for InterfaceStatus {
                 } else {
                     let mut nls_state = [0u8; 5];
                     nls_state.clone_from_slice(&out[offset..offset + 5]);
+                    offset += 5;
                     NlsState::build_non_none(method, nls_state)
                 }
             }

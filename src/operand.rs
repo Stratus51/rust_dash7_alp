@@ -1327,7 +1327,9 @@ impl Codec for OverloadedIndirectInterface {
     }
     unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
         out[0] = self.interface_file_id;
-        1 + 2 + self.address.encode_in(&mut out[1..])
+        out[1] = ((self.address.id_type() as u8) << 4) | (self.nls_method as u8);
+        out[2] = self.access_class;
+        1 + 2 + self.address.encode_in(&mut out[3..])
     }
     fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
         if out.len() < 1 + 2 {
@@ -1350,7 +1352,7 @@ impl Codec for OverloadedIndirectInterface {
                 access_class,
                 address,
             },
-            size: 1 + address_size,
+            size: 1 + 2 + address_size,
         })
     }
 }
