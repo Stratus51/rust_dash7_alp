@@ -15,6 +15,45 @@
 //! The goal of this library is to implement a specification with an emphasis on correctness, then
 //! on usability. Performance and memory usage are currently considered a secondary objective.
 //!
+//! Quickstart
+//! ==============================================================================
+//!
+//! ```
+//! use hex_literal::hex;
+//! use dash7_alp::{Action, Command, Codec, action};
+//!
+//! fn main() {
+//!     let cmd = Command {
+//!         actions: vec![
+//!             Action::RequestTag(action::RequestTag { id: 66, eop: true }),
+//!             Action::ReadFileData(action::ReadFileData {
+//!                 resp: true,
+//!                 group: false,
+//!                 file_id: 0,
+//!                 offset: 0,
+//!                 size: 8,
+//!             }),
+//!             Action::ReadFileData(action::ReadFileData {
+//!                 resp: false,
+//!                 group: true,
+//!                 file_id: 4,
+//!                 offset: 2,
+//!                 size: 3,
+//!             }),
+//!             Action::Nop(action::Nop {
+//!                 resp: true,
+//!                 group: true,
+//!             }),
+//!         ],
+//!     };
+//!     let data = &hex!("B4 42   41 00 00 08   81 04 02 03  C0") as &[u8];
+//!
+//!     assert_eq!(&cmd.encode()[..], data);
+//!     let parsed_cmd = Command::decode(data).expect("should be parsed without error");
+//!     assert_eq!(parsed_cmd, cmd);
+//! }
+//! ```
+//!
 //! Notes
 //! ==============================================================================
 //! Group
