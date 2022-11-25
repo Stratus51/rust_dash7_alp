@@ -159,7 +159,7 @@ macro_rules! impl_simple_op {
     };
 }
 
-#[derive(Debug, Copy, Clone, Hash, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum HeaderActionDecodingError {
     MissingBytes(usize),
     FileHeader(StdError),
@@ -350,7 +350,7 @@ fn test_nop() {
     )
 }
 
-#[derive(Debug, Copy, Clone, Hash, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum OperandValidationError {
     /// Offset is too big to be encoded in a varint
     OffsetTooBig,
@@ -689,7 +689,7 @@ pub struct PermissionRequest {
     pub level: u8,
     pub permission: operand::Permission,
 }
-#[derive(Debug, Copy, Clone, Hash, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum PermissionRequestDecodingError {
     MissingBytes(usize),
     Permission(operand::PermissionDecodingError),
@@ -1132,7 +1132,7 @@ pub enum Status {
     Interface(operand::InterfaceStatus),
     // ALP SPEC: Where are the stack errors?
 }
-#[derive(Debug, Copy, Clone, Hash, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum StatusDecodingError {
     MissingBytes(usize),
     UnknownType(u8),
@@ -1555,7 +1555,7 @@ pub enum Action {
     Extension(Extension),
 }
 
-#[derive(Debug, Copy, Clone, Hash, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum ActionDecodingError {
     NoData,
     UnknownOpCode(u8),
