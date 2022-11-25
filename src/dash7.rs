@@ -290,7 +290,7 @@ pub struct Qos {
     pub retry: RetryMode,
     pub resp: RespMode,
 }
-#[derive(Debug, Copy, Clone, Hash, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum QosDecodingError {
     MissingBytes(u8),
     UnknownRetryMode(u8),
@@ -360,7 +360,7 @@ pub struct InterfaceConfiguration {
     pub address: Address,
 }
 
-#[derive(Debug, Copy, Clone, Hash, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum InterfaceConfigurationDecodingError {
     MissingBytes(usize),
     Qos(QosDecodingError),

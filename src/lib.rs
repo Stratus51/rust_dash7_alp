@@ -99,12 +99,6 @@ pub use codec::{Codec, WithOffset, WithSize};
 // TODO Verify each item's name against the SPEC
 
 // TODO Look into const function to replace some macros?
-// TODO Use uninitialized memory where possible
-// TODO Int enums: fn from(): find a way to avoid double value definition
-// TODO Int enums: optim: find a way to cast from int to enum instead of calling a matching
-// function (much more resource intensive). Only do that for enums that match all possible
-// values that result from the parsing.
-// TODO Optimize min size calculation (fold it into the upper OP when possible)
 // TODO usize is target dependent. In other words, on a 16 bit processor, we will run into
 // troubles if we were to convert u32 to usize (even if a 64Ko payload seems a bit big).
 // Maybe we should just embrace this limitation? (Not to be lazy or anything...)
@@ -113,8 +107,6 @@ pub use codec::{Codec, WithOffset, WithSize};
 // at runtime while still testing it at compile/test time?
 //      - For simple index access, get_unchecked_mut can do the trick. But It makes the code hard to
 //      read...
-// TODO is {out = &out[offset..]; out[..size]} more efficient than {out[offset..offset+size]} ?
-// TODO Add function to encode without having to define a temporary structure
 // TODO Build a consistent validation API that encourages the user to check
 // the validity of its structures
 

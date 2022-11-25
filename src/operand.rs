@@ -25,7 +25,7 @@ pub enum InterfaceConfiguration {
     Host,
     D7asp(dash7::InterfaceConfiguration),
 }
-#[derive(Debug, Copy, Clone, Hash, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum InterfaceConfigurationDecodingError {
     MissingBytes(usize),
     D7asp(dash7::InterfaceConfigurationDecodingError),
@@ -113,7 +113,7 @@ pub enum InterfaceStatus {
     D7asp(dash7::InterfaceStatus),
     Unknown(InterfaceStatusUnknown),
 }
-#[derive(Debug, Copy, Clone, Hash, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum InterfaceStatusDecodingError {
     MissingBytes(usize),
     BadInterfaceId(u8),
@@ -263,7 +263,7 @@ pub struct FileOffset {
     pub offset: u32,
 }
 
-#[derive(Debug, Copy, Clone, Hash, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum FileOffsetDecodingError {
     MissingBytes(usize),
     Offset(StdError),
@@ -392,7 +392,7 @@ impl Permission {
     }
 }
 
-#[derive(Debug, Copy, Clone, Hash, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum PermissionDecodingError {
     MissingBytes(usize),
     UnknownId(u8),
@@ -500,7 +500,7 @@ impl QueryCode {
     }
 }
 
-#[derive(Debug, Copy, Clone, Hash, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum QueryOperandDecodingError {
     MissingBytes(usize),
     Size(StdError),
@@ -574,7 +574,7 @@ fn test_non_void_query_operand() {
     )
 }
 
-#[derive(Debug, Copy, Clone, Hash, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum QueryValidationError {
     /// Query data size can't fit in a varint
     SizeTooBig,
@@ -1238,7 +1238,7 @@ pub enum Query {
     BitmapRangeComparison(BitmapRangeComparison),
     StringTokenSearch(StringTokenSearch),
 }
-#[derive(Debug, Copy, Clone, Hash, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum QueryDecodingError {
     MissingBytes(usize),
     UnknownQueryCode(u8),
