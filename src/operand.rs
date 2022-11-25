@@ -7,9 +7,6 @@ use crate::{
 #[cfg(test)]
 use hex_literal::hex;
 
-// TODO
-// Protect varint values
-
 // ===============================================================================
 // Alp Interfaces
 // ===============================================================================
@@ -971,11 +968,8 @@ pub struct BitmapRangeComparison {
     pub signed_data: bool,
     pub comparison_type: QueryRangeComparisonType,
     pub size: u32,
-    // ALP SPEC: In theory, start and stop can be huge array thus impossible to cast into any trivial
-    // number. How do we deal with this.
-    // If the max size is ever settled by the spec, replace the buffer by the max size. This may take up more
-    // memory, but would be way easier to use. Also it would avoid having to specify the ".size"
-    // field.
+    /// ALP SPEC: In theory, start and stop can be huge array thus impossible to cast into any trivial
+    /// number. For simplicity's sake, this library encodes them in a u32.
     pub start: u32,
     pub stop: u32,
     pub bitmap: Box<[u8]>,
@@ -1048,9 +1042,6 @@ impl Codec for BitmapRangeComparison {
         let mut raw_stop = vec![0u8; size].into_boxed_slice();
         raw_stop.clone_from_slice(&out[offset..offset + size]);
         offset += size;
-        // TODO Current max start/stop size chosen is u32 because that is the file size limit.
-        // But in theory there is no requirement for the bitmap to have any relation with the
-        // file sizes. So this might panic if you download your amazon bluerays over ALP.
         let mut start = 0u32;
         let mut stop = 0u32;
         for i in 0..size {

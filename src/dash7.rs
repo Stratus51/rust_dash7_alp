@@ -526,17 +526,14 @@ pub struct InterfaceStatus {
     pub lb: u8,
     /// Signal-to-noise Ratio (in dB)
     pub snr: u8,
-    /// TODO
+    /// D7ASP Status
     pub status: u8,
     /// Value of the D7ATP Dialog ID
     pub token: u8,
     /// Value of the D7ATP Transaction ID
     pub seq: u8,
-    // D7A SPEC: What is that?
     /// Time during which the response is expected in Compressed Format
     pub resp_to: u8,
-    // TODO Should I digress from the pure ALP description to restructure (addressee + nls_state)
-    // into a type protected NLS based structure? Maybe yes.
     /// Listening access class of the sender
     pub access_class: u8,
     /// Address of source
@@ -593,7 +590,6 @@ impl Codec for InterfaceStatus {
         let lb = out[4];
         let snr = out[5];
         let status = out[6];
-        // TODO Bypass checks for faster parsing?
         let token = out[7];
         let seq = out[8];
         let resp_to = out[9];
