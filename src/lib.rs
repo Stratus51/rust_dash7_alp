@@ -117,6 +117,17 @@ pub struct Command {
     // Does that impact application that don't use the structure?
     pub actions: Vec<Action>,
 }
+
+impl std::fmt::Display for Command {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "[")?;
+        for action in self.actions.iter() {
+            write!(f, "{}, ", action)?;
+        }
+        write!(f, "]")
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct CommandParseFail {
     pub actions: Vec<Action>,

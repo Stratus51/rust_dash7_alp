@@ -159,6 +159,128 @@ macro_rules! impl_simple_op {
     };
 }
 
+macro_rules! impl_display_simple_op {
+    ($name: ident) => {
+        impl std::fmt::Display for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(
+                    f,
+                    "{}{}",
+                    if self.group { "G" } else { "-" },
+                    if self.resp { "R" } else { "-" },
+                )
+            }
+        }
+    };
+    ($name: ident, $field1: ident) => {
+        impl std::fmt::Display for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(
+                    f,
+                    "{}{};{}",
+                    if self.group { "G" } else { "-" },
+                    if self.resp { "R" } else { "-" },
+                    self.$field1
+                )
+            }
+        }
+    };
+    ($name: ident, $field1: ident, $field2: ident) => {
+        impl std::fmt::Display for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(
+                    f,
+                    "{}{};{};{}",
+                    if self.group { "G" } else { "-" },
+                    if self.resp { "R" } else { "-" },
+                    self.$field1,
+                    self.$field2
+                )
+            }
+        }
+    };
+}
+
+macro_rules! impl_display_simple_file_op {
+    ($name: ident, $field1: ident) => {
+        impl std::fmt::Display for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(
+                    f,
+                    "{}{};f[{}]",
+                    if self.group { "G" } else { "-" },
+                    if self.resp { "R" } else { "-" },
+                    self.$field1,
+                )
+            }
+        }
+    };
+    ($name: ident, $field1: ident, $field2: ident) => {
+        impl std::fmt::Display for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(
+                    f,
+                    "{}{};f[{};{}]",
+                    if self.group { "G" } else { "-" },
+                    if self.resp { "R" } else { "-" },
+                    self.$field1,
+                    self.$field2,
+                )
+            }
+        }
+    };
+    ($name: ident, $field1: ident, $field2: ident, $field3: ident) => {
+        impl std::fmt::Display for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(
+                    f,
+                    "{}{};f[{};{};{}]",
+                    if self.group { "G" } else { "-" },
+                    if self.resp { "R" } else { "-" },
+                    self.$field1,
+                    self.$field2,
+                    self.$field3,
+                )
+            }
+        }
+    };
+}
+
+macro_rules! impl_display_data_file_op {
+    ($name: ident) => {
+        impl std::fmt::Display for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(
+                    f,
+                    "{}{};f[{};{};0x{}]",
+                    if self.group { "G" } else { "-" },
+                    if self.resp { "R" } else { "-" },
+                    self.file_id,
+                    self.offset,
+                    hex::encode_upper(&self.data),
+                )
+            }
+        }
+    };
+}
+
+macro_rules! impl_display_prop_file_op {
+    ($name: ident, $field: ident) => {
+        impl std::fmt::Display for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(
+                    f,
+                    "{}{};f[{}];{}",
+                    if self.group { "G" } else { "-" },
+                    if self.resp { "R" } else { "-" },
+                    self.file_id,
+                    self.$field,
+                )
+            }
+        }
+    };
+}
+
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum HeaderActionDecodingError {
     MissingBytes(usize),
@@ -302,6 +424,49 @@ impl OpCode {
         })
     }
 }
+impl std::fmt::Display for OpCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            // Nop
+            OpCode::Nop => write!(f, "NOP"),
+
+            // Read
+            OpCode::ReadFileData => write!(f, "RFD"),
+            OpCode::ReadFileProperties => write!(f, "RFP"),
+
+            // Write
+            OpCode::WriteFileData => write!(f, "WFD"),
+            OpCode::WriteFileProperties => write!(f, "WFP"),
+            OpCode::ActionQuery => write!(f, "AQR"),
+            OpCode::BreakQuery => write!(f, "BQR"),
+            OpCode::PermissionRequest => write!(f, "PRQ"),
+            OpCode::VerifyChecksum => write!(f, "VCS"),
+
+            // Management
+            OpCode::ExistFile => write!(f, "EF_"),
+            OpCode::CreateNewFile => write!(f, "CNF"),
+            OpCode::DeleteFile => write!(f, "DF_"),
+            OpCode::RestoreFile => write!(f, "RSF"),
+            OpCode::FlushFile => write!(f, "FLF"),
+            OpCode::CopyFile => write!(f, "CPF"),
+            OpCode::ExecuteFile => write!(f, "XF_"),
+
+            // Response
+            OpCode::ReturnFileData => write!(f, "FD_"),
+            OpCode::ReturnFileProperties => write!(f, "FP_"),
+            OpCode::Status => write!(f, "STS"),
+            OpCode::ResponseTag => write!(f, "TAG"),
+
+            // Special
+            OpCode::Chunk => write!(f, "CHK"),
+            OpCode::Logic => write!(f, "LOG"),
+            OpCode::Forward => write!(f, "FWD"),
+            OpCode::IndirectForward => write!(f, "IFW"),
+            OpCode::RequestTag => write!(f, "RTG"),
+            OpCode::Extension => write!(f, "EXT"),
+        }
+    }
+}
 
 // ===============================================================================
 // Actions
@@ -315,6 +480,7 @@ pub struct Nop {
     /// Ask for a response (status)
     pub resp: bool,
 }
+impl_display_simple_op!(Nop);
 impl Codec for Nop {
     type Error = StdError;
 
@@ -372,6 +538,7 @@ pub struct ReadFileData {
     pub offset: u32,
     pub size: u32,
 }
+impl_display_simple_file_op!(ReadFileData, file_id, offset, size);
 impl ReadFileData {
     pub fn validate(self) -> Result<(), OperandValidationError> {
         if self.offset > varint::MAX {
@@ -458,6 +625,7 @@ pub struct ReadFileProperties {
     pub file_id: u8,
 }
 impl_simple_op!(ReadFileProperties, group, resp, file_id);
+impl_display_simple_file_op!(ReadFileProperties, file_id);
 #[test]
 fn test_read_file_properties() {
     test_item(
@@ -482,6 +650,7 @@ pub struct WriteFileData {
     pub offset: u32,
     pub data: Box<[u8]>,
 }
+impl_display_data_file_op!(WriteFileData);
 impl WriteFileData {
     pub fn validate(&self) -> Result<(), OperandValidationError> {
         if self.offset > varint::MAX {
@@ -573,6 +742,18 @@ pub struct WriteFileProperties {
     pub header: data::FileHeader,
 }
 impl_header_op!(WriteFileProperties, group, resp, file_id, header);
+impl std::fmt::Display for WriteFileProperties {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "{}{};f[{}];{}",
+            if self.group { "G" } else { "-" },
+            if self.resp { "R" } else { "-" },
+            self.file_id,
+            self.header,
+        )
+    }
+}
 #[test]
 fn test_write_file_properties() {
     test_item(
@@ -621,6 +802,7 @@ pub struct ActionQuery {
     pub resp: bool,
     pub query: operand::Query,
 }
+impl_display_simple_op!(ActionQuery, query);
 impl_op_serialized!(
     ActionQuery,
     group,
@@ -654,6 +836,17 @@ pub struct BreakQuery {
     /// Does not make sense.
     pub resp: bool,
     pub query: operand::Query,
+}
+impl std::fmt::Display for BreakQuery {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "{}{};{}",
+            if self.group { "G" } else { "-" },
+            if self.resp { "R" } else { "-" },
+            self.query,
+        )
+    }
 }
 impl_op_serialized!(
     BreakQuery,
@@ -689,6 +882,7 @@ pub struct PermissionRequest {
     pub level: u8,
     pub permission: operand::Permission,
 }
+impl_display_simple_op!(PermissionRequest, level, permission);
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum PermissionRequestDecodingError {
     MissingBytes(usize),
@@ -752,6 +946,7 @@ pub struct VerifyChecksum {
     pub resp: bool,
     pub query: operand::Query,
 }
+impl_display_simple_op!(VerifyChecksum, query);
 impl_op_serialized!(
     VerifyChecksum,
     group,
@@ -786,6 +981,7 @@ pub struct ExistFile {
     pub resp: bool,
     pub file_id: u8,
 }
+impl_display_simple_file_op!(ExistFile, file_id);
 impl_simple_op!(ExistFile, group, resp, file_id);
 #[test]
 fn test_exist_file() {
@@ -810,6 +1006,7 @@ pub struct CreateNewFile {
     pub file_id: u8,
     pub header: data::FileHeader,
 }
+impl_display_prop_file_op!(CreateNewFile, header);
 impl_header_op!(CreateNewFile, group, resp, file_id, header);
 #[test]
 fn test_create_new_file() {
@@ -857,6 +1054,7 @@ pub struct DeleteFile {
     pub resp: bool,
     pub file_id: u8,
 }
+impl_display_simple_file_op!(DeleteFile, file_id);
 impl_simple_op!(DeleteFile, group, resp, file_id);
 #[test]
 fn test_delete_file() {
@@ -879,6 +1077,7 @@ pub struct RestoreFile {
     pub resp: bool,
     pub file_id: u8,
 }
+impl_display_simple_file_op!(RestoreFile, file_id);
 impl_simple_op!(RestoreFile, group, resp, file_id);
 #[test]
 fn test_restore_file() {
@@ -901,6 +1100,7 @@ pub struct FlushFile {
     pub resp: bool,
     pub file_id: u8,
 }
+impl_display_simple_file_op!(FlushFile, file_id);
 impl_simple_op!(FlushFile, group, resp, file_id);
 #[test]
 fn test_flush_file() {
@@ -929,6 +1129,18 @@ pub struct CopyFile {
     pub src_file_id: u8,
     pub dst_file_id: u8,
 }
+impl std::fmt::Display for CopyFile {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "{}{};f[{}];f[{}]",
+            if self.group { "G" } else { "-" },
+            if self.resp { "R" } else { "-" },
+            self.src_file_id,
+            self.dst_file_id,
+        )
+    }
+}
 impl_simple_op!(CopyFile, group, resp, src_file_id, dst_file_id);
 #[test]
 fn test_copy_file() {
@@ -953,6 +1165,7 @@ pub struct ExecuteFile {
     pub resp: bool,
     pub file_id: u8,
 }
+impl_display_simple_file_op!(ExecuteFile, file_id);
 impl_simple_op!(ExecuteFile, group, resp, file_id);
 #[test]
 fn test_execute_file() {
@@ -980,6 +1193,7 @@ pub struct ReturnFileData {
     pub offset: u32,
     pub data: Box<[u8]>,
 }
+impl_display_data_file_op!(ReturnFileData);
 impl ReturnFileData {
     pub fn validate(&self) -> Result<(), OperandValidationError> {
         if self.offset > varint::MAX {
@@ -1070,6 +1284,7 @@ pub struct ReturnFileProperties {
     pub file_id: u8,
     pub header: data::FileHeader,
 }
+impl_display_prop_file_op!(ReturnFileProperties, header);
 impl_header_op!(ReturnFileProperties, group, resp, file_id, header);
 #[test]
 fn test_return_file_properties() {
@@ -1131,6 +1346,14 @@ pub enum Status {
     Action(operand::Status),
     Interface(operand::InterfaceStatus),
     // ALP SPEC: Where are the stack errors?
+}
+impl std::fmt::Display for Status {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::Action(v) => write!(f, "ACT={}", v),
+            Self::Interface(v) => write!(f, "ITF={}", v),
+        }
+    }
 }
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum StatusDecodingError {
@@ -1208,10 +1431,23 @@ pub struct ResponseTag {
     /// End of packet
     ///
     /// Signal the last response packet for the request `id`
+    /// (E)
     pub eop: bool,
     /// An error occured
+    /// (R)
     pub err: bool,
     pub id: u8,
+}
+impl std::fmt::Display for ResponseTag {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "{}{};{}",
+            if self.eop { "E" } else { "-" },
+            if self.err { "R" } else { "-" },
+            self.id,
+        )
+    }
 }
 impl_simple_op!(ResponseTag, eop, err, id);
 #[test]
@@ -1255,6 +1491,16 @@ impl ChunkStep {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Chunk {
     pub step: ChunkStep,
+}
+impl std::fmt::Display for Chunk {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match &self.step {
+            ChunkStep::Continue => write!(f, "C"),
+            ChunkStep::Start => write!(f, "S"),
+            ChunkStep::End => write!(f, "E"),
+            ChunkStep::StartEnd => write!(f, "R"),
+        }
+    }
 }
 impl Codec for Chunk {
     type Error = StdError;
@@ -1310,6 +1556,16 @@ impl LogicOp {
 pub struct Logic {
     pub logic: LogicOp,
 }
+impl std::fmt::Display for Logic {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match &self.logic {
+            LogicOp::Or => write!(f, "OR"),
+            LogicOp::Xor => write!(f, "XOR"),
+            LogicOp::Nor => write!(f, "NOR"),
+            LogicOp::Nand => write!(f, "NAND"),
+        }
+    }
+}
 impl Codec for Logic {
     type Error = StdError;
     fn encoded_size(&self) -> usize {
@@ -1347,6 +1603,11 @@ pub struct Forward {
     // ALP_SPEC Ask for response ?
     pub resp: bool,
     pub conf: operand::InterfaceConfiguration,
+}
+impl std::fmt::Display for Forward {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}|{}", if self.resp { "R" } else { "-" }, self.conf)
+    }
 }
 impl Codec for Forward {
     type Error = operand::InterfaceConfigurationDecodingError;
@@ -1395,6 +1656,16 @@ pub struct IndirectForward {
     // ALP_SPEC Ask for response ?
     pub resp: bool,
     pub interface: operand::IndirectInterface,
+}
+impl std::fmt::Display for IndirectForward {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "{}|{}",
+            if self.resp { "R" } else { "-" },
+            self.interface
+        )
+    }
 }
 impl Codec for IndirectForward {
     type Error = StdError;
@@ -1453,8 +1724,14 @@ pub struct RequestTag {
     /// Ask for end of packet
     ///
     /// Signal the last response packet for the request `id`
+    /// (E)
     pub eop: bool,
     pub id: u8,
+}
+impl std::fmt::Display for RequestTag {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{};{}", if self.eop { "E" } else { "-" }, self.id)
+    }
 }
 impl Codec for RequestTag {
     type Error = StdError;
@@ -1496,6 +1773,7 @@ pub struct Extension {
     /// Ask for a response
     pub resp: bool,
 }
+impl_display_simple_op!(Extension);
 impl Codec for Extension {
     type Error = ();
     fn encoded_size(&self) -> usize {
@@ -1551,6 +1829,99 @@ pub enum Action {
     IndirectForward(IndirectForward),
     RequestTag(RequestTag),
     Extension(Extension),
+}
+
+impl Action {
+    pub fn op_code(&self) -> OpCode {
+        match self {
+            // Nop
+            Self::Nop(_) => OpCode::Nop,
+
+            // Read
+            Self::ReadFileData(_) => OpCode::ReadFileData,
+            Self::ReadFileProperties(_) => OpCode::ReadFileProperties,
+
+            // Write
+            Self::WriteFileData(_) => OpCode::WriteFileData,
+            // ALP SPEC: This is not specified even though it is implemented
+            // Self::WriteFileDataFlush(_) => OpCode::WriteFileDataFlush,
+            Self::WriteFileProperties(_) => OpCode::WriteFileProperties,
+            Self::ActionQuery(_) => OpCode::ActionQuery,
+            Self::BreakQuery(_) => OpCode::BreakQuery,
+            Self::PermissionRequest(_) => OpCode::PermissionRequest,
+            Self::VerifyChecksum(_) => OpCode::VerifyChecksum,
+
+            // Management
+            Self::ExistFile(_) => OpCode::ExistFile,
+            Self::CreateNewFile(_) => OpCode::CreateNewFile,
+            Self::DeleteFile(_) => OpCode::DeleteFile,
+            Self::RestoreFile(_) => OpCode::RestoreFile,
+            Self::FlushFile(_) => OpCode::FlushFile,
+            Self::CopyFile(_) => OpCode::CopyFile,
+            Self::ExecuteFile(_) => OpCode::ExecuteFile,
+
+            // Response
+            Self::ReturnFileData(_) => OpCode::ReturnFileData,
+            Self::ReturnFileProperties(_) => OpCode::ReturnFileProperties,
+            Self::Status(_) => OpCode::Status,
+            Self::ResponseTag(_) => OpCode::ResponseTag,
+
+            // Special
+            Self::Chunk(_) => OpCode::Chunk,
+            Self::Logic(_) => OpCode::Logic,
+            Self::Forward(_) => OpCode::Forward,
+            Self::IndirectForward(_) => OpCode::IndirectForward,
+            Self::RequestTag(_) => OpCode::RequestTag,
+            Self::Extension(_) => OpCode::Extension,
+        }
+    }
+}
+
+impl std::fmt::Display for Action {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let op_code = self.op_code();
+        match self {
+            // Nop
+            Self::Nop(op) => write!(f, "{}={}", op_code, op),
+
+            // Read
+            Self::ReadFileData(op) => write!(f, "{}={}", op_code, op),
+            Self::ReadFileProperties(op) => write!(f, "{}={}", op_code, op),
+
+            // Write
+            Self::WriteFileData(op) => write!(f, "{}={}", op_code, op),
+            // ALP SPEC: This is not specified even though it is implemented
+            // Self::WriteFileDataFlush(op) => write!(f, "{}={}", op_code, op),
+            Self::WriteFileProperties(op) => write!(f, "{}={}", op_code, op),
+            Self::ActionQuery(op) => write!(f, "{}={}", op_code, op),
+            Self::BreakQuery(op) => write!(f, "{}={}", op_code, op),
+            Self::PermissionRequest(op) => write!(f, "{}={}", op_code, op),
+            Self::VerifyChecksum(op) => write!(f, "{}={}", op_code, op),
+
+            // Management
+            Self::ExistFile(op) => write!(f, "{}={}", op_code, op),
+            Self::CreateNewFile(op) => write!(f, "{}={}", op_code, op),
+            Self::DeleteFile(op) => write!(f, "{}={}", op_code, op),
+            Self::RestoreFile(op) => write!(f, "{}={}", op_code, op),
+            Self::FlushFile(op) => write!(f, "{}={}", op_code, op),
+            Self::CopyFile(op) => write!(f, "{}={}", op_code, op),
+            Self::ExecuteFile(op) => write!(f, "{}={}", op_code, op),
+
+            // Response
+            Self::ReturnFileData(op) => write!(f, "{}={}", op_code, op),
+            Self::ReturnFileProperties(op) => write!(f, "{}={}", op_code, op),
+            Self::Status(op) => write!(f, "{}={}", op_code, op),
+            Self::ResponseTag(op) => write!(f, "{}={}", op_code, op),
+
+            // Special
+            Self::Chunk(op) => write!(f, "{}={}", op_code, op),
+            Self::Logic(op) => write!(f, "{}={}", op_code, op),
+            Self::Forward(op) => write!(f, "{}={}", op_code, op),
+            Self::IndirectForward(op) => write!(f, "{}={}", op_code, op),
+            Self::RequestTag(op) => write!(f, "{}={}", op_code, op),
+            Self::Extension(op) => write!(f, "{}={}", op_code, op),
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]

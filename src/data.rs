@@ -11,6 +11,17 @@ pub struct UserPermissions {
     pub write: bool,
     pub run: bool,
 }
+impl std::fmt::Display for UserPermissions {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "{}{}{}",
+            if self.read { "r" } else { "-" },
+            if self.write { "w" } else { "-" },
+            if self.run { "x" } else { "-" }
+        )
+    }
+}
 /// Description of the permissions for a file for all users.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Permissions {
@@ -27,6 +38,18 @@ pub struct Permissions {
     /// Permissions for role "guest"
     pub guest: UserPermissions,
     // ALP_SPEC: Where are the permissions for role root?
+}
+impl std::fmt::Display for Permissions {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "{}{}|user={}|guest={}",
+            if self.encrypted { "e" } else { "-" },
+            if self.executable { "x" } else { "-" },
+            self.user,
+            self.guest
+        )
+    }
 }
 impl Permissions {
     pub fn to_byte(self) -> u8 {
@@ -62,12 +85,16 @@ impl Permissions {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ActionCondition {
     /// Check for existence
+    /// (L)
     List = 0,
     /// Trigger upon file read
+    /// (R)
     Read = 1,
     /// Trigger upon file write
+    /// (W)
     Write = 2,
     /// Trigger upon file write-flush
+    /// (V)
     // ALP_SPEC Action write-flush does not exist. Only write and flush exist.
     WriteFlush = 3,
     Unknown4 = 4,
@@ -88,6 +115,17 @@ impl ActionCondition {
             7 => ActionCondition::Unknown7,
             // Impossible
             _ => panic!(),
+        }
+    }
+}
+impl std::fmt::Display for ActionCondition {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::List => write!(f, "L"),
+            Self::Read => write!(f, "R"),
+            Self::Write => write!(f, "W"),
+            Self::WriteFlush => write!(f, "V"),
+            x => write!(f, "{}", *x as u8),
         }
     }
 }
@@ -118,6 +156,20 @@ impl StorageClass {
         }
     }
 }
+impl std::fmt::Display for StorageClass {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                Self::Transient => "T",
+                Self::Volatile => "V",
+                Self::Restorable => "R",
+                Self::Permanent => "P",
+            }
+        )
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FileProperties {
     /// Enables the D7AActP (ALP action to trigger upon some type of access to this file)
@@ -126,6 +178,15 @@ pub struct FileProperties {
     pub act_cond: ActionCondition,
     /// Type of storage of this file
     pub storage_class: StorageClass,
+}
+impl std::fmt::Display for FileProperties {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "{}{}{}",
+            self.act_en as u8, self.act_cond, self.storage_class
+        )
+    }
 }
 impl FileProperties {
     pub fn to_byte(self) -> u8 {
@@ -165,6 +226,20 @@ pub struct FileHeader {
     pub allocated_size: u32,
     // ALP_SPEC What is the difference between file_size and allocated_size? When a file is
     // declared, less than its size is allocated and then it grows dynamically?
+}
+impl std::fmt::Display for FileHeader {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "{}|{}|{};{};{};{}",
+            self.permissions,
+            self.properties,
+            self.alp_cmd_fid,
+            self.interface_file_id,
+            self.file_size,
+            self.allocated_size
+        )
+    }
 }
 impl Codec for FileHeader {
     type Error = StdError;

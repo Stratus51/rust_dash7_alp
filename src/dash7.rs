@@ -33,6 +33,16 @@ impl NlsMethod {
     }
 }
 
+impl std::fmt::Display for NlsMethod {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        if *self != NlsMethod::None {
+            write!(f, "NLS[{}]", *self as u8)
+        } else {
+            Ok(())
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum NlsState {
     None,
@@ -93,6 +103,28 @@ impl NlsState {
     }
 }
 
+impl std::fmt::Display for NlsState {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::None => Ok(()),
+            Self::AesCtr(state)
+            | Self::AesCbcMac128(state)
+            | Self::AesCbcMac64(state)
+            | Self::AesCbcMac32(state)
+            | Self::AesCcm128(state)
+            | Self::AesCcm64(state)
+            | Self::AesCcm32(state) => {
+                write!(
+                    f,
+                    "NLS[{}|{}]",
+                    self.method() as u8,
+                    hex::encode_upper(state)
+                )
+            }
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 #[repr(u8)]
 pub enum AddressType {
@@ -114,8 +146,22 @@ impl From<u8> for AddressType {
     }
 }
 
-/// Dash7 address types
-// ALP SPEC: Where is this defined?
+impl std::fmt::Display for AddressType {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                Self::NbId => "NID",
+                Self::NoId => "ALL",
+                Self::Uid => "UID",
+                Self::Vid => "VID",
+            }
+        )
+    }
+}
+
+/// Dash7 device address
 #[derive(Clone, Debug, PartialEq)]
 pub enum Address {
     /// Broadcast to an estimated number of receivers, encoded in compressed format on a byte.
@@ -134,6 +180,16 @@ impl Address {
             Self::NbId(_) => AddressType::NbId,
             Self::Uid(_) => AddressType::Uid,
             Self::Vid(_) => AddressType::Vid,
+        }
+    }
+}
+impl std::fmt::Display for Address {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::NbId(n) => write!(f, "NID[{}]", n),
+            Self::NoId => write!(f, "ALL"),
+            Self::Uid(uid) => write!(f, "UID[{}]", hex::encode_upper(uid)),
+            Self::Vid(vid) => write!(f, "VID[{}]", hex::encode_upper(vid)),
         }
     }
 }
@@ -226,6 +282,11 @@ impl RetryMode {
         })
     }
 }
+impl std::fmt::Display for RetryMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}", *self as u8)
+    }
+}
 
 /// The Response Modes define the condition for termination on success of a Request
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -234,6 +295,7 @@ pub enum RespMode {
     /// responses are expected.
     ///
     /// Eg. The request is successful if your packet was successfully sent on the radio.
+    /// (N)
     No = 0,
     /// If the addressee is broadcast, a Request is acknowledged if as many as
     /// possible D7ATP responses to this Request are received (may be zero).
@@ -243,15 +305,18 @@ pub enum RespMode {
     /// are vectored to upper layer.
     ///
     /// Eg. Succeeds if everyone addressed responds to the radio packet.
+    /// (A)
     All = 1,
     /// A Request is acknowledged if at least one D7ATP response to this Request is
     /// received.
     ///
     /// Eg. Succeeds if you receive one response to the radio packet.
+    /// (X)
     Any = 2,
     /// A Request is acknowledged if the DLL CSMA-CA routine succeeds REPEAT
     /// times. No responses are expected. The parameters REPEAT is defined in the
     /// SEL configuration file.
+    /// (R)
     RespNoRpt = 4,
     /// A Request is acknowledged if the DLL CSMA-CA routine succeeds. It is un-
     /// acknowledged when a response does not acknowledge the Request. The
@@ -261,6 +326,7 @@ pub enum RespMode {
     ///
     /// Eg. Succeeds only if the responder gives back an ALP packet in response (which is more
     /// restrictive than succeeding upon successful radio ACK).
+    /// (D)
     RespOnData = 5,
     /// A Request is acknowledged if at least one D7ATP response to this Request is
     /// received. The procedure behaves as RESP_ANY, but the Addressee is
@@ -268,6 +334,7 @@ pub enum RespMode {
     /// acknowledgement. On acknowledgement success, it is set to the
     /// Addressee of one of the responders that acknowledged the Request (preferred
     /// addressee). The preferred addressee selection is implementation dependent.
+    /// (P)
     RespPreferred = 6,
 }
 impl RespMode {
@@ -281,6 +348,22 @@ impl RespMode {
             6 => RespMode::RespPreferred,
             x => return Err(x),
         })
+    }
+}
+impl std::fmt::Display for RespMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                Self::No => "N",
+                Self::All => "A",
+                Self::Any => "X",
+                Self::RespNoRpt => "R",
+                Self::RespOnData => "D",
+                Self::RespPreferred => "P",
+            }
+        )
     }
 }
 
@@ -329,6 +412,11 @@ fn test_qos() {
         &hex!("04"),
     )
 }
+impl std::fmt::Display for Qos {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}{}", self.retry, self.resp)
+    }
+}
 
 /// Section 9.2.1
 ///
@@ -358,6 +446,21 @@ pub struct InterfaceConfiguration {
     pub nls_method: NlsMethod,
     /// Address of the target.
     pub address: Address,
+}
+
+impl std::fmt::Display for InterfaceConfiguration {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "{};{};{}|0x{};{};{}",
+            self.qos,
+            self.to,
+            self.te,
+            hex::encode_upper(&[self.access_class]),
+            self.nls_method,
+            self.address
+        )
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -540,6 +643,26 @@ pub struct InterfaceStatus {
     pub address: Address,
     /// Security data
     pub nls_state: NlsState,
+}
+impl std::fmt::Display for InterfaceStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "{};{}|{};{};{}|{};{};{};{}|{};{};{}",
+            self.ch_header,
+            self.ch_idx,
+            self.rxlev,
+            self.lb,
+            self.snr,
+            self.status,
+            self.token,
+            self.seq,
+            self.resp_to,
+            self.access_class,
+            self.address,
+            self.nls_state
+        )
+    }
 }
 impl Codec for InterfaceStatus {
     type Error = StdError;
