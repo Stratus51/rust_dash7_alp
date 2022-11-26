@@ -972,7 +972,7 @@ pub struct BitmapRangeComparison {
     /// number. For simplicity's sake, this library encodes them in a u32.
     pub start: u32,
     pub stop: u32,
-    pub bitmap: Box<[u8]>,
+    pub bitmap: Option<Box<[u8]>>,
     pub file: FileOffset,
 }
 impl BitmapRangeComparison {
@@ -982,8 +982,10 @@ impl BitmapRangeComparison {
         }
 
         let bitmap_size = (self.stop - self.start + 6) / 8; // ALP SPEC: Thanks for the calculation
-        if self.bitmap.len() != bitmap_size as usize {
-            return Err(QueryValidationError::BadMaskSize);
+        if let Some(bitmap) = &self.bitmap {
+            if bitmap.len() != bitmap_size as usize {
+                return Err(QueryValidationError::BadMaskSize);
+            }
         }
         Ok(())
     }
@@ -993,14 +995,14 @@ impl Codec for BitmapRangeComparison {
     fn encoded_size(&self) -> usize {
         1 + unsafe { varint::size(self.size) } as usize
             + 2 * self.size as usize
-            + self.bitmap.len()
+            + self.bitmap.as_ref().map(|b| b.len()).unwrap_or(0)
             + self.file.encoded_size()
     }
     unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
         let mut offset = 0;
         let signed_flag = if self.signed_data { 1 } else { 0 };
         out[0] = ((QueryCode::BitmapRangeComparison as u8) << 5)
-            // | (0 << 4)
+            | ((self.bitmap.is_none() as u8) << 4)
             | (signed_flag << 3)
             | self.comparison_type as u8;
         offset += 1;
@@ -1010,8 +1012,10 @@ impl Codec for BitmapRangeComparison {
         offset += size;
         out[offset..offset + size].clone_from_slice(&self.stop.to_be_bytes()[4 - size..]);
         offset += size;
-        out[offset..offset + self.bitmap.len()].clone_from_slice(&self.bitmap[..]);
-        offset += self.bitmap.len();
+        if let Some(bitmap) = &self.bitmap {
+            out[offset..offset + bitmap.len()].clone_from_slice(&bitmap[..]);
+            offset += bitmap.len();
+        }
         offset += self.file.encode_in(&mut out[offset..]);
         offset
     }
@@ -1021,6 +1025,7 @@ impl Codec for BitmapRangeComparison {
                 1 + 1 + 2 - out.len(),
             )));
         }
+        let mask_flag = out[0] & (1 << 4) == 0;
         let signed_data = out[0] & (1 << 3) != 0;
         let comparison_type = QueryRangeComparisonType::from(out[0] & 0x07)
             .map_err(|e| WithOffset::new_head(Self::Error::UnknownComparisonType(e)))?;
@@ -1048,10 +1053,15 @@ impl Codec for BitmapRangeComparison {
             start = (start << 8) + raw_start[i] as u32;
             stop = (stop << 8) + raw_stop[i] as u32;
         }
-        let bitmap_size = (stop - start + 6) / 8; // ALP SPEC: Thanks for the calculation
-        let mut bitmap = vec![0u8; bitmap_size as usize].into_boxed_slice();
-        bitmap.clone_from_slice(&out[offset..offset + bitmap_size as usize]);
-        offset += bitmap_size as usize;
+        let bitmap = if mask_flag {
+            let bitmap_size = (stop - start + 6) / 8; // ALP SPEC: Thanks for the calculation
+            let mut bitmap = vec![0u8; bitmap_size as usize].into_boxed_slice();
+            bitmap.clone_from_slice(&out[offset..offset + bitmap_size as usize]);
+            offset += bitmap_size as usize;
+            Some(bitmap)
+        } else {
+            None
+        };
         let WithSize {
             value: file,
             size: file_size,
@@ -1087,7 +1097,7 @@ fn test_bitmap_range_comparison_operand() {
 
             start: 3,
             stop: 32,
-            bitmap: Box::new(hex!("01020304")),
+            bitmap: Some(Box::new(hex!("01020304"))),
 
             file: FileOffset { id: 0, offset: 4 },
         },
