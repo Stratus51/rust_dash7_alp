@@ -16,9 +16,9 @@ impl std::fmt::Display for UserPermissions {
         write!(
             f,
             "{}{}{}",
-            if self.read { "r" } else { "-" },
-            if self.write { "w" } else { "-" },
-            if self.run { "x" } else { "-" }
+            if self.read { "R" } else { "-" },
+            if self.write { "W" } else { "-" },
+            if self.run { "X" } else { "-" }
         )
     }
 }
@@ -44,8 +44,8 @@ impl std::fmt::Display for Permissions {
         write!(
             f,
             "{}{}|user={}|guest={}",
-            if self.encrypted { "e" } else { "-" },
-            if self.executable { "x" } else { "-" },
+            if self.encrypted { "E" } else { "-" },
+            if self.executable { "X" } else { "-" },
             self.user,
             self.guest
         )
@@ -231,7 +231,7 @@ impl std::fmt::Display for FileHeader {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(
             f,
-            "{}|{}|{};{};{};{}",
+            "[{}|{}|f({}),{},{},{}]",
             self.permissions,
             self.properties,
             self.alp_cmd_fid,

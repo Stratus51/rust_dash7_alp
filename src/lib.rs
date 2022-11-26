@@ -121,8 +121,12 @@ pub struct Command {
 impl std::fmt::Display for Command {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "[")?;
-        for action in self.actions.iter() {
-            write!(f, "{}, ", action)?;
+        let end = self.actions.len() - 1;
+        for (i, action) in self.actions.iter().enumerate() {
+            write!(f, "{}", action)?;
+            if i != end {
+                write!(f, "; ")?;
+            }
         }
         write!(f, "]")
     }
@@ -214,5 +218,21 @@ fn test_command() {
     assert_eq!(
         Command::decode(data).expect("should be parsed without error"),
         cmd,
+    );
+}
+#[test]
+fn test_command_display() {
+    assert_eq!(
+        Command {
+            actions: vec![
+                Action::RequestTag(action::RequestTag { id: 66, eop: true }),
+                Action::Nop(action::Nop {
+                    resp: true,
+                    group: true,
+                }),
+            ]
+        }
+        .to_string(),
+        "[RTG[E](66); NOP[GR]]"
     );
 }

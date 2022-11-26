@@ -165,7 +165,7 @@ macro_rules! impl_display_simple_op {
             fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
                 write!(
                     f,
-                    "{}{}",
+                    "[{}{}]",
                     if self.group { "G" } else { "-" },
                     if self.resp { "R" } else { "-" },
                 )
@@ -177,7 +177,7 @@ macro_rules! impl_display_simple_op {
             fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
                 write!(
                     f,
-                    "{}{};{}",
+                    "[{}{}]{}",
                     if self.group { "G" } else { "-" },
                     if self.resp { "R" } else { "-" },
                     self.$field1
@@ -190,7 +190,7 @@ macro_rules! impl_display_simple_op {
             fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
                 write!(
                     f,
-                    "{}{};{};{}",
+                    "[{}{}]{},{}",
                     if self.group { "G" } else { "-" },
                     if self.resp { "R" } else { "-" },
                     self.$field1,
@@ -207,7 +207,7 @@ macro_rules! impl_display_simple_file_op {
             fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
                 write!(
                     f,
-                    "{}{};f[{}]",
+                    "[{}{}]f({})",
                     if self.group { "G" } else { "-" },
                     if self.resp { "R" } else { "-" },
                     self.$field1,
@@ -220,7 +220,7 @@ macro_rules! impl_display_simple_file_op {
             fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
                 write!(
                     f,
-                    "{}{};f[{};{}]",
+                    "[{}{}]f({},{})",
                     if self.group { "G" } else { "-" },
                     if self.resp { "R" } else { "-" },
                     self.$field1,
@@ -234,7 +234,7 @@ macro_rules! impl_display_simple_file_op {
             fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
                 write!(
                     f,
-                    "{}{};f[{};{};{}]",
+                    "[{}{}]f({},{},{})",
                     if self.group { "G" } else { "-" },
                     if self.resp { "R" } else { "-" },
                     self.$field1,
@@ -252,7 +252,7 @@ macro_rules! impl_display_data_file_op {
             fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
                 write!(
                     f,
-                    "{}{};f[{};{};0x{}]",
+                    "[{}{}]f({},{},0x{})",
                     if self.group { "G" } else { "-" },
                     if self.resp { "R" } else { "-" },
                     self.file_id,
@@ -270,7 +270,7 @@ macro_rules! impl_display_prop_file_op {
             fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
                 write!(
                     f,
-                    "{}{};f[{}];{}",
+                    "[{}{}]f({}){}",
                     if self.group { "G" } else { "-" },
                     if self.resp { "R" } else { "-" },
                     self.file_id,
@@ -431,37 +431,37 @@ impl std::fmt::Display for OpCode {
             OpCode::Nop => write!(f, "NOP"),
 
             // Read
-            OpCode::ReadFileData => write!(f, "RFD"),
-            OpCode::ReadFileProperties => write!(f, "RFP"),
+            OpCode::ReadFileData => write!(f, "RD"),
+            OpCode::ReadFileProperties => write!(f, "RDP"),
 
             // Write
-            OpCode::WriteFileData => write!(f, "WFD"),
-            OpCode::WriteFileProperties => write!(f, "WFP"),
-            OpCode::ActionQuery => write!(f, "AQR"),
-            OpCode::BreakQuery => write!(f, "BQR"),
-            OpCode::PermissionRequest => write!(f, "PRQ"),
+            OpCode::WriteFileData => write!(f, "WR"),
+            OpCode::WriteFileProperties => write!(f, "WRP"),
+            OpCode::ActionQuery => write!(f, "AQ"),
+            OpCode::BreakQuery => write!(f, "BQ"),
+            OpCode::PermissionRequest => write!(f, "PR"),
             OpCode::VerifyChecksum => write!(f, "VCS"),
 
             // Management
-            OpCode::ExistFile => write!(f, "EF_"),
-            OpCode::CreateNewFile => write!(f, "CNF"),
-            OpCode::DeleteFile => write!(f, "DF_"),
-            OpCode::RestoreFile => write!(f, "RSF"),
-            OpCode::FlushFile => write!(f, "FLF"),
-            OpCode::CopyFile => write!(f, "CPF"),
-            OpCode::ExecuteFile => write!(f, "XF_"),
+            OpCode::ExistFile => write!(f, "HAS"),
+            OpCode::CreateNewFile => write!(f, "NEW"),
+            OpCode::DeleteFile => write!(f, "DEL"),
+            OpCode::RestoreFile => write!(f, "RST"),
+            OpCode::FlushFile => write!(f, "FLUSH"),
+            OpCode::CopyFile => write!(f, "CP"),
+            OpCode::ExecuteFile => write!(f, "RUN"),
 
             // Response
-            OpCode::ReturnFileData => write!(f, "FD_"),
-            OpCode::ReturnFileProperties => write!(f, "FP_"),
-            OpCode::Status => write!(f, "STS"),
-            OpCode::ResponseTag => write!(f, "TAG"),
+            OpCode::ReturnFileData => write!(f, "DATA"),
+            OpCode::ReturnFileProperties => write!(f, "PROP"),
+            OpCode::Status => write!(f, "S"),
+            OpCode::ResponseTag => write!(f, "TG"),
 
             // Special
             OpCode::Chunk => write!(f, "CHK"),
             OpCode::Logic => write!(f, "LOG"),
             OpCode::Forward => write!(f, "FWD"),
-            OpCode::IndirectForward => write!(f, "IFW"),
+            OpCode::IndirectForward => write!(f, "IFWD"),
             OpCode::RequestTag => write!(f, "RTG"),
             OpCode::Extension => write!(f, "EXT"),
         }
@@ -746,7 +746,7 @@ impl std::fmt::Display for WriteFileProperties {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(
             f,
-            "{}{};f[{}];{}",
+            "[{}{}]f({}){}",
             if self.group { "G" } else { "-" },
             if self.resp { "R" } else { "-" },
             self.file_id,
@@ -841,7 +841,7 @@ impl std::fmt::Display for BreakQuery {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(
             f,
-            "{}{};{}",
+            "[{}{}]{}",
             if self.group { "G" } else { "-" },
             if self.resp { "R" } else { "-" },
             self.query,
@@ -1133,7 +1133,7 @@ impl std::fmt::Display for CopyFile {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(
             f,
-            "{}{};f[{}];f[{}]",
+            "[{}{}]f({})f({})",
             if self.group { "G" } else { "-" },
             if self.resp { "R" } else { "-" },
             self.src_file_id,
@@ -1350,8 +1350,8 @@ pub enum Status {
 impl std::fmt::Display for Status {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            Self::Action(v) => write!(f, "ACT={}", v),
-            Self::Interface(v) => write!(f, "ITF={}", v),
+            Self::Action(v) => write!(f, "[ACT]:{}", v),
+            Self::Interface(v) => write!(f, "[ITF]:{}", v),
         }
     }
 }
@@ -1442,7 +1442,7 @@ impl std::fmt::Display for ResponseTag {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(
             f,
-            "{}{};{}",
+            "[{}{}]({})",
             if self.eop { "E" } else { "-" },
             if self.err { "R" } else { "-" },
             self.id,
@@ -1495,10 +1495,10 @@ pub struct Chunk {
 impl std::fmt::Display for Chunk {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match &self.step {
-            ChunkStep::Continue => write!(f, "C"),
-            ChunkStep::Start => write!(f, "S"),
-            ChunkStep::End => write!(f, "E"),
-            ChunkStep::StartEnd => write!(f, "R"),
+            ChunkStep::Continue => write!(f, "[C]"),
+            ChunkStep::Start => write!(f, "[S]"),
+            ChunkStep::End => write!(f, "[E]"),
+            ChunkStep::StartEnd => write!(f, "[R]"),
         }
     }
 }
@@ -1559,10 +1559,10 @@ pub struct Logic {
 impl std::fmt::Display for Logic {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match &self.logic {
-            LogicOp::Or => write!(f, "OR"),
-            LogicOp::Xor => write!(f, "XOR"),
-            LogicOp::Nor => write!(f, "NOR"),
-            LogicOp::Nand => write!(f, "NAND"),
+            LogicOp::Or => write!(f, "[OR]"),
+            LogicOp::Xor => write!(f, "[XOR]"),
+            LogicOp::Nor => write!(f, "[NOR]"),
+            LogicOp::Nand => write!(f, "[NAND]"),
         }
     }
 }
@@ -1606,7 +1606,7 @@ pub struct Forward {
 }
 impl std::fmt::Display for Forward {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}|{}", if self.resp { "R" } else { "-" }, self.conf)
+        write!(f, "{}{}", if self.resp { "[R]" } else { "-" }, self.conf)
     }
 }
 impl Codec for Forward {
@@ -1661,7 +1661,7 @@ impl std::fmt::Display for IndirectForward {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(
             f,
-            "{}|{}",
+            "[{}]{}",
             if self.resp { "R" } else { "-" },
             self.interface
         )
@@ -1730,7 +1730,7 @@ pub struct RequestTag {
 }
 impl std::fmt::Display for RequestTag {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{};{}", if self.eop { "E" } else { "-" }, self.id)
+        write!(f, "[{}]({})", if self.eop { "E" } else { "-" }, self.id)
     }
 }
 impl Codec for RequestTag {
@@ -1882,44 +1882,44 @@ impl std::fmt::Display for Action {
         let op_code = self.op_code();
         match self {
             // Nop
-            Self::Nop(op) => write!(f, "{}={}", op_code, op),
+            Self::Nop(op) => write!(f, "{}{}", op_code, op),
 
             // Read
-            Self::ReadFileData(op) => write!(f, "{}={}", op_code, op),
-            Self::ReadFileProperties(op) => write!(f, "{}={}", op_code, op),
+            Self::ReadFileData(op) => write!(f, "{}{}", op_code, op),
+            Self::ReadFileProperties(op) => write!(f, "{}{}", op_code, op),
 
             // Write
-            Self::WriteFileData(op) => write!(f, "{}={}", op_code, op),
+            Self::WriteFileData(op) => write!(f, "{}{}", op_code, op),
             // ALP SPEC: This is not specified even though it is implemented
-            // Self::WriteFileDataFlush(op) => write!(f, "{}={}", op_code, op),
-            Self::WriteFileProperties(op) => write!(f, "{}={}", op_code, op),
-            Self::ActionQuery(op) => write!(f, "{}={}", op_code, op),
-            Self::BreakQuery(op) => write!(f, "{}={}", op_code, op),
-            Self::PermissionRequest(op) => write!(f, "{}={}", op_code, op),
-            Self::VerifyChecksum(op) => write!(f, "{}={}", op_code, op),
+            // Self::WriteFileDataFlush(op) => write!(f, "{}{}", op_code, op),
+            Self::WriteFileProperties(op) => write!(f, "{}{}", op_code, op),
+            Self::ActionQuery(op) => write!(f, "{}{}", op_code, op),
+            Self::BreakQuery(op) => write!(f, "{}{}", op_code, op),
+            Self::PermissionRequest(op) => write!(f, "{}{}", op_code, op),
+            Self::VerifyChecksum(op) => write!(f, "{}{}", op_code, op),
 
             // Management
-            Self::ExistFile(op) => write!(f, "{}={}", op_code, op),
-            Self::CreateNewFile(op) => write!(f, "{}={}", op_code, op),
-            Self::DeleteFile(op) => write!(f, "{}={}", op_code, op),
-            Self::RestoreFile(op) => write!(f, "{}={}", op_code, op),
-            Self::FlushFile(op) => write!(f, "{}={}", op_code, op),
-            Self::CopyFile(op) => write!(f, "{}={}", op_code, op),
-            Self::ExecuteFile(op) => write!(f, "{}={}", op_code, op),
+            Self::ExistFile(op) => write!(f, "{}{}", op_code, op),
+            Self::CreateNewFile(op) => write!(f, "{}{}", op_code, op),
+            Self::DeleteFile(op) => write!(f, "{}{}", op_code, op),
+            Self::RestoreFile(op) => write!(f, "{}{}", op_code, op),
+            Self::FlushFile(op) => write!(f, "{}{}", op_code, op),
+            Self::CopyFile(op) => write!(f, "{}{}", op_code, op),
+            Self::ExecuteFile(op) => write!(f, "{}{}", op_code, op),
 
             // Response
-            Self::ReturnFileData(op) => write!(f, "{}={}", op_code, op),
-            Self::ReturnFileProperties(op) => write!(f, "{}={}", op_code, op),
-            Self::Status(op) => write!(f, "{}={}", op_code, op),
-            Self::ResponseTag(op) => write!(f, "{}={}", op_code, op),
+            Self::ReturnFileData(op) => write!(f, "{}{}", op_code, op),
+            Self::ReturnFileProperties(op) => write!(f, "{}{}", op_code, op),
+            Self::Status(op) => write!(f, "{}{}", op_code, op),
+            Self::ResponseTag(op) => write!(f, "{}{}", op_code, op),
 
             // Special
-            Self::Chunk(op) => write!(f, "{}={}", op_code, op),
-            Self::Logic(op) => write!(f, "{}={}", op_code, op),
-            Self::Forward(op) => write!(f, "{}={}", op_code, op),
-            Self::IndirectForward(op) => write!(f, "{}={}", op_code, op),
-            Self::RequestTag(op) => write!(f, "{}={}", op_code, op),
-            Self::Extension(op) => write!(f, "{}={}", op_code, op),
+            Self::Chunk(op) => write!(f, "{}{}", op_code, op),
+            Self::Logic(op) => write!(f, "{}{}", op_code, op),
+            Self::Forward(op) => write!(f, "{}{}", op_code, op),
+            Self::IndirectForward(op) => write!(f, "{}{}", op_code, op),
+            Self::RequestTag(op) => write!(f, "{}{}", op_code, op),
+            Self::Extension(op) => write!(f, "{}{}", op_code, op),
         }
     }
 }
@@ -2176,4 +2176,514 @@ impl Codec for Action {
                 .map_value(Action::Extension),
         })
     }
+}
+
+#[test]
+fn test_nop_display() {
+    assert_eq!(
+        Action::Nop(Nop {
+            resp: false,
+            group: true
+        })
+        .to_string(),
+        "NOP[G-]"
+    );
+}
+
+#[test]
+fn test_read_file_data_display() {
+    assert_eq!(
+        Action::ReadFileData(ReadFileData {
+            resp: false,
+            group: true,
+            file_id: 1,
+            offset: 2,
+            size: 3,
+        })
+        .to_string(),
+        "RD[G-]f(1,2,3)"
+    );
+}
+
+#[test]
+fn test_read_file_properties_display() {
+    assert_eq!(
+        Action::ReadFileProperties(ReadFileProperties {
+            resp: true,
+            group: false,
+            file_id: 1,
+        })
+        .to_string(),
+        "RDP[-R]f(1)"
+    );
+}
+
+#[test]
+fn test_write_file_data_display() {
+    assert_eq!(
+        Action::WriteFileData(WriteFileData {
+            resp: true,
+            group: false,
+            file_id: 1,
+            offset: 2,
+            data: Box::new([3, 4, 5]),
+        })
+        .to_string(),
+        "WR[-R]f(1,2,0x030405)"
+    );
+}
+
+#[test]
+fn test_write_file_properties_display() {
+    assert_eq!(
+        Action::WriteFileProperties(WriteFileProperties {
+            resp: false,
+            group: true,
+            file_id: 1,
+            header: data::FileHeader {
+                permissions: data::Permissions {
+                    encrypted: true,
+                    executable: false,
+                    user: data::UserPermissions {
+                        read: true,
+                        write: true,
+                        run: true,
+                    },
+                    guest: data::UserPermissions {
+                        read: false,
+                        write: false,
+                        run: false,
+                    },
+                },
+                properties: data::FileProperties {
+                    act_en: false,
+                    act_cond: data::ActionCondition::Read,
+                    storage_class: data::StorageClass::Permanent,
+                },
+                alp_cmd_fid: 1,
+                interface_file_id: 2,
+                file_size: 3,
+                allocated_size: 4,
+            }
+        })
+        .to_string(),
+        "WRP[G-]f(1)[E-|user=RWX|guest=---|0RP|f(1),2,3,4]"
+    );
+}
+
+#[test]
+fn test_action_query_display() {
+    assert_eq!(
+        Action::ActionQuery(ActionQuery {
+            group: true,
+            resp: true,
+            query: operand::Query::BitmapRangeComparison(operand::BitmapRangeComparison {
+                signed_data: false,
+                comparison_type: operand::QueryRangeComparisonType::InRange,
+                size: 2,
+
+                start: 3,
+                stop: 32,
+                mask: Some(Box::new(hex!("01020304"))),
+
+                file: operand::FileOffset { id: 0, offset: 4 },
+            },),
+        })
+        .to_string(),
+        "AQ[GR]BM:[U|1,2,3-32,msk=0x01020304,f(0,4)]"
+    );
+    assert_eq!(
+        Action::ActionQuery(ActionQuery {
+            group: true,
+            resp: true,
+            query: operand::Query::ComparisonWithZero(operand::ComparisonWithZero {
+                signed_data: true,
+                comparison_type: operand::QueryComparisonType::Inequal,
+                size: 3,
+                mask: Some(vec![0, 1, 2].into_boxed_slice()),
+                file: operand::FileOffset { id: 4, offset: 5 },
+            }),
+        })
+        .to_string(),
+        "AQ[GR]WZ:[S|NEQ,3,msk=0x000102,f(4,5)]"
+    );
+}
+
+#[test]
+fn test_break_query_display() {
+    assert_eq!(
+        Action::BreakQuery(BreakQuery {
+            group: true,
+            resp: true,
+            query: operand::Query::NonVoid(operand::NonVoid {
+                size: 4,
+                file: operand::FileOffset { id: 5, offset: 6 },
+            }),
+        })
+        .to_string(),
+        "BQ[GR]NV:[4,f(5,6)]"
+    );
+    assert_eq!(
+        Action::BreakQuery(BreakQuery {
+            group: true,
+            resp: true,
+            query: operand::Query::ComparisonWithOtherFile(operand::ComparisonWithOtherFile {
+                signed_data: false,
+                comparison_type: operand::QueryComparisonType::GreaterThan,
+                size: 2,
+                mask: Some(vec![0xF1, 0xF2].into_boxed_slice()),
+                file1: operand::FileOffset { id: 4, offset: 5 },
+                file2: operand::FileOffset { id: 8, offset: 9 },
+            }),
+        })
+        .to_string(),
+        "BQ[GR]WF:[U|GTH,2,msk=0xF1F2,f(4,5)~f(8,9)]"
+    );
+}
+
+#[test]
+fn test_permission_request_display() {
+    assert_eq!(
+        Action::PermissionRequest(PermissionRequest {
+            group: false,
+            resp: true,
+            level: 1,
+            permission: operand::Permission::Dash7([2, 3, 4, 5, 6, 7, 8, 9]),
+        })
+        .to_string(),
+        "PR[-R]1,D7:0x0203040506070809"
+    );
+}
+
+#[test]
+fn test_verify_checksum_display() {
+    assert_eq!(
+        Action::VerifyChecksum(VerifyChecksum {
+            group: false,
+            resp: false,
+            query: operand::Query::ComparisonWithValue(operand::ComparisonWithValue {
+                signed_data: false,
+                comparison_type: operand::QueryComparisonType::GreaterThan,
+                size: 2,
+                mask: Some(vec![0xF1, 0xF2].into_boxed_slice()),
+                value: Box::new([0xA9, 0xA8]),
+                file: operand::FileOffset { id: 4, offset: 5 },
+            }),
+        })
+        .to_string(),
+        "VCS[--]WV:[U|GTH,2,msk=0xF1F2,v=0xA9A8,f(4,5)]"
+    );
+    assert_eq!(
+        Action::VerifyChecksum(VerifyChecksum {
+            group: true,
+            resp: false,
+            query: operand::Query::StringTokenSearch(operand::StringTokenSearch {
+                max_errors: 2,
+                size: 4,
+                mask: Some(Box::new(hex!("FF00FF00"))),
+                value: Box::new(hex!("01020304")),
+                file: operand::FileOffset { id: 0, offset: 4 },
+            }),
+        })
+        .to_string(),
+        "VCS[G-]ST:[2,4,msk=0xFF00FF00,v=0x01020304,f(0,4)]"
+    );
+}
+
+#[test]
+fn test_exist_file_display() {
+    assert_eq!(
+        Action::ExistFile(ExistFile {
+            group: false,
+            resp: true,
+            file_id: 9,
+        })
+        .to_string(),
+        "HAS[-R]f(9)"
+    )
+}
+
+#[test]
+fn test_create_new_file_display() {
+    assert_eq!(
+        Action::CreateNewFile(CreateNewFile {
+            group: true,
+            resp: false,
+            file_id: 6,
+            header: data::FileHeader {
+                permissions: data::Permissions {
+                    encrypted: true,
+                    executable: false,
+                    user: data::UserPermissions {
+                        read: true,
+                        write: true,
+                        run: true,
+                    },
+                    guest: data::UserPermissions {
+                        read: false,
+                        write: false,
+                        run: false,
+                    },
+                },
+                properties: data::FileProperties {
+                    act_en: false,
+                    act_cond: data::ActionCondition::Read,
+                    storage_class: data::StorageClass::Permanent,
+                },
+                alp_cmd_fid: 1,
+                interface_file_id: 2,
+                file_size: 3,
+                allocated_size: 4,
+            }
+        })
+        .to_string(),
+        "NEW[G-]f(6)[E-|user=RWX|guest=---|0RP|f(1),2,3,4]"
+    )
+}
+
+#[test]
+fn test_delete_file_display() {
+    assert_eq!(
+        Action::DeleteFile(DeleteFile {
+            group: false,
+            resp: true,
+            file_id: 7,
+        })
+        .to_string(),
+        "DEL[-R]f(7)"
+    )
+}
+
+#[test]
+fn test_restore_file_display() {
+    assert_eq!(
+        Action::RestoreFile(RestoreFile {
+            group: false,
+            resp: true,
+            file_id: 5,
+        })
+        .to_string(),
+        "RST[-R]f(5)"
+    )
+}
+
+#[test]
+fn test_flush_file_display() {
+    assert_eq!(
+        Action::FlushFile(FlushFile {
+            group: false,
+            resp: true,
+            file_id: 4,
+        })
+        .to_string(),
+        "FLUSH[-R]f(4)"
+    )
+}
+
+#[test]
+fn test_copy_file_display() {
+    assert_eq!(
+        Action::CopyFile(CopyFile {
+            group: false,
+            resp: true,
+            src_file_id: 2,
+            dst_file_id: 8,
+        })
+        .to_string(),
+        "CP[-R]f(2)f(8)"
+    )
+}
+
+#[test]
+fn test_execute_file_display() {
+    assert_eq!(
+        Action::ExecuteFile(ExecuteFile {
+            group: false,
+            resp: true,
+            file_id: 4,
+        })
+        .to_string(),
+        "RUN[-R]f(4)"
+    )
+}
+
+#[test]
+fn test_return_file_data_display() {
+    assert_eq!(
+        Action::ReturnFileData(ReturnFileData {
+            resp: true,
+            group: false,
+            file_id: 1,
+            offset: 2,
+            data: Box::new([3, 4, 5]),
+        })
+        .to_string(),
+        "DATA[-R]f(1,2,0x030405)"
+    );
+}
+
+#[test]
+fn test_return_file_properties_display() {
+    assert_eq!(
+        Action::ReturnFileProperties(ReturnFileProperties {
+            resp: false,
+            group: true,
+            file_id: 1,
+            header: data::FileHeader {
+                permissions: data::Permissions {
+                    encrypted: true,
+                    executable: false,
+                    user: data::UserPermissions {
+                        read: true,
+                        write: true,
+                        run: true,
+                    },
+                    guest: data::UserPermissions {
+                        read: false,
+                        write: false,
+                        run: false,
+                    },
+                },
+                properties: data::FileProperties {
+                    act_en: false,
+                    act_cond: data::ActionCondition::Read,
+                    storage_class: data::StorageClass::Permanent,
+                },
+                alp_cmd_fid: 1,
+                interface_file_id: 2,
+                file_size: 3,
+                allocated_size: 4,
+            }
+        })
+        .to_string(),
+        "PROP[G-]f(1)[E-|user=RWX|guest=---|0RP|f(1),2,3,4]"
+    );
+}
+
+#[test]
+fn test_status_display() {
+    assert_eq!(
+        Action::Status(Status::Action(operand::Status {
+            action_id: 2,
+            status: 4
+        }))
+        .to_string(),
+        "S[ACT]:a[2]=>4"
+    );
+    assert_eq!(
+        Action::Status(Status::Interface(operand::InterfaceStatus::Host)).to_string(),
+        "S[ITF]:HOST"
+    );
+    assert_eq!(
+        Action::Status(Status::Interface(operand::InterfaceStatus::D7asp(
+            dash7::InterfaceStatus {
+                ch_header: 1,
+                ch_idx: 0x0123,
+                rxlev: 2,
+                lb: 3,
+                snr: 4,
+                status: 5,
+                token: 6,
+                seq: 7,
+                resp_to: 8,
+                access_class: 0xFF,
+                address: dash7::Address::Vid([0xAB, 0xCD]),
+                nls_state: dash7::NlsState::AesCcm32(hex!("00 11 22 33 44")),
+            }
+        )))
+        .to_string(),
+        "S[ITF]:D7=ch(1;291),sig(2,3,4),s=5,tok=6,sq=7,rto=8,xclass=0xFF,VID[ABCD],NLS[7|0011223344]"
+    );
+}
+
+#[test]
+fn test_response_tag_display() {
+    assert_eq!(
+        Action::ResponseTag(ResponseTag {
+            eop: true,
+            err: false,
+            id: 8,
+        })
+        .to_string(),
+        "TG[E-](8)"
+    );
+}
+
+#[test]
+fn test_chunk_display() {
+    assert_eq!(
+        Action::Chunk(Chunk {
+            step: ChunkStep::Start
+        })
+        .to_string(),
+        "CHK[S]"
+    );
+}
+
+#[test]
+fn test_logic_display() {
+    assert_eq!(
+        Action::Logic(Logic {
+            logic: LogicOp::Xor
+        })
+        .to_string(),
+        "LOG[XOR]"
+    );
+}
+
+#[test]
+fn test_forward_display() {
+    assert_eq!(
+        Action::Forward(Forward {
+            resp: true,
+            conf: operand::InterfaceConfiguration::Host,
+        })
+        .to_string(),
+        "FWD[R]HOST"
+    );
+    assert_eq!(
+        Action::Forward(Forward {
+            resp: true,
+            conf: operand::InterfaceConfiguration::D7asp(dash7::InterfaceConfiguration {
+                qos: dash7::Qos {
+                    retry: dash7::RetryMode::No,
+                    resp: dash7::RespMode::Any,
+                },
+                to: 0x23,
+                te: 0x34,
+                nls_method: dash7::NlsMethod::AesCcm32,
+                access_class: 0xFF,
+                address: dash7::Address::Vid([0xAB, 0xCD]),
+            }),
+        })
+        .to_string(),
+        "FWD[R]D7:0X,35,52|0xFF,NLS[7],VID[ABCD]"
+    );
+}
+
+#[test]
+fn test_indirect_forward_display() {
+    assert_eq!(
+        Action::IndirectForward(IndirectForward {
+            resp: true,
+            interface: operand::IndirectInterface::Overloaded(
+                operand::OverloadedIndirectInterface {
+                    interface_file_id: 4,
+                    nls_method: dash7::NlsMethod::AesCcm32,
+                    access_class: 0xFF,
+                    address: dash7::Address::Vid([0xAB, 0xCD]),
+                }
+            ),
+        })
+        .to_string(),
+        "IFWD[R]O:4,NLS[7],255,VID[ABCD]"
+    );
+}
+
+#[test]
+fn test_request_tag_display() {
+    assert_eq!(
+        Action::RequestTag(RequestTag { eop: true, id: 9 }).to_string(),
+        "RTG[E](9)"
+    );
 }

@@ -452,7 +452,7 @@ impl std::fmt::Display for InterfaceConfiguration {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(
             f,
-            "{};{};{}|0x{};{};{}",
+            "{},{},{}|0x{},{},{}",
             self.qos,
             self.to,
             self.te,
@@ -648,7 +648,7 @@ impl std::fmt::Display for InterfaceStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(
             f,
-            "{};{}|{};{};{}|{};{};{};{}|{};{};{}",
+            "ch({};{}),sig({},{},{}),s={},tok={},sq={},rto={},xclass=0x{},{},{}",
             self.ch_header,
             self.ch_idx,
             self.rxlev,
@@ -658,7 +658,7 @@ impl std::fmt::Display for InterfaceStatus {
             self.token,
             self.seq,
             self.resp_to,
-            self.access_class,
+            hex::encode_upper([self.access_class]),
             self.address,
             self.nls_state
         )
