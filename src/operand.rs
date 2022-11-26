@@ -22,6 +22,14 @@ pub enum InterfaceConfiguration {
     Host,
     D7asp(dash7::InterfaceConfiguration),
 }
+impl std::fmt::Display for InterfaceConfiguration {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::Host => write!(f, "HS"),
+            Self::D7asp(conf) => write!(f, "D7={}", conf),
+        }
+    }
+}
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum InterfaceConfigurationDecodingError {
     MissingBytes(usize),
@@ -103,12 +111,26 @@ pub struct InterfaceStatusUnknown {
     pub id: u8,
     pub data: Box<[u8]>,
 }
+impl std::fmt::Display for InterfaceStatusUnknown {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}:0x{}", self.id, hex::encode_upper(&self.data))
+    }
+}
 /// Meta data from a received packet depending on the receiving interface type
 #[derive(Clone, Debug, PartialEq)]
 pub enum InterfaceStatus {
     Host,
     D7asp(dash7::InterfaceStatus),
     Unknown(InterfaceStatusUnknown),
+}
+impl std::fmt::Display for InterfaceStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::Host => write!(f, "HS"),
+            Self::D7asp(status) => write!(f, "D7={}", status),
+            Self::Unknown(status) => write!(f, "?={}", status),
+        }
+    }
 }
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum InterfaceStatusDecodingError {
@@ -259,6 +281,11 @@ pub struct FileOffset {
     pub id: u8,
     pub offset: u32,
 }
+impl std::fmt::Display for FileOffset {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{};{}", self.id, self.offset)
+    }
+}
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum FileOffsetDecodingError {
@@ -339,6 +366,11 @@ pub struct Status {
     /// Result code
     pub status: u8,
 }
+impl std::fmt::Display for Status {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{};{}", self.action_id, self.status)
+    }
+}
 impl Codec for Status {
     type Error = StdError;
     fn encoded_size(&self) -> usize {
@@ -385,6 +417,13 @@ impl Permission {
     fn id(self) -> u8 {
         match self {
             Permission::Dash7(_) => 0x42, // ALP_SPEC Undefined
+        }
+    }
+}
+impl std::fmt::Display for Permission {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::Dash7(data) => write!(f, "0x{}", hex::encode_upper(data)),
         }
     }
 }
@@ -459,11 +498,32 @@ impl QueryComparisonType {
         })
     }
 }
+impl std::fmt::Display for QueryComparisonType {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                Self::Inequal => "!=",
+                Self::Equal => "==",
+                Self::LessThan => "_<",
+                Self::LessThanOrEqual => "<=",
+                Self::GreaterThan => "_>",
+                Self::GreaterThanOrEqual => ">=",
+            }
+        )
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum QueryRangeComparisonType {
     NotInRange = 0,
     InRange = 1,
+}
+impl std::fmt::Display for QueryRangeComparisonType {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}", *self as u8)
+    }
 }
 impl QueryRangeComparisonType {
     fn from(n: u8) -> Result<Self, u8> {
@@ -496,6 +556,11 @@ impl QueryCode {
         })
     }
 }
+impl std::fmt::Display for QueryCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}", *self as u8)
+    }
+}
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum QueryOperandDecodingError {
@@ -512,6 +577,11 @@ pub enum QueryOperandDecodingError {
 pub struct NonVoid {
     pub size: u32,
     pub file: FileOffset,
+}
+impl std::fmt::Display for NonVoid {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{};f[{}]", self.size, self.file)
+    }
 }
 impl Codec for NonVoid {
     type Error = QueryOperandDecodingError;
@@ -589,6 +659,21 @@ pub struct ComparisonWithZero {
     pub size: u32,
     pub mask: Option<Box<[u8]>>,
     pub file: FileOffset,
+}
+impl std::fmt::Display for ComparisonWithZero {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "{};{};{};",
+            if self.signed_data { "s" } else { "u" },
+            self.comparison_type,
+            self.size
+        )?;
+        if let Some(mask) = &self.mask {
+            write!(f, "msk=0x{};", hex::encode_upper(mask))?;
+        }
+        write!(f, "f[{}]", self.file)
+    }
 }
 impl ComparisonWithZero {
     pub fn validate(&self) -> Result<(), QueryValidationError> {
@@ -707,6 +792,21 @@ pub struct ComparisonWithValue {
     pub mask: Option<Box<[u8]>>,
     pub value: Box<[u8]>,
     pub file: FileOffset,
+}
+impl std::fmt::Display for ComparisonWithValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "{};{};{};",
+            if self.signed_data { "s" } else { "u" },
+            self.comparison_type,
+            self.size
+        )?;
+        if let Some(mask) = &self.mask {
+            write!(f, "msk=0x{};", hex::encode_upper(mask))?;
+        }
+        write!(f, "v=0x{}f[{}]", hex::encode_upper(&self.value), self.file)
+    }
 }
 impl ComparisonWithValue {
     pub fn validate(&self) -> Result<(), QueryValidationError> {
@@ -836,6 +936,21 @@ pub struct ComparisonWithOtherFile {
     pub mask: Option<Box<[u8]>>,
     pub file1: FileOffset,
     pub file2: FileOffset,
+}
+impl std::fmt::Display for ComparisonWithOtherFile {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "{};{};{};",
+            if self.signed_data { "s" } else { "u" },
+            self.comparison_type,
+            self.size
+        )?;
+        if let Some(mask) = &self.mask {
+            write!(f, "msk=0x{};", hex::encode_upper(mask))?;
+        }
+        write!(f, "f[{}]~f[{}]", self.file1, self.file2)
+    }
 }
 impl ComparisonWithOtherFile {
     pub fn validate(&self) -> Result<(), QueryValidationError> {
@@ -974,6 +1089,23 @@ pub struct BitmapRangeComparison {
     pub stop: u32,
     pub bitmap: Option<Box<[u8]>>,
     pub file: FileOffset,
+}
+impl std::fmt::Display for BitmapRangeComparison {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "{};{};{};{}->{};",
+            if self.signed_data { "s" } else { "u" },
+            self.comparison_type,
+            self.size,
+            self.start,
+            self.stop
+        )?;
+        if let Some(bitmap) = &self.bitmap {
+            write!(f, "bm=0x{};", hex::encode_upper(bitmap))?;
+        }
+        write!(f, "f[{}]", self.file)
+    }
 }
 impl BitmapRangeComparison {
     pub fn validate(&self) -> Result<(), QueryValidationError> {
@@ -1115,6 +1247,15 @@ pub struct StringTokenSearch {
     pub value: Box<[u8]>,
     pub file: FileOffset,
 }
+impl std::fmt::Display for StringTokenSearch {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{};{};", self.max_errors, self.size)?;
+        if let Some(mask) = &self.mask {
+            write!(f, "msk=0x{};", hex::encode_upper(mask))?;
+        }
+        write!(f, "v={};f[{}]", hex::encode_upper(&self.value), self.file)
+    }
+}
 impl StringTokenSearch {
     pub fn validate(&self) -> Result<(), QueryValidationError> {
         if self.size > varint::MAX {
@@ -1239,6 +1380,18 @@ pub enum Query {
     BitmapRangeComparison(BitmapRangeComparison),
     StringTokenSearch(StringTokenSearch),
 }
+impl std::fmt::Display for Query {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::NonVoid(v) => write!(f, "NV={}", v),
+            Self::ComparisonWithZero(v) => write!(f, "WZ={}", v),
+            Self::ComparisonWithValue(v) => write!(f, "WV={}", v),
+            Self::ComparisonWithOtherFile(v) => write!(f, "WF={}", v),
+            Self::BitmapRangeComparison(v) => write!(f, "BM={}", v),
+            Self::StringTokenSearch(v) => write!(f, "ST={}", v),
+        }
+    }
+}
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum QueryDecodingError {
     MissingBytes(usize),
@@ -1307,6 +1460,15 @@ pub struct OverloadedIndirectInterface {
     pub nls_method: dash7::NlsMethod,
     pub access_class: u8,
     pub address: dash7::Address,
+}
+impl std::fmt::Display for OverloadedIndirectInterface {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "{};{};{};{}",
+            self.interface_file_id, self.nls_method, self.access_class, self.address
+        )
+    }
 }
 
 impl Codec for OverloadedIndirectInterface {
@@ -1384,11 +1546,29 @@ impl Codec for NonOverloadedIndirectInterface {
         todo!("TODO")
     }
 }
+impl std::fmt::Display for NonOverloadedIndirectInterface {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "{};0x{}",
+            self.interface_file_id,
+            hex::encode_upper(&self.data)
+        )
+    }
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum IndirectInterface {
     Overloaded(OverloadedIndirectInterface),
     NonOverloaded(NonOverloadedIndirectInterface),
+}
+impl std::fmt::Display for IndirectInterface {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::Overloaded(v) => write!(f, "O={}", v),
+            Self::NonOverloaded(v) => write!(f, "N={}", v),
+        }
+    }
 }
 
 impl Codec for IndirectInterface {

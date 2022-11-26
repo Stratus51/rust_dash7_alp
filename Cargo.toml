@@ -16,3 +16,4 @@ categories = ["encoding", "parser-implementations"]
 hex-literal = "0"
 
 [dependencies]
+hex = "0"
