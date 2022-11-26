@@ -19,39 +19,37 @@
 //! ==============================================================================
 //!
 //! ```
+//! use dash7_alp::{Command, Action, action};
 //! use hex_literal::hex;
-//! use dash7_alp::{Action, Command, Codec, action};
 //!
-//! fn main() {
-//!     let cmd = Command {
-//!         actions: vec![
-//!             Action::RequestTag(action::RequestTag { id: 66, eop: true }),
-//!             Action::ReadFileData(action::ReadFileData {
-//!                 resp: true,
-//!                 group: false,
-//!                 file_id: 0,
-//!                 offset: 0,
-//!                 size: 8,
-//!             }),
-//!             Action::ReadFileData(action::ReadFileData {
-//!                 resp: false,
-//!                 group: true,
-//!                 file_id: 4,
-//!                 offset: 2,
-//!                 size: 3,
-//!             }),
-//!             Action::Nop(action::Nop {
-//!                 resp: true,
-//!                 group: true,
-//!             }),
-//!         ],
-//!     };
-//!     let data = &hex!("B4 42   41 00 00 08   81 04 02 03  C0") as &[u8];
+//! let cmd = Command {
+//!     actions: vec![
+//!         Action::RequestTag(action::RequestTag { id: 66, eop: true }),
+//!         Action::ReadFileData(action::ReadFileData {
+//!             resp: true,
+//!             group: false,
+//!             file_id: 0,
+//!             offset: 0,
+//!             size: 8,
+//!         }),
+//!         Action::ReadFileData(action::ReadFileData {
+//!             resp: false,
+//!             group: true,
+//!             file_id: 4,
+//!             offset: 2,
+//!             size: 3,
+//!         }),
+//!         Action::Nop(action::Nop {
+//!             resp: true,
+//!             group: true,
+//!         }),
+//!     ],
+//! };
+//! let data = &hex!("B4 42   41 00 00 08   81 04 02 03  C0") as &[u8];
 //!
-//!     assert_eq!(&cmd.encode()[..], data);
-//!     let parsed_cmd = Command::decode(data).expect("should be parsed without error");
-//!     assert_eq!(parsed_cmd, cmd);
-//! }
+//! assert_eq!(&cmd.encode()[..], data);
+//! let parsed_cmd = Command::decode(data).expect("should be parsed without error");
+//! assert_eq!(parsed_cmd, cmd);
 //! ```
 //!
 //! Notes
@@ -116,7 +114,6 @@ pub use codec::{Codec, WithOffset, WithSize};
 /// ALP request that can be sent to an ALP compatible device.
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct Command {
-    // TODO This Vec makes us ::collection dependent.
     // Does that impact application that don't use the structure?
     pub actions: Vec<Action>,
 }

@@ -1235,7 +1235,6 @@ pub enum ChunkStep {
     StartEnd = 3,
 }
 impl ChunkStep {
-    // TODO Optimize, that can never be wrong
     fn from(n: u8) -> Self {
         match n {
             0 => ChunkStep::Continue,
@@ -1297,7 +1296,6 @@ pub enum LogicOp {
     Nand = 3,
 }
 impl LogicOp {
-    // TODO Optimize, that can never be wrong
     fn from(n: u8) -> Self {
         match n {
             0 => LogicOp::Or,
