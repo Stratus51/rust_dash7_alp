@@ -25,8 +25,8 @@ pub enum InterfaceConfiguration {
 impl std::fmt::Display for InterfaceConfiguration {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            Self::Host => write!(f, "HS"),
-            Self::D7asp(conf) => write!(f, "D7={}", conf),
+            Self::Host => write!(f, "HOST"),
+            Self::D7asp(conf) => write!(f, "D7:{}", conf),
         }
     }
 }
@@ -126,7 +126,7 @@ pub enum InterfaceStatus {
 impl std::fmt::Display for InterfaceStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            Self::Host => write!(f, "HS"),
+            Self::Host => write!(f, "HOST"),
             Self::D7asp(status) => write!(f, "D7={}", status),
             Self::Unknown(status) => write!(f, "?={}", status),
         }
@@ -283,7 +283,7 @@ pub struct FileOffset {
 }
 impl std::fmt::Display for FileOffset {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{};{}", self.id, self.offset)
+        write!(f, "{},{}", self.id, self.offset)
     }
 }
 
@@ -368,7 +368,7 @@ pub struct Status {
 }
 impl std::fmt::Display for Status {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{};{}", self.action_id, self.status)
+        write!(f, "a[{}]=>{}", self.action_id, self.status)
     }
 }
 impl Codec for Status {
@@ -423,7 +423,7 @@ impl Permission {
 impl std::fmt::Display for Permission {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            Self::Dash7(data) => write!(f, "0x{}", hex::encode_upper(data)),
+            Self::Dash7(data) => write!(f, "D7:0x{}", hex::encode_upper(data)),
         }
     }
 }
@@ -504,12 +504,12 @@ impl std::fmt::Display for QueryComparisonType {
             f,
             "{}",
             match self {
-                Self::Inequal => "!=",
-                Self::Equal => "==",
-                Self::LessThan => "_<",
-                Self::LessThanOrEqual => "<=",
-                Self::GreaterThan => "_>",
-                Self::GreaterThanOrEqual => ">=",
+                Self::Inequal => "NEQ",
+                Self::Equal => "EQU",
+                Self::LessThan => "LTH",
+                Self::LessThanOrEqual => "LTE",
+                Self::GreaterThan => "GTH",
+                Self::GreaterThanOrEqual => "GTE",
             }
         )
     }
@@ -580,7 +580,7 @@ pub struct NonVoid {
 }
 impl std::fmt::Display for NonVoid {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{};f[{}]", self.size, self.file)
+        write!(f, "{},f({})", self.size, self.file)
     }
 }
 impl Codec for NonVoid {
@@ -664,15 +664,15 @@ impl std::fmt::Display for ComparisonWithZero {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(
             f,
-            "{};{};{};",
-            if self.signed_data { "s" } else { "u" },
+            "{}|{},{},",
+            if self.signed_data { "S" } else { "U" },
             self.comparison_type,
             self.size
         )?;
         if let Some(mask) = &self.mask {
-            write!(f, "msk=0x{};", hex::encode_upper(mask))?;
+            write!(f, "msk=0x{},", hex::encode_upper(mask))?;
         }
-        write!(f, "f[{}]", self.file)
+        write!(f, "f({})", self.file)
     }
 }
 impl ComparisonWithZero {
@@ -797,15 +797,15 @@ impl std::fmt::Display for ComparisonWithValue {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(
             f,
-            "{};{};{};",
-            if self.signed_data { "s" } else { "u" },
+            "{}|{},{},",
+            if self.signed_data { "S" } else { "U" },
             self.comparison_type,
             self.size
         )?;
         if let Some(mask) = &self.mask {
-            write!(f, "msk=0x{};", hex::encode_upper(mask))?;
+            write!(f, "msk=0x{},", hex::encode_upper(mask))?;
         }
-        write!(f, "v=0x{}f[{}]", hex::encode_upper(&self.value), self.file)
+        write!(f, "v=0x{},f({})", hex::encode_upper(&self.value), self.file)
     }
 }
 impl ComparisonWithValue {
@@ -941,15 +941,15 @@ impl std::fmt::Display for ComparisonWithOtherFile {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(
             f,
-            "{};{};{};",
-            if self.signed_data { "s" } else { "u" },
+            "{}|{},{},",
+            if self.signed_data { "S" } else { "U" },
             self.comparison_type,
             self.size
         )?;
         if let Some(mask) = &self.mask {
-            write!(f, "msk=0x{};", hex::encode_upper(mask))?;
+            write!(f, "msk=0x{},", hex::encode_upper(mask))?;
         }
-        write!(f, "f[{}]~f[{}]", self.file1, self.file2)
+        write!(f, "f({})~f({})", self.file1, self.file2)
     }
 }
 impl ComparisonWithOtherFile {
@@ -1094,8 +1094,8 @@ impl std::fmt::Display for BitmapRangeComparison {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(
             f,
-            "{};{};{};{}->{};",
-            if self.signed_data { "s" } else { "u" },
+            "{}|{},{},{}-{},",
+            if self.signed_data { "S" } else { "U" },
             self.comparison_type,
             self.size,
             self.start,
@@ -1104,7 +1104,7 @@ impl std::fmt::Display for BitmapRangeComparison {
         if let Some(mask) = &self.mask {
             write!(f, "msk=0x{},", hex::encode_upper(mask))?;
         }
-        write!(f, "f[{}]", self.file)
+        write!(f, "f({})", self.file)
     }
 }
 impl BitmapRangeComparison {
@@ -1249,11 +1249,11 @@ pub struct StringTokenSearch {
 }
 impl std::fmt::Display for StringTokenSearch {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{};{};", self.max_errors, self.size)?;
+        write!(f, "{},{},", self.max_errors, self.size)?;
         if let Some(mask) = &self.mask {
-            write!(f, "msk=0x{};", hex::encode_upper(mask))?;
+            write!(f, "msk=0x{},", hex::encode_upper(mask))?;
         }
-        write!(f, "v={};f[{}]", hex::encode_upper(&self.value), self.file)
+        write!(f, "v=0x{},f({})", hex::encode_upper(&self.value), self.file)
     }
 }
 impl StringTokenSearch {
@@ -1383,12 +1383,12 @@ pub enum Query {
 impl std::fmt::Display for Query {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            Self::NonVoid(v) => write!(f, "NV={}", v),
-            Self::ComparisonWithZero(v) => write!(f, "WZ={}", v),
-            Self::ComparisonWithValue(v) => write!(f, "WV={}", v),
-            Self::ComparisonWithOtherFile(v) => write!(f, "WF={}", v),
-            Self::BitmapRangeComparison(v) => write!(f, "BM={}", v),
-            Self::StringTokenSearch(v) => write!(f, "ST={}", v),
+            Self::NonVoid(v) => write!(f, "NV:[{}]", v),
+            Self::ComparisonWithZero(v) => write!(f, "WZ:[{}]", v),
+            Self::ComparisonWithValue(v) => write!(f, "WV:[{}]", v),
+            Self::ComparisonWithOtherFile(v) => write!(f, "WF:[{}]", v),
+            Self::BitmapRangeComparison(v) => write!(f, "BM:[{}]", v),
+            Self::StringTokenSearch(v) => write!(f, "ST:[{}]", v),
         }
     }
 }
@@ -1465,7 +1465,7 @@ impl std::fmt::Display for OverloadedIndirectInterface {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(
             f,
-            "{};{};{};{}",
+            "{},{},{},{}",
             self.interface_file_id, self.nls_method, self.access_class, self.address
         )
     }
@@ -1550,7 +1550,7 @@ impl std::fmt::Display for NonOverloadedIndirectInterface {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(
             f,
-            "{};0x{}",
+            "{},0x{}",
             self.interface_file_id,
             hex::encode_upper(&self.data)
         )
@@ -1565,8 +1565,8 @@ pub enum IndirectInterface {
 impl std::fmt::Display for IndirectInterface {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            Self::Overloaded(v) => write!(f, "O={}", v),
-            Self::NonOverloaded(v) => write!(f, "N={}", v),
+            Self::Overloaded(v) => write!(f, "O:{}", v),
+            Self::NonOverloaded(v) => write!(f, "N:{}", v),
         }
     }
 }
