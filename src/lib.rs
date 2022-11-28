@@ -60,7 +60,7 @@
 //!
 //! This means that:
 //! - If any action of this group fails, the next actions are skipped.
-//! - A query before the group will apply to the whole group (to defined
+//! - A query before the group will apply to the whole group (to define
 //! whether it will be executed).
 //! - If the group contains queries, a prior Logical action will determine how they
 //! are composed between them (OR, XOR, NOR, NAND). Without any Logical action, the
