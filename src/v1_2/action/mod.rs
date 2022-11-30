@@ -5,11 +5,7 @@ use hex_literal::hex;
 
 use crate::{
     codec::{Codec, StdError, WithOffset, WithSize},
-    v1_2::{
-        data,
-        operand::{self, query::QueryDecodingError},
-        varint,
-    },
+    v1_2::{data, operand, varint},
 };
 
 pub mod builder;
@@ -677,10 +673,10 @@ pub enum ActionDecodingError {
     ReadFileProperties(StdError),
     WriteFileData(StdError),
     WriteFileProperties(HeaderActionDecodingError),
-    ActionQuery(QueryDecodingError),
-    BreakQuery(QueryDecodingError),
-    PermissionRequest(operand::permission::PermissionDecodingError),
-    VerifyChecksum(QueryDecodingError),
+    ActionQuery(operand::QueryDecodingError),
+    BreakQuery(operand::QueryDecodingError),
+    PermissionRequest(operand::PermissionDecodingError),
+    VerifyChecksum(operand::QueryDecodingError),
     ExistFile(StdError),
     CreateNewFile(HeaderActionDecodingError),
     DeleteFile(StdError),
@@ -694,7 +690,7 @@ pub enum ActionDecodingError {
     ResponseTag(StdError),
     Chunk(StdError),
     Logic(StdError),
-    Forward(operand::interface_configuration::InterfaceConfigurationDecodingError),
+    Forward(operand::InterfaceConfigurationDecodingError),
     IndirectForward(StdError),
     RequestTag(StdError),
     Extension,
@@ -722,14 +718,18 @@ impl ActionDecodingError {
         WriteFileProperties,
         HeaderActionDecodingError
     );
-    impl_std_error_map!(map_action_query, ActionQuery, QueryDecodingError);
-    impl_std_error_map!(map_break_query, BreakQuery, QueryDecodingError);
+    impl_std_error_map!(map_action_query, ActionQuery, operand::QueryDecodingError);
+    impl_std_error_map!(map_break_query, BreakQuery, operand::QueryDecodingError);
     impl_std_error_map!(
         map_permission_request,
         PermissionRequest,
-        operand::permission::PermissionDecodingError
+        operand::PermissionDecodingError
     );
-    impl_std_error_map!(map_verify_checksum, VerifyChecksum, QueryDecodingError);
+    impl_std_error_map!(
+        map_verify_checksum,
+        VerifyChecksum,
+        operand::QueryDecodingError
+    );
     impl_std_error_map!(map_exist_file, ExistFile, StdError);
     impl_std_error_map!(
         map_create_new_file,
@@ -754,7 +754,7 @@ impl ActionDecodingError {
     impl_std_error_map!(
         map_forward,
         Forward,
-        operand::interface_configuration::InterfaceConfigurationDecodingError
+        operand::InterfaceConfigurationDecodingError
     );
     impl_std_error_map!(map_indirect_forward, IndirectForward, StdError);
     impl_std_error_map!(map_request_tag, RequestTag, StdError);
@@ -1012,19 +1012,17 @@ fn test_action_query_display() {
         Action::ActionQuery(ActionQuery {
             group: true,
             resp: true,
-            query: operand::query::Query::BitmapRangeComparison(
-                operand::query::BitmapRangeComparison {
-                    signed_data: false,
-                    comparison_type: operand::query::QueryRangeComparisonType::InRange,
-                    size: 2,
+            query: operand::Query::BitmapRangeComparison(operand::BitmapRangeComparison {
+                signed_data: false,
+                comparison_type: operand::QueryRangeComparisonType::InRange,
+                size: 2,
 
-                    start: 3,
-                    stop: 32,
-                    mask: Some(Box::new(hex!("01020304"))),
+                start: 3,
+                stop: 32,
+                mask: Some(Box::new(hex!("01020304"))),
 
-                    file: operand::file_offset::FileOffset { id: 0, offset: 4 },
-                },
-            ),
+                file: operand::FileOffset { id: 0, offset: 4 },
+            },),
         })
         .to_string(),
         "AQ[GR]BM:[U|1,2,3-32,msk=0x01020304,f(0,4)]"
@@ -1033,12 +1031,12 @@ fn test_action_query_display() {
         Action::ActionQuery(ActionQuery {
             group: true,
             resp: true,
-            query: operand::query::Query::ComparisonWithZero(operand::query::ComparisonWithZero {
+            query: operand::Query::ComparisonWithZero(operand::ComparisonWithZero {
                 signed_data: true,
-                comparison_type: operand::query::QueryComparisonType::Inequal,
+                comparison_type: operand::QueryComparisonType::Inequal,
                 size: 3,
                 mask: Some(vec![0, 1, 2].into_boxed_slice()),
-                file: operand::file_offset::FileOffset { id: 4, offset: 5 },
+                file: operand::FileOffset { id: 4, offset: 5 },
             }),
         })
         .to_string(),
@@ -1052,9 +1050,9 @@ fn test_break_query_display() {
         Action::BreakQuery(BreakQuery {
             group: true,
             resp: true,
-            query: operand::query::Query::NonVoid(operand::query::NonVoid {
+            query: operand::Query::NonVoid(operand::NonVoid {
                 size: 4,
-                file: operand::file_offset::FileOffset { id: 5, offset: 6 },
+                file: operand::FileOffset { id: 5, offset: 6 },
             }),
         })
         .to_string(),
@@ -1064,16 +1062,14 @@ fn test_break_query_display() {
         Action::BreakQuery(BreakQuery {
             group: true,
             resp: true,
-            query: operand::query::Query::ComparisonWithOtherFile(
-                operand::query::ComparisonWithOtherFile {
-                    signed_data: false,
-                    comparison_type: operand::query::QueryComparisonType::GreaterThan,
-                    size: 2,
-                    mask: Some(vec![0xF1, 0xF2].into_boxed_slice()),
-                    file1: operand::file_offset::FileOffset { id: 4, offset: 5 },
-                    file2: operand::file_offset::FileOffset { id: 8, offset: 9 },
-                }
-            ),
+            query: operand::Query::ComparisonWithOtherFile(operand::ComparisonWithOtherFile {
+                signed_data: false,
+                comparison_type: operand::QueryComparisonType::GreaterThan,
+                size: 2,
+                mask: Some(vec![0xF1, 0xF2].into_boxed_slice()),
+                file1: operand::FileOffset { id: 4, offset: 5 },
+                file2: operand::FileOffset { id: 8, offset: 9 },
+            }),
         })
         .to_string(),
         "BQ[GR]WF:[U|GTH,2,msk=0xF1F2,f(4,5)~f(8,9)]"
@@ -1087,7 +1083,7 @@ fn test_permission_request_display() {
             group: false,
             resp: true,
             level: 1,
-            permission: operand::permission::Permission::Dash7([2, 3, 4, 5, 6, 7, 8, 9]),
+            permission: operand::Permission::Dash7([2, 3, 4, 5, 6, 7, 8, 9]),
         })
         .to_string(),
         "PR[-R]1,D7:0x0203040506070809"
@@ -1100,16 +1096,14 @@ fn test_verify_checksum_display() {
         Action::VerifyChecksum(VerifyChecksum {
             group: false,
             resp: false,
-            query: operand::query::Query::ComparisonWithValue(
-                operand::query::ComparisonWithValue {
-                    signed_data: false,
-                    comparison_type: operand::query::QueryComparisonType::GreaterThan,
-                    size: 2,
-                    mask: Some(vec![0xF1, 0xF2].into_boxed_slice()),
-                    value: Box::new([0xA9, 0xA8]),
-                    file: operand::file_offset::FileOffset { id: 4, offset: 5 },
-                }
-            ),
+            query: operand::Query::ComparisonWithValue(operand::ComparisonWithValue {
+                signed_data: false,
+                comparison_type: operand::QueryComparisonType::GreaterThan,
+                size: 2,
+                mask: Some(vec![0xF1, 0xF2].into_boxed_slice()),
+                value: Box::new([0xA9, 0xA8]),
+                file: operand::FileOffset { id: 4, offset: 5 },
+            }),
         })
         .to_string(),
         "VCS[--]WV:[U|GTH,2,msk=0xF1F2,v=0xA9A8,f(4,5)]"
@@ -1118,12 +1112,12 @@ fn test_verify_checksum_display() {
         Action::VerifyChecksum(VerifyChecksum {
             group: true,
             resp: false,
-            query: operand::query::Query::StringTokenSearch(operand::query::StringTokenSearch {
+            query: operand::Query::StringTokenSearch(operand::StringTokenSearch {
                 max_errors: 2,
                 size: 4,
                 mask: Some(Box::new(hex!("FF00FF00"))),
                 value: Box::new(hex!("01020304")),
-                file: operand::file_offset::FileOffset { id: 0, offset: 4 },
+                file: operand::FileOffset { id: 0, offset: 4 },
             }),
         })
         .to_string(),
@@ -1304,7 +1298,7 @@ fn test_return_file_properties_display() {
 #[test]
 fn test_status_display() {
     assert_eq!(
-        Action::Status(Status::Action(operand::action_status::ActionStatus {
+        Action::Status(Status::Action(operand::ActionStatus {
             action_id: 2,
             status: 4
         }))
@@ -1312,14 +1306,11 @@ fn test_status_display() {
         "S[ACT]:a[2]=>4"
     );
     assert_eq!(
-        Action::Status(Status::Interface(
-            operand::interface_status::InterfaceStatus::Host
-        ))
-        .to_string(),
+        Action::Status(Status::Interface(operand::InterfaceStatus::Host)).to_string(),
         "S[ITF]:HOST"
     );
     assert_eq!(
-        Action::Status(Status::Interface(operand::interface_status::InterfaceStatus::D7asp(
+        Action::Status(Status::Interface(operand::InterfaceStatus::D7asp(
             dash7::InterfaceStatus {
                 ch_header: 1,
                 ch_idx: 0x0123,
@@ -1380,7 +1371,7 @@ fn test_forward_display() {
     assert_eq!(
         Action::Forward(Forward {
             resp: true,
-            conf: operand::interface_configuration::InterfaceConfiguration::Host,
+            conf: operand::InterfaceConfiguration::Host,
         })
         .to_string(),
         "FWD[R]HOST"
@@ -1388,19 +1379,17 @@ fn test_forward_display() {
     assert_eq!(
         Action::Forward(Forward {
             resp: true,
-            conf: operand::interface_configuration::InterfaceConfiguration::D7asp(
-                dash7::InterfaceConfiguration {
-                    qos: dash7::Qos {
-                        retry: dash7::RetryMode::No,
-                        resp: dash7::RespMode::Any,
-                    },
-                    to: 0x23,
-                    te: 0x34,
-                    nls_method: dash7::NlsMethod::AesCcm32,
-                    access_class: 0xFF,
-                    address: dash7::Address::Vid([0xAB, 0xCD]),
-                }
-            ),
+            conf: operand::InterfaceConfiguration::D7asp(dash7::InterfaceConfiguration {
+                qos: dash7::Qos {
+                    retry: dash7::RetryMode::No,
+                    resp: dash7::RespMode::Any,
+                },
+                to: 0x23,
+                te: 0x34,
+                nls_method: dash7::NlsMethod::AesCcm32,
+                access_class: 0xFF,
+                address: dash7::Address::Vid([0xAB, 0xCD]),
+            }),
         })
         .to_string(),
         "FWD[R]D7:0X,35,52|0xFF,NLS[7],VID[ABCD]"
@@ -1412,8 +1401,8 @@ fn test_indirect_forward_display() {
     assert_eq!(
         Action::IndirectForward(IndirectForward {
             resp: true,
-            interface: operand::indirect_interface::IndirectInterface::Overloaded(
-                operand::indirect_interface::OverloadedIndirectInterface {
+            interface: operand::IndirectInterface::Overloaded(
+                operand::OverloadedIndirectInterface {
                     interface_file_id: 4,
                     nls_method: dash7::NlsMethod::AesCcm32,
                     access_class: 0xFF,

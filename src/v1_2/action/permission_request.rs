@@ -7,7 +7,7 @@ use crate::{
     codec::{Codec, WithOffset, WithSize},
     v1_2::{
         action::OpCode,
-        operand::permission::{Permission, PermissionDecodingError},
+        operand::{Permission, PermissionDecodingError},
     },
 };
 
@@ -63,7 +63,7 @@ fn test_permission_request() {
         PermissionRequest {
             group: false,
             resp: false,
-            level: crate::v1_2::operand::permission::permission_level::ROOT,
+            level: crate::v1_2::operand::permission_level::ROOT,
             permission: Permission::Dash7(hex!("0102030405060708")),
         },
         &hex!("0A   01 42 0102030405060708"),

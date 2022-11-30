@@ -12,7 +12,7 @@ use crate::{
 pub struct IndirectForward {
     // ALP_SPEC Ask for response ?
     pub resp: bool,
-    pub interface: operand::indirect_interface::IndirectInterface,
+    pub interface: operand::IndirectInterface,
 }
 impl std::fmt::Display for IndirectForward {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -31,8 +31,8 @@ impl Codec for IndirectForward {
     }
     unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
         let overload = match self.interface {
-            operand::indirect_interface::IndirectInterface::Overloaded(_) => true,
-            operand::indirect_interface::IndirectInterface::NonOverloaded(_) => false,
+            operand::IndirectInterface::Overloaded(_) => true,
+            operand::IndirectInterface::NonOverloaded(_) => false,
         };
         out[0] = super::control_byte!(overload, self.resp, super::OpCode::IndirectForward);
         1 + super::serialize_all!(&mut out[1..], &self.interface)
@@ -45,7 +45,7 @@ impl Codec for IndirectForward {
             let WithSize {
                 value: op1,
                 size: op1_size,
-            } = operand::indirect_interface::IndirectInterface::decode(out)?;
+            } = operand::IndirectInterface::decode(out)?;
             offset += op1_size;
             Ok(WithSize {
                 value: Self {
@@ -62,8 +62,8 @@ fn test_indirect_forward() {
     test_item(
         IndirectForward {
             resp: true,
-            interface: operand::indirect_interface::IndirectInterface::Overloaded(
-                operand::indirect_interface::OverloadedIndirectInterface {
+            interface: operand::IndirectInterface::Overloaded(
+                operand::OverloadedIndirectInterface {
                     interface_file_id: 4,
                     nls_method: dash7::NlsMethod::AesCcm32,
                     access_class: 0xFF,

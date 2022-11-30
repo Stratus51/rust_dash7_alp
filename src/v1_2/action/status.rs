@@ -27,8 +27,8 @@ impl StatusType {
 pub enum Status {
     // ALP SPEC: This is named status, but it should be named action status compared to the '2'
     // other statuses.
-    Action(operand::action_status::ActionStatus),
-    Interface(operand::interface_status::InterfaceStatus),
+    Action(operand::ActionStatus),
+    Interface(operand::InterfaceStatus),
     // ALP SPEC: Where are the stack errors?
 }
 impl std::fmt::Display for Status {
@@ -44,7 +44,7 @@ pub enum StatusDecodingError {
     MissingBytes(usize),
     UnknownType(u8),
     Action(StdError),
-    Interface(operand::interface_status::InterfaceStatusDecodingError),
+    Interface(operand::InterfaceStatusDecodingError),
 }
 impl Codec for Status {
     type Error = StatusDecodingError;
@@ -77,18 +77,16 @@ impl Codec for Status {
                 .map_err(|e| WithOffset::new_head(Self::Error::UnknownType(e)))?
             {
                 StatusType::Action => {
-                    let WithSize { size, value } =
-                        operand::action_status::ActionStatus::decode(&out[1..])
-                            .map_err(|e| e.shift(1).map_value(Self::Error::Action))?;
+                    let WithSize { size, value } = operand::ActionStatus::decode(&out[1..])
+                        .map_err(|e| e.shift(1).map_value(Self::Error::Action))?;
                     WithSize {
                         size: size + 1,
                         value: Self::Action(value),
                     }
                 }
                 StatusType::Interface => {
-                    let WithSize { size, value } =
-                        operand::interface_status::InterfaceStatus::decode(&out[1..])
-                            .map_err(|e| e.shift(1).map_value(Self::Error::Interface))?;
+                    let WithSize { size, value } = operand::InterfaceStatus::decode(&out[1..])
+                        .map_err(|e| e.shift(1).map_value(Self::Error::Interface))?;
                     WithSize {
                         size: size + 1,
                         value: Self::Interface(value),
@@ -101,9 +99,9 @@ impl Codec for Status {
 #[test]
 fn test_status() {
     test_item(
-        Status::Action(operand::action_status::ActionStatus {
+        Status::Action(operand::ActionStatus {
             action_id: 2,
-            status: operand::action_status::status::UNKNOWN_OPERATION,
+            status: operand::status::UNKNOWN_OPERATION,
         }),
         &hex!("22 02 F6"),
     )
