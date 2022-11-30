@@ -1304,7 +1304,7 @@ fn test_return_file_properties_display() {
 #[test]
 fn test_status_display() {
     assert_eq!(
-        Action::Status(Status::Action(operand::action_status::Status {
+        Action::Status(Status::Action(operand::action_status::ActionStatus {
             action_id: 2,
             status: 4
         }))

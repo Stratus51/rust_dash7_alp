@@ -27,7 +27,7 @@ impl StatusType {
 pub enum Status {
     // ALP SPEC: This is named status, but it should be named action status compared to the '2'
     // other statuses.
-    Action(operand::action_status::Status),
+    Action(operand::action_status::ActionStatus),
     Interface(operand::interface_status::InterfaceStatus),
     // ALP SPEC: Where are the stack errors?
 }
@@ -78,7 +78,7 @@ impl Codec for Status {
             {
                 StatusType::Action => {
                     let WithSize { size, value } =
-                        operand::action_status::Status::decode(&out[1..])
+                        operand::action_status::ActionStatus::decode(&out[1..])
                             .map_err(|e| e.shift(1).map_value(Self::Error::Action))?;
                     WithSize {
                         size: size + 1,
@@ -101,7 +101,7 @@ impl Codec for Status {
 #[test]
 fn test_status() {
     test_item(
-        Status::Action(operand::action_status::Status {
+        Status::Action(operand::action_status::ActionStatus {
             action_id: 2,
             status: operand::action_status::status::UNKNOWN_OPERATION,
         }),
