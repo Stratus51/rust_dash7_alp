@@ -10,8 +10,8 @@ macro_rules! build {
             pub resp: bool,
             pub file_id: u8,
         }
-        crate::action::impl_display_simple_file_op!($name, file_id);
-        crate::action::impl_simple_op!($name, group, resp, file_id);
+        crate::v1_2::action::impl_display_simple_file_op!($name, file_id);
+        crate::v1_2::action::impl_simple_op!($name, group, resp, file_id);
         #[test]
         fn $test_name() {
             test_item(
@@ -20,7 +20,7 @@ macro_rules! build {
                     resp: false,
                     file_id: 9,
                 },
-                &[crate::action::OpCode::$name as u8, 0x09],
+                &[crate::v1_2::action::OpCode::$name as u8, 0x09],
             )
         }
     };

@@ -4,8 +4,8 @@ use crate::test_tools::test_item;
 use hex_literal::hex;
 
 use crate::{
-    action::OpCode,
     codec::{Codec, StdError, WithOffset, WithSize},
+    v1_2::action::OpCode,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq)]

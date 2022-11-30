@@ -11,15 +11,15 @@ macro_rules! build {
             pub offset: u32,
             pub data: Box<[u8]>,
         }
-        crate::action::impl_display_data_file_op!($name);
+        crate::v1_2::action::impl_display_data_file_op!($name);
         impl $name {
-            pub fn validate(&self) -> Result<(), crate::action::OperandValidationError> {
+            pub fn validate(&self) -> Result<(), crate::v1_2::action::OperandValidationError> {
                 if self.offset > varint::MAX {
-                    return Err(crate::action::OperandValidationError::OffsetTooBig);
+                    return Err(crate::v1_2::action::OperandValidationError::OffsetTooBig);
                 }
                 let size = self.data.len() as u32;
                 if size > varint::MAX {
-                    return Err(crate::action::OperandValidationError::SizeTooBig);
+                    return Err(crate::v1_2::action::OperandValidationError::SizeTooBig);
                 }
                 Ok(())
             }
@@ -28,17 +28,21 @@ macro_rules! build {
             type Error = StdError;
             fn encoded_size(&self) -> usize {
                 1 + 1
-                    + crate::action::unsafe_varint_serialize_sizes!(
+                    + crate::v1_2::action::unsafe_varint_serialize_sizes!(
                         self.offset,
                         self.data.len() as u32
                     ) as usize
                     + self.data.len()
             }
             unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
-                out[0] = crate::action::control_byte!(self.group, self.resp, OpCode::WriteFileData);
+                out[0] = crate::v1_2::action::control_byte!(
+                    self.group,
+                    self.resp,
+                    OpCode::WriteFileData
+                );
                 out[1] = self.file_id;
                 let mut offset = 2;
-                offset += crate::action::unsafe_varint_serialize!(
+                offset += crate::v1_2::action::unsafe_varint_serialize!(
                     out[2..],
                     self.offset,
                     self.data.len() as u32

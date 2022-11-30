@@ -2,9 +2,7 @@
 use crate::test_tools::test_item;
 use crate::{
     codec::{Codec, StdError, WithOffset, WithSize},
-    dash7,
-    operand::interface_configuration::InterfaceId,
-    varint,
+    v1_2::{dash7, operand::interface_configuration::InterfaceId, varint},
 };
 #[cfg(test)]
 use hex_literal::hex;

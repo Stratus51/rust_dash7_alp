@@ -4,9 +4,11 @@ use crate::test_tools::test_item;
 use hex_literal::hex;
 
 use crate::{
-    action::OpCode,
     codec::{Codec, WithOffset, WithSize},
-    operand::permission::{Permission, PermissionDecodingError},
+    v1_2::{
+        action::OpCode,
+        operand::permission::{Permission, PermissionDecodingError},
+    },
 };
 
 /// Request a level of permission using some permission type
@@ -61,7 +63,7 @@ fn test_permission_request() {
         PermissionRequest {
             group: false,
             resp: false,
-            level: crate::operand::permission::permission_level::ROOT,
+            level: crate::v1_2::operand::permission::permission_level::ROOT,
             permission: Permission::Dash7(hex!("0102030405060708")),
         },
         &hex!("0A   01 42 0102030405060708"),

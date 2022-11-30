@@ -5,7 +5,7 @@ use hex_literal::hex;
 
 use crate::{
     codec::{Codec, WithOffset, WithSize},
-    operand,
+    v1_2::operand,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -25,7 +25,7 @@ impl Codec for Forward {
         1 + self.conf.encoded_size()
     }
     unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
-        out[0] = super::control_byte!(false, self.resp, crate::action::OpCode::Forward);
+        out[0] = super::control_byte!(false, self.resp, crate::v1_2::action::OpCode::Forward);
         1 + self.conf.encode_in(&mut out[1..])
     }
     fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {

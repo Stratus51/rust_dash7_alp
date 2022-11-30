@@ -9,16 +9,16 @@ macro_rules! build {
             pub group: bool,
             /// Does not make sense.
             pub resp: bool,
-            pub query: crate::operand::query::Query,
+            pub query: crate::v1_2::operand::query::Query,
         }
-        crate::action::impl_display_simple_op!($name, query);
-        crate::action::impl_op_serialized!(
+        crate::v1_2::action::impl_display_simple_op!($name, query);
+        crate::v1_2::action::impl_op_serialized!(
             $name,
             group,
             resp,
             query,
-            crate::operand::query::Query,
-            crate::operand::query::QueryDecodingError
+            crate::v1_2::operand::query::Query,
+            crate::v1_2::operand::query::QueryDecodingError
         );
         #[test]
         fn $test_name() {
@@ -26,13 +26,18 @@ macro_rules! build {
                 $name {
                     group: true,
                     resp: true,
-                    query: crate::operand::query::Query::NonVoid(crate::operand::query::NonVoid {
-                        size: 4,
-                        file: crate::operand::file_offset::FileOffset { id: 5, offset: 6 },
-                    }),
+                    query: crate::v1_2::operand::query::Query::NonVoid(
+                        crate::v1_2::operand::query::NonVoid {
+                            size: 4,
+                            file: crate::v1_2::operand::file_offset::FileOffset {
+                                id: 5,
+                                offset: 6,
+                            },
+                        },
+                    ),
                 },
                 &vec![
-                    [crate::action::OpCode::$name as u8 | (3 << 6)].as_slice(),
+                    [crate::v1_2::action::OpCode::$name as u8 | (3 << 6)].as_slice(),
                     &hex_literal::hex!("00 04  05 06"),
                 ]
                 .concat()[..],

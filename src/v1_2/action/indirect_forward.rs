@@ -1,11 +1,11 @@
 #[cfg(test)]
-use crate::{dash7, test_tools::test_item};
+use crate::{test_tools::test_item, v1_2::dash7};
 #[cfg(test)]
 use hex_literal::hex;
 
 use crate::{
     codec::{Codec, StdError, WithOffset, WithSize},
-    operand,
+    v1_2::operand,
 };
 
 #[derive(Clone, Debug, PartialEq)]

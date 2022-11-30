@@ -5,7 +5,7 @@ use hex_literal::hex;
 
 use crate::{
     codec::{Codec, StdError, WithOffset, WithSize},
-    varint,
+    v1_2::varint,
 };
 
 use super::{OpCode, OperandValidationError};

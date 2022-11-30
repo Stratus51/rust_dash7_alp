@@ -1,9 +1,9 @@
-use crate::operand::file_offset::{FileOffset, FileOffsetDecodingError};
 #[cfg(test)]
 use crate::test_tools::test_item;
+use crate::v1_2::operand::file_offset::{FileOffset, FileOffsetDecodingError};
 use crate::{
     codec::{Codec, StdError, WithOffset, WithSize},
-    varint,
+    v1_2::varint,
 };
 #[cfg(test)]
 use hex_literal::hex;

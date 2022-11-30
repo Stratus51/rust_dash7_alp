@@ -1,13 +1,15 @@
 #[cfg(test)]
-use crate::{dash7, test_tools::test_item};
+use crate::{test_tools::test_item, v1_2::dash7};
 #[cfg(test)]
 use hex_literal::hex;
 
 use crate::{
     codec::{Codec, StdError, WithOffset, WithSize},
-    data,
-    operand::{self, query::QueryDecodingError},
-    varint,
+    v1_2::{
+        data,
+        operand::{self, query::QueryDecodingError},
+        varint,
+    },
 };
 
 pub mod builder;
@@ -99,31 +101,31 @@ macro_rules! impl_op_serialized {
         impl crate::codec::Codec for $name {
             type Error = $error;
             fn encoded_size(&self) -> usize {
-                1 + crate::action::encoded_size!(self.$op1)
+                1 + crate::v1_2::action::encoded_size!(self.$op1)
             }
             unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
-                out[0] = crate::action::control_byte!(
+                out[0] = crate::v1_2::action::control_byte!(
                     self.$flag7,
                     self.$flag6,
-                    crate::action::OpCode::$name
+                    crate::v1_2::action::OpCode::$name
                 );
-                1 + crate::action::serialize_all!(&mut out[1..], &self.$op1)
+                1 + crate::v1_2::action::serialize_all!(&mut out[1..], &self.$op1)
             }
             fn decode(
                 out: &[u8],
             ) -> Result<crate::codec::WithSize<Self>, crate::codec::WithOffset<Self::Error>> {
                 if (out.is_empty()) {
-                    Err(crate::codec::WithOffset::new_head(
+                    Err(crate::v1_2::WithOffset::new_head(
                         Self::Error::MissingBytes(1),
                     ))
                 } else {
                     let mut offset = 1;
-                    let crate::codec::WithSize {
+                    let crate::v1_2::WithSize {
                         size: op1_size,
                         value: op1,
                     } = <$op1_type>::decode(&out[offset..]).map_err(|e| e.shift(offset))?;
                     offset += op1_size;
-                    Ok(crate::codec::WithSize {
+                    Ok(crate::v1_2::WithSize {
                         value: Self {
                             $flag6: out[0] & 0x40 != 0,
                             $flag7: out[0] & 0x80 != 0,
@@ -164,7 +166,7 @@ pub(crate) use unsafe_varint_serialize;
 
 macro_rules! count {
     () => (0usize);
-    ( $x:tt $($xs:tt)* ) => (1usize + crate::action::count!($($xs)*));
+    ( $x:tt $($xs:tt)* ) => (1usize + crate::v1_2::action::count!($($xs)*));
 }
 pub(crate) use count;
 
@@ -192,10 +194,10 @@ macro_rules! impl_simple_op {
         impl Codec for $name {
             type Error = StdError;
             fn encoded_size(&self) -> usize {
-                1 + crate::action::count!($( $x )*)
+                1 + crate::v1_2::action::count!($( $x )*)
             }
             unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
-                out[0] = crate::action::control_byte!(self.$flag7, self.$flag6, crate::action::OpCode::$name);
+                out[0] = crate::v1_2::action::control_byte!(self.$flag7, self.$flag6, crate::v1_2::action::OpCode::$name);
                 let mut offset = 1;
                 $({
                     out[offset] = self.$x;
@@ -204,13 +206,13 @@ macro_rules! impl_simple_op {
                 1 + offset
             }
             fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
-                const SIZE: usize = 1 + crate::action::count!($( $x )*);
+                const SIZE: usize = 1 + crate::v1_2::action::count!($( $x )*);
                 if(out.len() < SIZE) {
                     Err(WithOffset::new_head( Self::Error::MissingBytes(SIZE - out.len())))
                 } else {
                     Ok(WithSize {
                         size: SIZE,
-                        value: crate::action::build_simple_op!($name, out, $flag7, $flag6, $($x),*),
+                        value: crate::v1_2::action::build_simple_op!($name, out, $flag7, $flag6, $($x),*),
                     })
                 }
             }
@@ -336,15 +338,15 @@ pub enum HeaderActionDecodingError {
 macro_rules! impl_header_op {
     ($name: ident, $flag7: ident, $flag6: ident, $file_id: ident, $file_header: ident) => {
         impl Codec for $name {
-            type Error = crate::action::HeaderActionDecodingError;
+            type Error = crate::v1_2::action::HeaderActionDecodingError;
             fn encoded_size(&self) -> usize {
                 1 + 1 + 12
             }
             unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
-                out[0] = crate::action::control_byte!(
+                out[0] = crate::v1_2::action::control_byte!(
                     self.group,
                     self.resp,
-                    crate::action::OpCode::$name
+                    crate::v1_2::action::OpCode::$name
                 );
                 out[1] = self.file_id;
                 let mut offset = 2;

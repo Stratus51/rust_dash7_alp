@@ -43,7 +43,7 @@ impl Codec for Logic {
         1
     }
     unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
-        out[0] = crate::action::OpCode::Logic as u8 + ((self.logic as u8) << 6);
+        out[0] = crate::v1_2::action::OpCode::Logic as u8 + ((self.logic as u8) << 6);
         1
     }
     fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {

@@ -9,7 +9,7 @@ macro_rules! build {
             pub file_id: u8,
             pub header: data::FileHeader,
         }
-        crate::action::impl_header_op!($name, group, resp, file_id, header);
+        crate::v1_2::action::impl_header_op!($name, group, resp, file_id, header);
         impl std::fmt::Display for $name {
             fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
                 write!(
