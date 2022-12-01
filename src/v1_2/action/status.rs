@@ -101,7 +101,7 @@ fn test_status() {
     test_item(
         Status::Action(operand::ActionStatus {
             action_id: 2,
-            status: operand::status::UNKNOWN_OPERATION,
+            status: operand::status_code::UNKNOWN_OPERATION,
         }),
         &hex!("22 02 F6"),
     )
