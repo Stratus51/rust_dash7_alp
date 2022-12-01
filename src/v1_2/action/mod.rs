@@ -1346,24 +1346,12 @@ fn test_response_tag_display() {
 
 #[test]
 fn test_chunk_display() {
-    assert_eq!(
-        Action::Chunk(Chunk {
-            step: chunk::ChunkStep::Start
-        })
-        .to_string(),
-        "CHK[S]"
-    );
+    assert_eq!(Action::Chunk(Chunk::Start).to_string(), "CHK[S]");
 }
 
 #[test]
 fn test_logic_display() {
-    assert_eq!(
-        Action::Logic(Logic {
-            logic: logic::LogicOp::Xor
-        })
-        .to_string(),
-        "LOG[XOR]"
-    );
+    assert_eq!(Action::Logic(Logic::Xor).to_string(), "LOG[XOR]");
 }
 
 #[test]
