@@ -273,11 +273,25 @@ impl Address {
 /// In other words, what is the retry policy when sending your payload.
 pub enum RetryMode {
     No = 0,
+    Rfu1 = 1,
+    Rfu2 = 2,
+    Rfu3 = 3,
+    Rfu4 = 4,
+    Rfu5 = 5,
+    Rfu6 = 6,
+    Rfu7 = 7,
 }
 impl RetryMode {
     fn from(n: u8) -> Result<Self, u8> {
         Ok(match n {
             0 => RetryMode::No,
+            1 => RetryMode::Rfu1,
+            2 => RetryMode::Rfu2,
+            3 => RetryMode::Rfu3,
+            4 => RetryMode::Rfu4,
+            5 => RetryMode::Rfu5,
+            6 => RetryMode::Rfu6,
+            7 => RetryMode::Rfu7,
             x => return Err(x),
         })
     }
