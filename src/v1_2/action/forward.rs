@@ -1,8 +1,3 @@
-#[cfg(test)]
-use crate::test_tools::test_item;
-#[cfg(test)]
-use hex_literal::hex;
-
 use crate::{
     codec::{Codec, WithOffset, WithSize},
     v1_2::operand,
@@ -12,7 +7,7 @@ use crate::{
 pub struct Forward {
     // ALP_SPEC Ask for response ?
     pub resp: bool,
-    pub conf: operand::interface_configuration::InterfaceConfiguration,
+    pub conf: operand::InterfaceConfiguration,
 }
 impl std::fmt::Display for Forward {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -20,12 +15,12 @@ impl std::fmt::Display for Forward {
     }
 }
 impl Codec for Forward {
-    type Error = operand::interface_configuration::InterfaceConfigurationDecodingError;
+    type Error = operand::InterfaceConfigurationDecodingError;
     fn encoded_size(&self) -> usize {
         1 + self.conf.encoded_size()
     }
     unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
-        out[0] = super::control_byte!(false, self.resp, crate::v1_2::action::OpCode::Forward);
+        out[0] |= (self.resp as u8) << 6;
         1 + self.conf.encode_in(&mut out[1..])
     }
     fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
@@ -39,8 +34,7 @@ impl Codec for Forward {
         let WithSize {
             value: conf,
             size: conf_size,
-        } = operand::interface_configuration::InterfaceConfiguration::decode(&out[1..])
-            .map_err(|e| e.shift(1))?;
+        } = operand::InterfaceConfiguration::decode(&out[1..]).map_err(|e| e.shift(1))?;
         Ok(WithSize {
             value: Self {
                 resp: out[0] & 0x40 != 0,
@@ -49,14 +43,4 @@ impl Codec for Forward {
             size: 1 + conf_size,
         })
     }
-}
-#[test]
-fn test_forward() {
-    test_item(
-        Forward {
-            resp: true,
-            conf: operand::interface_configuration::InterfaceConfiguration::Host,
-        },
-        &hex!("72 00"),
-    )
 }

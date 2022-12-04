@@ -4,7 +4,7 @@ use crate::test_tools::test_item;
 #[cfg(test)]
 use hex_literal::hex;
 
-pub mod status {
+pub mod status_code {
     //! Status code that can be received as a result of some ALP actions.
     /// Action received and partially completed at response. To be completed after response
     pub const RECEIVED: u8 = 1;
@@ -26,7 +26,7 @@ pub mod status {
 
 /// Result of an action in a previously sent request
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Status {
+pub struct ActionStatus {
     /// Index of the ALP action associated with this status, in the original request as seen from
     /// the receiver side.
     // ALP_SPEC This is complicated to process because we have to known/possibly infer the position
@@ -36,12 +36,12 @@ pub struct Status {
     /// Result code
     pub status: u8,
 }
-impl std::fmt::Display for Status {
+impl std::fmt::Display for ActionStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "a[{}]=>{}", self.action_id, self.status)
     }
 }
-impl Codec for Status {
+impl Codec for ActionStatus {
     type Error = StdError;
     fn encoded_size(&self) -> usize {
         1 + 1
@@ -69,9 +69,9 @@ impl Codec for Status {
 #[test]
 fn test_status_operand() {
     test_item(
-        Status {
+        ActionStatus {
             action_id: 2,
-            status: status::UNKNOWN_OPERATION,
+            status: status_code::UNKNOWN_OPERATION,
         },
         &hex!("02 F6"),
     )

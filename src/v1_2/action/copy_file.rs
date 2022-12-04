@@ -1,8 +1,3 @@
-#[cfg(test)]
-use crate::test_tools::test_item;
-#[cfg(test)]
-use hex_literal::hex;
-
 use crate::codec::{Codec, StdError, WithOffset, WithSize};
 
 // ALP_SPEC: What does that mean? Is it a complete file copy including the file properties or just
@@ -32,15 +27,3 @@ impl std::fmt::Display for CopyFile {
     }
 }
 super::impl_simple_op!(CopyFile, group, resp, src_file_id, dst_file_id);
-#[test]
-fn test_copy_file() {
-    test_item(
-        CopyFile {
-            group: false,
-            resp: false,
-            src_file_id: 0x42,
-            dst_file_id: 0x24,
-        },
-        &hex!("17 42 24"),
-    )
-}

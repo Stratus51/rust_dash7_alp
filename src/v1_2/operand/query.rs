@@ -1,6 +1,6 @@
 #[cfg(test)]
 use crate::test_tools::test_item;
-use crate::v1_2::operand::file_offset::{FileOffset, FileOffsetDecodingError};
+use crate::v1_2::operand::{FileOffset, FileOffsetDecodingError};
 use crate::{
     codec::{Codec, StdError, WithOffset, WithSize},
     v1_2::varint,

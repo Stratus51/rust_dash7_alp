@@ -1,11 +1,6 @@
-#[cfg(test)]
-use crate::test_tools::test_item;
-#[cfg(test)]
-use hex_literal::hex;
-
 use crate::{
     codec::{Codec, StdError, WithOffset, WithSize},
-    v1_2::{action::OpCode, operand},
+    v1_2::operand,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -27,8 +22,8 @@ impl StatusType {
 pub enum Status {
     // ALP SPEC: This is named status, but it should be named action status compared to the '2'
     // other statuses.
-    Action(operand::action_status::Status),
-    Interface(operand::interface_status::InterfaceStatus),
+    Action(operand::ActionStatus),
+    Interface(operand::InterfaceStatus),
     // ALP SPEC: Where are the stack errors?
 }
 impl std::fmt::Display for Status {
@@ -44,7 +39,7 @@ pub enum StatusDecodingError {
     MissingBytes(usize),
     UnknownType(u8),
     Action(StdError),
-    Interface(operand::interface_status::InterfaceStatusDecodingError),
+    Interface(operand::InterfaceStatusDecodingError),
 }
 impl Codec for Status {
     type Error = StatusDecodingError;
@@ -55,12 +50,11 @@ impl Codec for Status {
         }
     }
     unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
-        out[0] = OpCode::Status as u8
-            + ((match self {
-                Status::Action(_) => StatusType::Action,
-                Status::Interface(_) => StatusType::Interface,
-            } as u8)
-                << 6);
+        out[0] |= (match self {
+            Status::Action(_) => StatusType::Action,
+            Status::Interface(_) => StatusType::Interface,
+        } as u8)
+            << 6;
         let out = &mut out[1..];
         1 + match self {
             Status::Action(op) => op.encode_in(out),
@@ -77,18 +71,16 @@ impl Codec for Status {
                 .map_err(|e| WithOffset::new_head(Self::Error::UnknownType(e)))?
             {
                 StatusType::Action => {
-                    let WithSize { size, value } =
-                        operand::action_status::Status::decode(&out[1..])
-                            .map_err(|e| e.shift(1).map_value(Self::Error::Action))?;
+                    let WithSize { size, value } = operand::ActionStatus::decode(&out[1..])
+                        .map_err(|e| e.shift(1).map_value(Self::Error::Action))?;
                     WithSize {
                         size: size + 1,
                         value: Self::Action(value),
                     }
                 }
                 StatusType::Interface => {
-                    let WithSize { size, value } =
-                        operand::interface_status::InterfaceStatus::decode(&out[1..])
-                            .map_err(|e| e.shift(1).map_value(Self::Error::Interface))?;
+                    let WithSize { size, value } = operand::InterfaceStatus::decode(&out[1..])
+                        .map_err(|e| e.shift(1).map_value(Self::Error::Interface))?;
                     WithSize {
                         size: size + 1,
                         value: Self::Interface(value),
@@ -97,14 +89,4 @@ impl Codec for Status {
             },
         )
     }
-}
-#[test]
-fn test_status() {
-    test_item(
-        Status::Action(operand::action_status::Status {
-            action_id: 2,
-            status: operand::action_status::status::UNKNOWN_OPERATION,
-        }),
-        &hex!("22 02 F6"),
-    )
 }

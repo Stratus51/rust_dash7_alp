@@ -1,8 +1,3 @@
-#[cfg(test)]
-use crate::test_tools::test_item;
-#[cfg(test)]
-use hex_literal::hex;
-
 use crate::codec::{Codec, StdError, WithOffset, WithSize};
 
 /// Does nothing
@@ -21,7 +16,7 @@ impl Codec for Nop {
         1
     }
     unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
-        out[0] = super::control_byte!(self.group, self.resp, super::OpCode::Nop);
+        out[0] |= ((self.group as u8) << 7) | ((self.resp as u8) << 6);
         1
     }
     fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
@@ -37,14 +32,4 @@ impl Codec for Nop {
             })
         }
     }
-}
-#[test]
-fn test_nop() {
-    test_item(
-        Nop {
-            group: true,
-            resp: false,
-        },
-        &hex!("80"),
-    )
 }

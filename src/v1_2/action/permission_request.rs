@@ -1,14 +1,6 @@
-#[cfg(test)]
-use crate::test_tools::test_item;
-#[cfg(test)]
-use hex_literal::hex;
-
 use crate::{
     codec::{Codec, WithOffset, WithSize},
-    v1_2::{
-        action::OpCode,
-        operand::permission::{Permission, PermissionDecodingError},
-    },
+    v1_2::operand::{Permission, PermissionDecodingError},
 };
 
 /// Request a level of permission using some permission type
@@ -29,7 +21,7 @@ impl Codec for PermissionRequest {
         1 + 1 + super::encoded_size!(self.permission)
     }
     unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
-        out[0] = super::control_byte!(self.group, self.resp, OpCode::PermissionRequest);
+        out[0] |= ((self.group as u8) << 7) | ((self.resp as u8) << 6);
         out[1] = self.level;
         1 + super::serialize_all!(&mut out[2..], self.permission)
     }
@@ -56,16 +48,4 @@ impl Codec for PermissionRequest {
             })
         }
     }
-}
-#[test]
-fn test_permission_request() {
-    test_item(
-        PermissionRequest {
-            group: false,
-            resp: false,
-            level: crate::v1_2::operand::permission::permission_level::ROOT,
-            permission: Permission::Dash7(hex!("0102030405060708")),
-        },
-        &hex!("0A   01 42 0102030405060708"),
-    )
 }

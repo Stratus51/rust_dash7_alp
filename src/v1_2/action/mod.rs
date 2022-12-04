@@ -5,22 +5,20 @@ use hex_literal::hex;
 
 use crate::{
     codec::{Codec, StdError, WithOffset, WithSize},
-    v1_2::{
-        data,
-        operand::{self, query::QueryDecodingError},
-        varint,
-    },
+    v1_2::operand,
 };
-
-pub mod builder;
 
 pub mod chunk;
 pub mod copy_file;
+pub mod file_data_action;
+pub mod file_id_action;
+pub mod file_properties_action;
 pub mod forward;
 pub mod indirect_forward;
 pub mod logic;
 pub mod nop;
 pub mod permission_request;
+pub mod query_action;
 pub mod read_file_data;
 pub mod request_tag;
 pub mod response_tag;
@@ -28,30 +26,19 @@ pub mod status;
 
 pub use chunk::Chunk;
 pub use copy_file::CopyFile;
+pub use file_data_action::FileDataAction;
+pub use file_id_action::FileIdAction;
+pub use file_properties_action::FilePropertiesAction;
 pub use forward::Forward;
 pub use indirect_forward::IndirectForward;
 pub use logic::Logic;
 pub use nop::Nop;
 pub use permission_request::PermissionRequest;
+pub use query_action::QueryAction;
 pub use read_file_data::ReadFileData;
 pub use request_tag::RequestTag;
 pub use response_tag::ResponseTag;
 pub use status::Status;
-
-builder::query_action::build!(ActionQuery, test_action_query);
-builder::query_action::build!(BreakQuery, test_break_query);
-builder::query_action::build!(VerifyChecksum, test_verify_checksum);
-builder::file_data::build!(WriteFileData, test_write_file_data);
-builder::file_data::build!(ReturnFileData, test_return_file_data);
-builder::file_id::build!(ReadFileProperties, test_read_file_properties);
-builder::file_id::build!(ExistFile, test_exist_file);
-builder::file_id::build!(DeleteFile, test_delete_file);
-builder::file_id::build!(RestoreFile, test_restore_file);
-builder::file_id::build!(FlushFile, test_flush_file);
-builder::file_id::build!(ExecuteFile, test_execute_file);
-builder::file_properties::build!(WriteFileProperties, test_write_file_properties);
-builder::file_properties::build!(CreateNewFile, test_create_new_file);
-builder::file_properties::build!(ReturnFileProperties, test_return_file_properties);
 
 // ===============================================================================
 // Macros
@@ -82,20 +69,6 @@ macro_rules! encoded_size {
 }
 pub(crate) use encoded_size;
 
-macro_rules! control_byte {
-    ($flag7: expr, $flag6: expr, $op_code: expr) => {{
-        let mut ctrl = $op_code as u8;
-        if $flag7 {
-            ctrl |= 0x80;
-        }
-        if $flag6 {
-            ctrl |= 0x40;
-        }
-        ctrl
-    }};
-}
-pub(crate) use control_byte;
-
 macro_rules! impl_op_serialized {
     ($name: ident, $flag7: ident, $flag6: ident, $op1: ident, $op1_type: ty, $error: ty) => {
         impl crate::codec::Codec for $name {
@@ -104,11 +77,7 @@ macro_rules! impl_op_serialized {
                 1 + crate::v1_2::action::encoded_size!(self.$op1)
             }
             unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
-                out[0] = crate::v1_2::action::control_byte!(
-                    self.$flag7,
-                    self.$flag6,
-                    crate::v1_2::action::OpCode::$name
-                );
+                out[0] |= ((self.$flag7 as u8) << 7) | ((self.$flag6 as u8) << 6);
                 1 + crate::v1_2::action::serialize_all!(&mut out[1..], &self.$op1)
             }
             fn decode(
@@ -197,7 +166,7 @@ macro_rules! impl_simple_op {
                 1 + crate::v1_2::action::count!($( $x )*)
             }
             unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
-                out[0] = crate::v1_2::action::control_byte!(self.$flag7, self.$flag6, crate::v1_2::action::OpCode::$name);
+                out[0] |= ((self.$flag7 as u8) << 7) | ((self.$flag6 as u8) << 6);
                 let mut offset = 1;
                 $({
                     out[offset] = self.$x;
@@ -343,11 +312,7 @@ macro_rules! impl_header_op {
                 1 + 1 + 12
             }
             unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
-                out[0] = crate::v1_2::action::control_byte!(
-                    self.group,
-                    self.resp,
-                    crate::v1_2::action::OpCode::$name
-                );
+                out[0] |= ((self.$flag7 as u8) << 7) | ((self.$flag6 as u8) << 6);
                 out[1] = self.file_id;
                 let mut offset = 2;
                 offset += self.$file_header.encode_in(&mut out[offset..]);
@@ -542,30 +507,30 @@ pub enum Action {
 
     // Read
     ReadFileData(ReadFileData),
-    ReadFileProperties(ReadFileProperties),
+    ReadFileProperties(FileIdAction),
 
     // Write
-    WriteFileData(WriteFileData),
+    WriteFileData(FileDataAction),
     // ALP SPEC: This is not specified even though it is implemented
-    // WriteFileDataFlush(WriteFileDataFlush),
-    WriteFileProperties(WriteFileProperties),
-    ActionQuery(ActionQuery),
-    BreakQuery(BreakQuery),
+    // WriteFileDataActionFlush(WriteFileDataActionFlush),
+    WriteFileProperties(FilePropertiesAction),
+    ActionQuery(QueryAction),
+    BreakQuery(QueryAction),
     PermissionRequest(PermissionRequest),
-    VerifyChecksum(VerifyChecksum),
+    VerifyChecksum(QueryAction),
 
     // Management
-    ExistFile(ExistFile),
-    CreateNewFile(CreateNewFile),
-    DeleteFile(DeleteFile),
-    RestoreFile(RestoreFile),
-    FlushFile(FlushFile),
+    ExistFile(FileIdAction),
+    CreateNewFile(FilePropertiesAction),
+    DeleteFile(FileIdAction),
+    RestoreFile(FileIdAction),
+    FlushFile(FileIdAction),
     CopyFile(CopyFile),
-    ExecuteFile(ExecuteFile),
+    ExecuteFile(FileIdAction),
 
     // Response
-    ReturnFileData(ReturnFileData),
-    ReturnFileProperties(ReturnFileProperties),
+    ReturnFileData(FileDataAction),
+    ReturnFileProperties(FilePropertiesAction),
     Status(Status),
     ResponseTag(ResponseTag),
 
@@ -677,10 +642,10 @@ pub enum ActionDecodingError {
     ReadFileProperties(StdError),
     WriteFileData(StdError),
     WriteFileProperties(HeaderActionDecodingError),
-    ActionQuery(QueryDecodingError),
-    BreakQuery(QueryDecodingError),
-    PermissionRequest(operand::permission::PermissionDecodingError),
-    VerifyChecksum(QueryDecodingError),
+    ActionQuery(operand::QueryDecodingError),
+    BreakQuery(operand::QueryDecodingError),
+    PermissionRequest(operand::PermissionDecodingError),
+    VerifyChecksum(operand::QueryDecodingError),
     ExistFile(StdError),
     CreateNewFile(HeaderActionDecodingError),
     DeleteFile(StdError),
@@ -688,13 +653,13 @@ pub enum ActionDecodingError {
     FlushFile(StdError),
     CopyFile(StdError),
     ExecuteFile(StdError),
-    ReturnFileData(StdError),
-    ReturnFileProperties(HeaderActionDecodingError),
+    ReturnFileDataAction(StdError),
+    ReturnFilePropertiesAction(HeaderActionDecodingError),
     Status(status::StatusDecodingError),
     ResponseTag(StdError),
     Chunk(StdError),
     Logic(StdError),
-    Forward(operand::interface_configuration::InterfaceConfigurationDecodingError),
+    Forward(operand::InterfaceConfigurationDecodingError),
     IndirectForward(StdError),
     RequestTag(StdError),
     Extension,
@@ -722,14 +687,18 @@ impl ActionDecodingError {
         WriteFileProperties,
         HeaderActionDecodingError
     );
-    impl_std_error_map!(map_action_query, ActionQuery, QueryDecodingError);
-    impl_std_error_map!(map_break_query, BreakQuery, QueryDecodingError);
+    impl_std_error_map!(map_action_query, ActionQuery, operand::QueryDecodingError);
+    impl_std_error_map!(map_break_query, BreakQuery, operand::QueryDecodingError);
     impl_std_error_map!(
         map_permission_request,
         PermissionRequest,
-        operand::permission::PermissionDecodingError
+        operand::PermissionDecodingError
     );
-    impl_std_error_map!(map_verify_checksum, VerifyChecksum, QueryDecodingError);
+    impl_std_error_map!(
+        map_verify_checksum,
+        VerifyChecksum,
+        operand::QueryDecodingError
+    );
     impl_std_error_map!(map_exist_file, ExistFile, StdError);
     impl_std_error_map!(
         map_create_new_file,
@@ -741,10 +710,10 @@ impl ActionDecodingError {
     impl_std_error_map!(map_flush_file, FlushFile, StdError);
     impl_std_error_map!(map_copy_file, CopyFile, StdError);
     impl_std_error_map!(map_execute_file, ExecuteFile, StdError);
-    impl_std_error_map!(map_return_file_data, ReturnFileData, StdError);
+    impl_std_error_map!(map_return_file_data, ReturnFileDataAction, StdError);
     impl_std_error_map!(
         map_return_file_properties,
-        ReturnFileProperties,
+        ReturnFilePropertiesAction,
         HeaderActionDecodingError
     );
     impl_std_error_map!(map_status, Status, status::StatusDecodingError);
@@ -754,7 +723,7 @@ impl ActionDecodingError {
     impl_std_error_map!(
         map_forward,
         Forward,
-        operand::interface_configuration::InterfaceConfigurationDecodingError
+        operand::InterfaceConfigurationDecodingError
     );
     impl_std_error_map!(map_indirect_forward, IndirectForward, StdError);
     impl_std_error_map!(map_request_tag, RequestTag, StdError);
@@ -793,6 +762,7 @@ impl Codec for Action {
         }
     }
     unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
+        out[0] = self.op_code() as u8;
         match self {
             Action::Nop(x) => x.encode_in(out),
             Action::ReadFileData(x) => x.encode_in(out),
@@ -836,55 +806,55 @@ impl Codec for Action {
             OpCode::ReadFileData => ReadFileData::decode(out)
                 .map_err(ActionDecodingError::map_read_file_data)?
                 .map_value(Action::ReadFileData),
-            OpCode::ReadFileProperties => ReadFileProperties::decode(out)
+            OpCode::ReadFileProperties => FileIdAction::decode(out)
                 .map_err(ActionDecodingError::map_read_file_properties)?
                 .map_value(Action::ReadFileProperties),
-            OpCode::WriteFileData => WriteFileData::decode(out)
+            OpCode::WriteFileData => FileDataAction::decode(out)
                 .map_err(ActionDecodingError::map_write_file_data)?
                 .map_value(Action::WriteFileData),
-            // OpCode::WriteFileDataFlush => {
-            //     WriteFileDataFlush::decode(&out)?.map_value( Action::WriteFileDataFlush)
+            // OpCode::WriteFileDataActionFlush => {
+            //     WriteFileDataActionFlush::decode(&out)?.map_value( Action::WriteFileDataActionFlush)
             // }
-            OpCode::WriteFileProperties => WriteFileProperties::decode(out)
+            OpCode::WriteFileProperties => FilePropertiesAction::decode(out)
                 .map_err(ActionDecodingError::map_write_file_properties)?
                 .map_value(Action::WriteFileProperties),
-            OpCode::ActionQuery => ActionQuery::decode(out)
+            OpCode::ActionQuery => QueryAction::decode(out)
                 .map_err(ActionDecodingError::map_action_query)?
                 .map_value(Action::ActionQuery),
-            OpCode::BreakQuery => BreakQuery::decode(out)
+            OpCode::BreakQuery => QueryAction::decode(out)
                 .map_err(ActionDecodingError::map_break_query)?
                 .map_value(Action::BreakQuery),
             OpCode::PermissionRequest => PermissionRequest::decode(out)
                 .map_err(ActionDecodingError::map_permission_request)?
                 .map_value(Action::PermissionRequest),
-            OpCode::VerifyChecksum => VerifyChecksum::decode(out)
+            OpCode::VerifyChecksum => QueryAction::decode(out)
                 .map_err(ActionDecodingError::map_verify_checksum)?
                 .map_value(Action::VerifyChecksum),
-            OpCode::ExistFile => ExistFile::decode(out)
+            OpCode::ExistFile => FileIdAction::decode(out)
                 .map_err(ActionDecodingError::map_exist_file)?
                 .map_value(Action::ExistFile),
-            OpCode::CreateNewFile => CreateNewFile::decode(out)
+            OpCode::CreateNewFile => FilePropertiesAction::decode(out)
                 .map_err(ActionDecodingError::map_create_new_file)?
                 .map_value(Action::CreateNewFile),
-            OpCode::DeleteFile => DeleteFile::decode(out)
+            OpCode::DeleteFile => FileIdAction::decode(out)
                 .map_err(ActionDecodingError::map_delete_file)?
                 .map_value(Action::DeleteFile),
-            OpCode::RestoreFile => RestoreFile::decode(out)
+            OpCode::RestoreFile => FileIdAction::decode(out)
                 .map_err(ActionDecodingError::map_restore_file)?
                 .map_value(Action::RestoreFile),
-            OpCode::FlushFile => FlushFile::decode(out)
+            OpCode::FlushFile => FileIdAction::decode(out)
                 .map_err(ActionDecodingError::map_flush_file)?
                 .map_value(Action::FlushFile),
             OpCode::CopyFile => CopyFile::decode(out)
                 .map_err(ActionDecodingError::map_copy_file)?
                 .map_value(Action::CopyFile),
-            OpCode::ExecuteFile => ExecuteFile::decode(out)
+            OpCode::ExecuteFile => FileIdAction::decode(out)
                 .map_err(ActionDecodingError::map_execute_file)?
                 .map_value(Action::ExecuteFile),
-            OpCode::ReturnFileData => ReturnFileData::decode(out)
+            OpCode::ReturnFileData => FileDataAction::decode(out)
                 .map_err(ActionDecodingError::map_return_file_data)?
                 .map_value(Action::ReturnFileData),
-            OpCode::ReturnFileProperties => ReturnFileProperties::decode(out)
+            OpCode::ReturnFileProperties => FilePropertiesAction::decode(out)
                 .map_err(ActionDecodingError::map_return_file_properties)?
                 .map_value(Action::ReturnFileProperties),
             OpCode::Status => Status::decode(out)
@@ -913,413 +883,657 @@ impl Codec for Action {
     }
 }
 
-#[test]
-fn test_nop_display() {
-    assert_eq!(
-        Action::Nop(Nop {
-            resp: false,
-            group: true
-        })
-        .to_string(),
-        "NOP[G-]"
-    );
-}
+#[cfg(test)]
+mod test_codec {
+    use super::*;
+    use crate::v1_2::data;
 
-#[test]
-fn test_read_file_data_display() {
-    assert_eq!(
-        Action::ReadFileData(ReadFileData {
-            resp: false,
-            group: true,
-            file_id: 1,
-            offset: 2,
-            size: 3,
-        })
-        .to_string(),
-        "RD[G-]f(1,2,3)"
-    );
-}
+    #[test]
+    fn nop() {
+        test_item(
+            Action::Nop(Nop {
+                group: true,
+                resp: false,
+            }),
+            &hex!("80"),
+        )
+    }
+    #[test]
+    fn read_file_data() {
+        test_item(
+            Action::ReadFileData(ReadFileData {
+                group: false,
+                resp: true,
+                file_id: 1,
+                offset: 2,
+                size: 3,
+            }),
+            &hex!("41 01 02 03"),
+        )
+    }
 
-#[test]
-fn test_read_file_properties_display() {
-    assert_eq!(
-        Action::ReadFileProperties(ReadFileProperties {
-            resp: true,
-            group: false,
-            file_id: 1,
-        })
-        .to_string(),
-        "RDP[-R]f(1)"
-    );
-}
-
-#[test]
-fn test_write_file_data_display() {
-    assert_eq!(
-        Action::WriteFileData(WriteFileData {
-            resp: true,
-            group: false,
-            file_id: 1,
-            offset: 2,
-            data: Box::new([3, 4, 5]),
-        })
-        .to_string(),
-        "WR[-R]f(1,2,0x030405)"
-    );
-}
-
-#[test]
-fn test_write_file_properties_display() {
-    assert_eq!(
-        Action::WriteFileProperties(WriteFileProperties {
-            resp: false,
-            group: true,
-            file_id: 1,
-            header: data::FileHeader {
-                permissions: data::Permissions {
-                    encrypted: true,
-                    executable: false,
-                    user: data::UserPermissions {
-                        read: true,
-                        write: true,
-                        run: true,
-                    },
-                    guest: data::UserPermissions {
-                        read: false,
-                        write: false,
-                        run: false,
-                    },
-                },
-                properties: data::FileProperties {
-                    act_en: false,
-                    act_cond: data::ActionCondition::Read,
-                    storage_class: data::StorageClass::Permanent,
-                },
-                alp_cmd_fid: 1,
-                interface_file_id: 2,
-                file_size: 3,
-                allocated_size: 4,
+    macro_rules! impl_file_data_test {
+        ($name: ident, $test_name: ident) => {
+            #[test]
+            fn $test_name() {
+                test_item(
+                    Action::$name(FileDataAction {
+                        group: false,
+                        resp: true,
+                        file_id: 9,
+                        offset: 5,
+                        data: Box::new(hex!("01 02 03")),
+                    }),
+                    &vec![
+                        [crate::v1_2::action::OpCode::$name as u8 | (1 << 6)].as_slice(),
+                        &hex!("09 05 03  010203"),
+                    ]
+                    .concat()[..],
+                )
             }
-        })
-        .to_string(),
-        "WRP[G-]f(1)[E-|user=RWX|guest=---|0RP|f(1),2,3,4]"
-    );
+        };
+    }
+    impl_file_data_test!(WriteFileData, write_file_data);
+    impl_file_data_test!(ReturnFileData, return_file_data);
+
+    macro_rules! impl_file_properties_test {
+        ($name: ident, $test_name: ident) => {
+            #[test]
+            fn $test_name() {
+                test_item(
+                    Action::$name(FilePropertiesAction {
+                        group: true,
+                        resp: false,
+                        file_id: 9,
+                        header: data::FileHeader {
+                            permissions: data::Permissions {
+                                encrypted: true,
+                                executable: false,
+                                user: data::UserPermissions {
+                                    read: true,
+                                    write: true,
+                                    run: true,
+                                },
+                                guest: data::UserPermissions {
+                                    read: false,
+                                    write: false,
+                                    run: false,
+                                },
+                            },
+                            properties: data::FileProperties {
+                                act_en: false,
+                                act_cond: data::ActionCondition::Read,
+                                storage_class: data::StorageClass::Permanent,
+                            },
+                            alp_cmd_fid: 1,
+                            interface_file_id: 2,
+                            file_size: 0xDEAD_BEEF,
+                            allocated_size: 0xBAAD_FACE,
+                        },
+                    }),
+                    &vec![
+                        [crate::v1_2::action::OpCode::$name as u8 | (1 << 7)].as_slice(),
+                        &hex!("09   B8 13 01 02 DEADBEEF BAADFACE"),
+                    ]
+                    .concat()[..],
+                )
+            }
+        };
+    }
+    impl_file_properties_test!(WriteFileProperties, write_file_properties);
+    impl_file_properties_test!(CreateNewFile, create_new_file);
+    impl_file_properties_test!(ReturnFileProperties, return_file_properties);
+
+    macro_rules! impl_query_test {
+        ($name: ident, $test_name: ident) => {
+            #[test]
+            fn $test_name() {
+                crate::test_tools::test_item(
+                    Action::$name(QueryAction {
+                        group: true,
+                        resp: true,
+                        query: crate::v1_2::operand::Query::NonVoid(
+                            crate::v1_2::operand::NonVoid {
+                                size: 4,
+                                file: crate::v1_2::operand::FileOffset { id: 5, offset: 6 },
+                            },
+                        ),
+                    }),
+                    &vec![
+                        [crate::v1_2::action::OpCode::$name as u8 | (3 << 6)].as_slice(),
+                        &hex_literal::hex!("00 04  05 06"),
+                    ]
+                    .concat()[..],
+                )
+            }
+        };
+    }
+    impl_query_test!(ActionQuery, action_query);
+    impl_query_test!(BreakQuery, break_query);
+    impl_query_test!(VerifyChecksum, verify_checksum);
+
+    #[test]
+    fn permission_request() {
+        test_item(
+            Action::PermissionRequest(PermissionRequest {
+                group: false,
+                resp: false,
+                level: crate::v1_2::operand::permission_level::ROOT,
+                permission: operand::Permission::Dash7(hex!("0102030405060708")),
+            }),
+            &hex!("0A   01 42 0102030405060708"),
+        )
+    }
+
+    macro_rules! impl_file_id {
+        ($name: ident, $test_name: ident) => {
+            #[test]
+            fn $test_name() {
+                test_item(
+                    Action::$name(FileIdAction {
+                        group: false,
+                        resp: false,
+                        file_id: 9,
+                    }),
+                    &[crate::v1_2::action::OpCode::$name as u8, 0x09],
+                )
+            }
+        };
+    }
+    impl_file_id!(ReadFileProperties, test_read_file_properties);
+    impl_file_id!(ExistFile, test_exist_file);
+    impl_file_id!(DeleteFile, test_delete_file);
+    impl_file_id!(RestoreFile, test_restore_file);
+    impl_file_id!(FlushFile, test_flush_file);
+    impl_file_id!(ExecuteFile, test_execute_file);
+
+    #[test]
+    fn copy_file() {
+        test_item(
+            Action::CopyFile(CopyFile {
+                group: false,
+                resp: false,
+                src_file_id: 0x42,
+                dst_file_id: 0x24,
+            }),
+            &hex!("17 42 24"),
+        )
+    }
+
+    #[test]
+    fn status() {
+        test_item(
+            Action::Status(Status::Action(operand::ActionStatus {
+                action_id: 2,
+                status: operand::status_code::UNKNOWN_OPERATION,
+            })),
+            &hex!("22 02 F6"),
+        )
+    }
+
+    #[test]
+    fn response_tag() {
+        test_item(
+            Action::ResponseTag(ResponseTag {
+                eop: true,
+                err: false,
+                id: 8,
+            }),
+            &hex!("A3 08"),
+        )
+    }
+
+    #[test]
+    fn chunk() {
+        test_item(Action::Chunk(Chunk::End), &hex!("B0"))
+    }
+
+    #[test]
+    fn logic() {
+        test_item(Action::Logic(Logic::Nand), &hex!("F1"))
+    }
+
+    #[test]
+    fn forward() {
+        test_item(
+            Action::Forward(Forward {
+                resp: true,
+                conf: operand::InterfaceConfiguration::Host,
+            }),
+            &hex!("72 00"),
+        )
+    }
+
+    #[test]
+    fn indirect_forward() {
+        test_item(
+            Action::IndirectForward(IndirectForward {
+                resp: true,
+                interface: operand::IndirectInterface::Overloaded(
+                    operand::OverloadedIndirectInterface {
+                        interface_file_id: 4,
+                        nls_method: dash7::NlsMethod::AesCcm32,
+                        access_class: 0xFF,
+                        address: dash7::Address::Vid([0xAB, 0xCD]),
+                    },
+                ),
+            }),
+            &hex!("F3   04   37 FF ABCD"),
+        )
+    }
+
+    #[test]
+    fn request_tag() {
+        test_item(
+            Action::RequestTag(RequestTag { eop: true, id: 8 }),
+            &hex!("B4 08"),
+        )
+    }
 }
 
-#[test]
-fn test_action_query_display() {
-    assert_eq!(
-        Action::ActionQuery(ActionQuery {
-            group: true,
-            resp: true,
-            query: operand::query::Query::BitmapRangeComparison(
-                operand::query::BitmapRangeComparison {
+#[cfg(test)]
+mod test_display {
+    use super::*;
+    use crate::v1_2::data;
+
+    #[test]
+    fn nop() {
+        assert_eq!(
+            Action::Nop(Nop {
+                resp: false,
+                group: true
+            })
+            .to_string(),
+            "NOP[G-]"
+        );
+    }
+
+    #[test]
+    fn read_file_data() {
+        assert_eq!(
+            Action::ReadFileData(ReadFileData {
+                resp: false,
+                group: true,
+                file_id: 1,
+                offset: 2,
+                size: 3,
+            })
+            .to_string(),
+            "RD[G-]f(1,2,3)"
+        );
+    }
+
+    #[test]
+    fn read_file_properties() {
+        assert_eq!(
+            Action::ReadFileProperties(FileIdAction {
+                resp: true,
+                group: false,
+                file_id: 1,
+            })
+            .to_string(),
+            "RDP[-R]f(1)"
+        );
+    }
+
+    #[test]
+    fn write_file_data() {
+        assert_eq!(
+            Action::WriteFileData(FileDataAction {
+                resp: true,
+                group: false,
+                file_id: 1,
+                offset: 2,
+                data: Box::new([3, 4, 5]),
+            })
+            .to_string(),
+            "WR[-R]f(1,2,0x030405)"
+        );
+    }
+
+    #[test]
+    fn write_file_properties() {
+        assert_eq!(
+            Action::WriteFileProperties(FilePropertiesAction {
+                resp: false,
+                group: true,
+                file_id: 1,
+                header: data::FileHeader {
+                    permissions: data::Permissions {
+                        encrypted: true,
+                        executable: false,
+                        user: data::UserPermissions {
+                            read: true,
+                            write: true,
+                            run: true,
+                        },
+                        guest: data::UserPermissions {
+                            read: false,
+                            write: false,
+                            run: false,
+                        },
+                    },
+                    properties: data::FileProperties {
+                        act_en: false,
+                        act_cond: data::ActionCondition::Read,
+                        storage_class: data::StorageClass::Permanent,
+                    },
+                    alp_cmd_fid: 1,
+                    interface_file_id: 2,
+                    file_size: 3,
+                    allocated_size: 4,
+                }
+            })
+            .to_string(),
+            "WRP[G-]f(1)[E-|user=RWX|guest=---|0RP|f(1),2,3,4]"
+        );
+    }
+
+    #[test]
+    fn action_query() {
+        assert_eq!(
+            Action::ActionQuery(QueryAction {
+                group: true,
+                resp: true,
+                query: operand::Query::BitmapRangeComparison(operand::BitmapRangeComparison {
                     signed_data: false,
-                    comparison_type: operand::query::QueryRangeComparisonType::InRange,
+                    comparison_type: operand::QueryRangeComparisonType::InRange,
                     size: 2,
 
                     start: 3,
                     stop: 32,
                     mask: Some(Box::new(hex!("01020304"))),
 
-                    file: operand::file_offset::FileOffset { id: 0, offset: 4 },
-                },
-            ),
-        })
-        .to_string(),
-        "AQ[GR]BM:[U|1,2,3-32,msk=0x01020304,f(0,4)]"
-    );
-    assert_eq!(
-        Action::ActionQuery(ActionQuery {
-            group: true,
-            resp: true,
-            query: operand::query::Query::ComparisonWithZero(operand::query::ComparisonWithZero {
-                signed_data: true,
-                comparison_type: operand::query::QueryComparisonType::Inequal,
-                size: 3,
-                mask: Some(vec![0, 1, 2].into_boxed_slice()),
-                file: operand::file_offset::FileOffset { id: 4, offset: 5 },
-            }),
-        })
-        .to_string(),
-        "AQ[GR]WZ:[S|NEQ,3,msk=0x000102,f(4,5)]"
-    );
-}
+                    file: operand::FileOffset { id: 0, offset: 4 },
+                },),
+            })
+            .to_string(),
+            "AQ[GR]BM:[U|1,2,3-32,msk=0x01020304,f(0,4)]"
+        );
+        assert_eq!(
+            Action::ActionQuery(QueryAction {
+                group: true,
+                resp: true,
+                query: operand::Query::ComparisonWithZero(operand::ComparisonWithZero {
+                    signed_data: true,
+                    comparison_type: operand::QueryComparisonType::Inequal,
+                    size: 3,
+                    mask: Some(vec![0, 1, 2].into_boxed_slice()),
+                    file: operand::FileOffset { id: 4, offset: 5 },
+                }),
+            })
+            .to_string(),
+            "AQ[GR]WZ:[S|NEQ,3,msk=0x000102,f(4,5)]"
+        );
+    }
 
-#[test]
-fn test_break_query_display() {
-    assert_eq!(
-        Action::BreakQuery(BreakQuery {
-            group: true,
-            resp: true,
-            query: operand::query::Query::NonVoid(operand::query::NonVoid {
-                size: 4,
-                file: operand::file_offset::FileOffset { id: 5, offset: 6 },
-            }),
-        })
-        .to_string(),
-        "BQ[GR]NV:[4,f(5,6)]"
-    );
-    assert_eq!(
-        Action::BreakQuery(BreakQuery {
-            group: true,
-            resp: true,
-            query: operand::query::Query::ComparisonWithOtherFile(
-                operand::query::ComparisonWithOtherFile {
+    #[test]
+    fn break_query() {
+        assert_eq!(
+            Action::BreakQuery(QueryAction {
+                group: true,
+                resp: true,
+                query: operand::Query::NonVoid(operand::NonVoid {
+                    size: 4,
+                    file: operand::FileOffset { id: 5, offset: 6 },
+                }),
+            })
+            .to_string(),
+            "BQ[GR]NV:[4,f(5,6)]"
+        );
+        assert_eq!(
+            Action::BreakQuery(QueryAction {
+                group: true,
+                resp: true,
+                query: operand::Query::ComparisonWithOtherFile(operand::ComparisonWithOtherFile {
                     signed_data: false,
-                    comparison_type: operand::query::QueryComparisonType::GreaterThan,
+                    comparison_type: operand::QueryComparisonType::GreaterThan,
                     size: 2,
                     mask: Some(vec![0xF1, 0xF2].into_boxed_slice()),
-                    file1: operand::file_offset::FileOffset { id: 4, offset: 5 },
-                    file2: operand::file_offset::FileOffset { id: 8, offset: 9 },
-                }
-            ),
-        })
-        .to_string(),
-        "BQ[GR]WF:[U|GTH,2,msk=0xF1F2,f(4,5)~f(8,9)]"
-    );
-}
+                    file1: operand::FileOffset { id: 4, offset: 5 },
+                    file2: operand::FileOffset { id: 8, offset: 9 },
+                }),
+            })
+            .to_string(),
+            "BQ[GR]WF:[U|GTH,2,msk=0xF1F2,f(4,5)~f(8,9)]"
+        );
+    }
 
-#[test]
-fn test_permission_request_display() {
-    assert_eq!(
-        Action::PermissionRequest(PermissionRequest {
-            group: false,
-            resp: true,
-            level: 1,
-            permission: operand::permission::Permission::Dash7([2, 3, 4, 5, 6, 7, 8, 9]),
-        })
-        .to_string(),
-        "PR[-R]1,D7:0x0203040506070809"
-    );
-}
+    #[test]
+    fn permission_request() {
+        assert_eq!(
+            Action::PermissionRequest(PermissionRequest {
+                group: false,
+                resp: true,
+                level: 1,
+                permission: operand::Permission::Dash7([2, 3, 4, 5, 6, 7, 8, 9]),
+            })
+            .to_string(),
+            "PR[-R]1,D7:0x0203040506070809"
+        );
+    }
 
-#[test]
-fn test_verify_checksum_display() {
-    assert_eq!(
-        Action::VerifyChecksum(VerifyChecksum {
-            group: false,
-            resp: false,
-            query: operand::query::Query::ComparisonWithValue(
-                operand::query::ComparisonWithValue {
+    #[test]
+    fn verify_checksum() {
+        assert_eq!(
+            Action::VerifyChecksum(QueryAction {
+                group: false,
+                resp: false,
+                query: operand::Query::ComparisonWithValue(operand::ComparisonWithValue {
                     signed_data: false,
-                    comparison_type: operand::query::QueryComparisonType::GreaterThan,
+                    comparison_type: operand::QueryComparisonType::GreaterThan,
                     size: 2,
                     mask: Some(vec![0xF1, 0xF2].into_boxed_slice()),
                     value: Box::new([0xA9, 0xA8]),
-                    file: operand::file_offset::FileOffset { id: 4, offset: 5 },
+                    file: operand::FileOffset { id: 4, offset: 5 },
+                }),
+            })
+            .to_string(),
+            "VCS[--]WV:[U|GTH,2,msk=0xF1F2,v=0xA9A8,f(4,5)]"
+        );
+        assert_eq!(
+            Action::VerifyChecksum(QueryAction {
+                group: true,
+                resp: false,
+                query: operand::Query::StringTokenSearch(operand::StringTokenSearch {
+                    max_errors: 2,
+                    size: 4,
+                    mask: Some(Box::new(hex!("FF00FF00"))),
+                    value: Box::new(hex!("01020304")),
+                    file: operand::FileOffset { id: 0, offset: 4 },
+                }),
+            })
+            .to_string(),
+            "VCS[G-]ST:[2,4,msk=0xFF00FF00,v=0x01020304,f(0,4)]"
+        );
+    }
+
+    #[test]
+    fn exist_file() {
+        assert_eq!(
+            Action::ExistFile(FileIdAction {
+                group: false,
+                resp: true,
+                file_id: 9,
+            })
+            .to_string(),
+            "HAS[-R]f(9)"
+        )
+    }
+
+    #[test]
+    fn create_new_file() {
+        assert_eq!(
+            Action::CreateNewFile(FilePropertiesAction {
+                group: true,
+                resp: false,
+                file_id: 6,
+                header: data::FileHeader {
+                    permissions: data::Permissions {
+                        encrypted: true,
+                        executable: false,
+                        user: data::UserPermissions {
+                            read: true,
+                            write: true,
+                            run: true,
+                        },
+                        guest: data::UserPermissions {
+                            read: false,
+                            write: false,
+                            run: false,
+                        },
+                    },
+                    properties: data::FileProperties {
+                        act_en: false,
+                        act_cond: data::ActionCondition::Read,
+                        storage_class: data::StorageClass::Permanent,
+                    },
+                    alp_cmd_fid: 1,
+                    interface_file_id: 2,
+                    file_size: 3,
+                    allocated_size: 4,
                 }
-            ),
-        })
-        .to_string(),
-        "VCS[--]WV:[U|GTH,2,msk=0xF1F2,v=0xA9A8,f(4,5)]"
-    );
-    assert_eq!(
-        Action::VerifyChecksum(VerifyChecksum {
-            group: true,
-            resp: false,
-            query: operand::query::Query::StringTokenSearch(operand::query::StringTokenSearch {
-                max_errors: 2,
-                size: 4,
-                mask: Some(Box::new(hex!("FF00FF00"))),
-                value: Box::new(hex!("01020304")),
-                file: operand::file_offset::FileOffset { id: 0, offset: 4 },
-            }),
-        })
-        .to_string(),
-        "VCS[G-]ST:[2,4,msk=0xFF00FF00,v=0x01020304,f(0,4)]"
-    );
-}
+            })
+            .to_string(),
+            "NEW[G-]f(6)[E-|user=RWX|guest=---|0RP|f(1),2,3,4]"
+        )
+    }
 
-#[test]
-fn test_exist_file_display() {
-    assert_eq!(
-        Action::ExistFile(ExistFile {
-            group: false,
-            resp: true,
-            file_id: 9,
-        })
-        .to_string(),
-        "HAS[-R]f(9)"
-    )
-}
+    #[test]
+    fn delete_file() {
+        assert_eq!(
+            Action::DeleteFile(FileIdAction {
+                group: false,
+                resp: true,
+                file_id: 7,
+            })
+            .to_string(),
+            "DEL[-R]f(7)"
+        )
+    }
 
-#[test]
-fn test_create_new_file_display() {
-    assert_eq!(
-        Action::CreateNewFile(CreateNewFile {
-            group: true,
-            resp: false,
-            file_id: 6,
-            header: data::FileHeader {
-                permissions: data::Permissions {
-                    encrypted: true,
-                    executable: false,
-                    user: data::UserPermissions {
-                        read: true,
-                        write: true,
-                        run: true,
+    #[test]
+    fn restore_file() {
+        assert_eq!(
+            Action::RestoreFile(FileIdAction {
+                group: false,
+                resp: true,
+                file_id: 5,
+            })
+            .to_string(),
+            "RST[-R]f(5)"
+        )
+    }
+
+    #[test]
+    fn flush_file() {
+        assert_eq!(
+            Action::FlushFile(FileIdAction {
+                group: false,
+                resp: true,
+                file_id: 4,
+            })
+            .to_string(),
+            "FLUSH[-R]f(4)"
+        )
+    }
+
+    #[test]
+    fn copy_file() {
+        assert_eq!(
+            Action::CopyFile(CopyFile {
+                group: false,
+                resp: true,
+                src_file_id: 2,
+                dst_file_id: 8,
+            })
+            .to_string(),
+            "CP[-R]f(2)f(8)"
+        )
+    }
+
+    #[test]
+    fn execute_file() {
+        assert_eq!(
+            Action::ExecuteFile(FileIdAction {
+                group: false,
+                resp: true,
+                file_id: 4,
+            })
+            .to_string(),
+            "RUN[-R]f(4)"
+        )
+    }
+
+    #[test]
+    fn return_file_data() {
+        assert_eq!(
+            Action::ReturnFileData(FileDataAction {
+                resp: true,
+                group: false,
+                file_id: 1,
+                offset: 2,
+                data: Box::new([3, 4, 5]),
+            })
+            .to_string(),
+            "DATA[-R]f(1,2,0x030405)"
+        );
+    }
+
+    #[test]
+    fn return_file_properties() {
+        assert_eq!(
+            Action::ReturnFileProperties(FilePropertiesAction {
+                resp: false,
+                group: true,
+                file_id: 1,
+                header: data::FileHeader {
+                    permissions: data::Permissions {
+                        encrypted: true,
+                        executable: false,
+                        user: data::UserPermissions {
+                            read: true,
+                            write: true,
+                            run: true,
+                        },
+                        guest: data::UserPermissions {
+                            read: false,
+                            write: false,
+                            run: false,
+                        },
                     },
-                    guest: data::UserPermissions {
-                        read: false,
-                        write: false,
-                        run: false,
+                    properties: data::FileProperties {
+                        act_en: false,
+                        act_cond: data::ActionCondition::Read,
+                        storage_class: data::StorageClass::Permanent,
                     },
-                },
-                properties: data::FileProperties {
-                    act_en: false,
-                    act_cond: data::ActionCondition::Read,
-                    storage_class: data::StorageClass::Permanent,
-                },
-                alp_cmd_fid: 1,
-                interface_file_id: 2,
-                file_size: 3,
-                allocated_size: 4,
-            }
-        })
-        .to_string(),
-        "NEW[G-]f(6)[E-|user=RWX|guest=---|0RP|f(1),2,3,4]"
-    )
-}
+                    alp_cmd_fid: 1,
+                    interface_file_id: 2,
+                    file_size: 3,
+                    allocated_size: 4,
+                }
+            })
+            .to_string(),
+            "PROP[G-]f(1)[E-|user=RWX|guest=---|0RP|f(1),2,3,4]"
+        );
+    }
 
-#[test]
-fn test_delete_file_display() {
-    assert_eq!(
-        Action::DeleteFile(DeleteFile {
-            group: false,
-            resp: true,
-            file_id: 7,
-        })
-        .to_string(),
-        "DEL[-R]f(7)"
-    )
-}
-
-#[test]
-fn test_restore_file_display() {
-    assert_eq!(
-        Action::RestoreFile(RestoreFile {
-            group: false,
-            resp: true,
-            file_id: 5,
-        })
-        .to_string(),
-        "RST[-R]f(5)"
-    )
-}
-
-#[test]
-fn test_flush_file_display() {
-    assert_eq!(
-        Action::FlushFile(FlushFile {
-            group: false,
-            resp: true,
-            file_id: 4,
-        })
-        .to_string(),
-        "FLUSH[-R]f(4)"
-    )
-}
-
-#[test]
-fn test_copy_file_display() {
-    assert_eq!(
-        Action::CopyFile(CopyFile {
-            group: false,
-            resp: true,
-            src_file_id: 2,
-            dst_file_id: 8,
-        })
-        .to_string(),
-        "CP[-R]f(2)f(8)"
-    )
-}
-
-#[test]
-fn test_execute_file_display() {
-    assert_eq!(
-        Action::ExecuteFile(ExecuteFile {
-            group: false,
-            resp: true,
-            file_id: 4,
-        })
-        .to_string(),
-        "RUN[-R]f(4)"
-    )
-}
-
-#[test]
-fn test_return_file_data_display() {
-    assert_eq!(
-        Action::ReturnFileData(ReturnFileData {
-            resp: true,
-            group: false,
-            file_id: 1,
-            offset: 2,
-            data: Box::new([3, 4, 5]),
-        })
-        .to_string(),
-        "DATA[-R]f(1,2,0x030405)"
-    );
-}
-
-#[test]
-fn test_return_file_properties_display() {
-    assert_eq!(
-        Action::ReturnFileProperties(ReturnFileProperties {
-            resp: false,
-            group: true,
-            file_id: 1,
-            header: data::FileHeader {
-                permissions: data::Permissions {
-                    encrypted: true,
-                    executable: false,
-                    user: data::UserPermissions {
-                        read: true,
-                        write: true,
-                        run: true,
-                    },
-                    guest: data::UserPermissions {
-                        read: false,
-                        write: false,
-                        run: false,
-                    },
-                },
-                properties: data::FileProperties {
-                    act_en: false,
-                    act_cond: data::ActionCondition::Read,
-                    storage_class: data::StorageClass::Permanent,
-                },
-                alp_cmd_fid: 1,
-                interface_file_id: 2,
-                file_size: 3,
-                allocated_size: 4,
-            }
-        })
-        .to_string(),
-        "PROP[G-]f(1)[E-|user=RWX|guest=---|0RP|f(1),2,3,4]"
-    );
-}
-
-#[test]
-fn test_status_display() {
-    assert_eq!(
-        Action::Status(Status::Action(operand::action_status::Status {
-            action_id: 2,
-            status: 4
-        }))
-        .to_string(),
-        "S[ACT]:a[2]=>4"
-    );
-    assert_eq!(
-        Action::Status(Status::Interface(
-            operand::interface_status::InterfaceStatus::Host
-        ))
-        .to_string(),
-        "S[ITF]:HOST"
-    );
-    assert_eq!(
-        Action::Status(Status::Interface(operand::interface_status::InterfaceStatus::D7asp(
+    #[test]
+    fn status() {
+        assert_eq!(
+            Action::Status(Status::Action(operand::ActionStatus {
+                action_id: 2,
+                status: 4
+            }))
+            .to_string(),
+            "S[ACT]:a[2]=>4"
+        );
+        assert_eq!(
+            Action::Status(Status::Interface(operand::InterfaceStatus::Host)).to_string(),
+            "S[ITF]:HOST"
+        );
+        assert_eq!(
+        Action::Status(Status::Interface(operand::InterfaceStatus::D7asp(
             dash7::InterfaceStatus {
                 ch_header: 1,
                 ch_idx: 0x0123,
@@ -1338,58 +1552,45 @@ fn test_status_display() {
         .to_string(),
         "S[ITF]:D7=ch(1;291),sig(2,3,4),s=5,tok=6,sq=7,rto=8,xclass=0xFF,VID[ABCD],NLS[7|0011223344]"
     );
-}
+    }
 
-#[test]
-fn test_response_tag_display() {
-    assert_eq!(
-        Action::ResponseTag(ResponseTag {
-            eop: true,
-            err: false,
-            id: 8,
-        })
-        .to_string(),
-        "TG[E-](8)"
-    );
-}
+    #[test]
+    fn response_tag() {
+        assert_eq!(
+            Action::ResponseTag(ResponseTag {
+                eop: true,
+                err: false,
+                id: 8,
+            })
+            .to_string(),
+            "TG[E-](8)"
+        );
+    }
 
-#[test]
-fn test_chunk_display() {
-    assert_eq!(
-        Action::Chunk(Chunk {
-            step: chunk::ChunkStep::Start
-        })
-        .to_string(),
-        "CHK[S]"
-    );
-}
+    #[test]
+    fn chunk() {
+        assert_eq!(Action::Chunk(Chunk::Start).to_string(), "CHK[S]");
+    }
 
-#[test]
-fn test_logic_display() {
-    assert_eq!(
-        Action::Logic(Logic {
-            logic: logic::LogicOp::Xor
-        })
-        .to_string(),
-        "LOG[XOR]"
-    );
-}
+    #[test]
+    fn logic() {
+        assert_eq!(Action::Logic(Logic::Xor).to_string(), "LOG[XOR]");
+    }
 
-#[test]
-fn test_forward_display() {
-    assert_eq!(
-        Action::Forward(Forward {
-            resp: true,
-            conf: operand::interface_configuration::InterfaceConfiguration::Host,
-        })
-        .to_string(),
-        "FWD[R]HOST"
-    );
-    assert_eq!(
-        Action::Forward(Forward {
-            resp: true,
-            conf: operand::interface_configuration::InterfaceConfiguration::D7asp(
-                dash7::InterfaceConfiguration {
+    #[test]
+    fn forward() {
+        assert_eq!(
+            Action::Forward(Forward {
+                resp: true,
+                conf: operand::InterfaceConfiguration::Host,
+            })
+            .to_string(),
+            "FWD[R]HOST"
+        );
+        assert_eq!(
+            Action::Forward(Forward {
+                resp: true,
+                conf: operand::InterfaceConfiguration::D7asp(dash7::InterfaceConfiguration {
                     qos: dash7::Qos {
                         retry: dash7::RetryMode::No,
                         resp: dash7::RespMode::Any,
@@ -1399,37 +1600,37 @@ fn test_forward_display() {
                     nls_method: dash7::NlsMethod::AesCcm32,
                     access_class: 0xFF,
                     address: dash7::Address::Vid([0xAB, 0xCD]),
-                }
-            ),
-        })
-        .to_string(),
-        "FWD[R]D7:0X,35,52|0xFF,NLS[7],VID[ABCD]"
-    );
-}
+                }),
+            })
+            .to_string(),
+            "FWD[R]D7:0X,35,52|0xFF,NLS[7],VID[ABCD]"
+        );
+    }
 
-#[test]
-fn test_indirect_forward_display() {
-    assert_eq!(
-        Action::IndirectForward(IndirectForward {
-            resp: true,
-            interface: operand::indirect_interface::IndirectInterface::Overloaded(
-                operand::indirect_interface::OverloadedIndirectInterface {
-                    interface_file_id: 4,
-                    nls_method: dash7::NlsMethod::AesCcm32,
-                    access_class: 0xFF,
-                    address: dash7::Address::Vid([0xAB, 0xCD]),
-                }
-            ),
-        })
-        .to_string(),
-        "IFWD[R]O:4,NLS[7],255,VID[ABCD]"
-    );
-}
+    #[test]
+    fn indirect_forward() {
+        assert_eq!(
+            Action::IndirectForward(IndirectForward {
+                resp: true,
+                interface: operand::IndirectInterface::Overloaded(
+                    operand::OverloadedIndirectInterface {
+                        interface_file_id: 4,
+                        nls_method: dash7::NlsMethod::AesCcm32,
+                        access_class: 0xFF,
+                        address: dash7::Address::Vid([0xAB, 0xCD]),
+                    }
+                ),
+            })
+            .to_string(),
+            "IFWD[R]O:4,NLS[7],255,VID[ABCD]"
+        );
+    }
 
-#[test]
-fn test_request_tag_display() {
-    assert_eq!(
-        Action::RequestTag(RequestTag { eop: true, id: 9 }).to_string(),
-        "RTG[E](9)"
-    );
+    #[test]
+    fn request_tag() {
+        assert_eq!(
+            Action::RequestTag(RequestTag { eop: true, id: 9 }).to_string(),
+            "RTG[E](9)"
+        );
+    }
 }

@@ -1,14 +1,9 @@
-#[cfg(test)]
-use crate::test_tools::test_item;
-#[cfg(test)]
-use hex_literal::hex;
-
 use crate::{
     codec::{Codec, StdError, WithOffset, WithSize},
     v1_2::varint,
 };
 
-use super::{OpCode, OperandValidationError};
+use super::OperandValidationError;
 
 /// Read data from a file
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -42,7 +37,7 @@ impl Codec for ReadFileData {
         1 + 1 + super::unsafe_varint_serialize_sizes!(self.offset, self.size) as usize
     }
     unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
-        out[0] = super::control_byte!(self.group, self.resp, OpCode::ReadFileData);
+        out[0] |= ((self.group as u8) << 7) | ((self.resp as u8) << 6);
         out[1] = self.file_id;
         1 + 1 + super::unsafe_varint_serialize!(out[2..], self.offset, self.size)
     }
@@ -85,17 +80,4 @@ impl Codec for ReadFileData {
             size: off,
         })
     }
-}
-#[test]
-fn test_read_file_data() {
-    test_item(
-        ReadFileData {
-            group: false,
-            resp: true,
-            file_id: 1,
-            offset: 2,
-            size: 3,
-        },
-        &hex!("41 01 02 03"),
-    )
 }
