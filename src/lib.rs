@@ -19,7 +19,7 @@
 //! ==============================================================================
 //!
 //! ```
-//! use dash7_alp::v1_2::{Command, Action, action};
+//! use dash7_alp::spec::v1_2::{Command, Action, action};
 //! use hex_literal::hex;
 //!
 //! let cmd = Command {
@@ -51,28 +51,17 @@
 //! let parsed_cmd = Command::decode(data).expect("should be parsed without error");
 //! assert_eq!(parsed_cmd, cmd);
 //! ```
-//!
-//! Notes
-//! ==============================================================================
-//! Group
-//! ------------------------------------------------------------------------------
-//! Many ALP action have a group flag. This allows those to be grouped.
-//!
-//! This means that:
-//! - If any action of this group fails, the next actions are skipped.
-//! - A query before the group will apply to the whole group (to define
-//! whether it will be executed).
-//! - If the group contains queries, a prior Logical action will determine how they
-//! are composed between them (OR, XOR, NOR, NAND). Without any Logical action, the
-//! queries are AND'ed.
-//!
-//! Codec trait
-//! ------------------------------------------------------------------------------
-//! This trait implements the encode/decode methods. You very probably want to import
-//! it into scope.
 
-/// Implementation of the version 1.2 of the Dash7 ALP protocol
-pub mod v1_2;
+/// Implementation of the specification compliant Dash7 ALP protocol.
+pub mod spec;
+
+/// Implementation of the [Sub-IoT compatible](https://github.com/Sub-IoT/Sub-IoT-Stack)
+/// compatible Dash7 ALP protocol.
+pub mod sub_iot;
+
+/// Implementation of the [Wizzilab](https://www.wizzilab.com) compatible
+/// Dash7 ALP protocol.
+pub mod wizzilab;
 
 /// A Codec module specifying how to encode/decode each encodable items
 pub mod codec;
