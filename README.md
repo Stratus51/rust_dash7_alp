@@ -21,11 +21,3 @@ The API is not ergonomic, but should be usable.
 
 This library was not used in any project yet, so there are probably a few bugs lying around.
 Plus there are probably some obvious ergonomy problems.
-
-# CHANGELOG
-
-## 0.2.0
-
-- Refactor codec trait (parsing/building API).
-- Refactor error model.
-- Refactor bloated constructors.
