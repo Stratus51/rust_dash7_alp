@@ -42,8 +42,6 @@ pub enum Action {
 
     // Write
     WriteFileData(FileDataAction),
-    // ALP SPEC: This is not specified even though it is implemented
-    // WriteFileDataActionFlush(WriteFileDataActionFlush),
     WriteFileProperties(FilePropertiesAction),
     ActionQuery(QueryAction),
     BreakQuery(QueryAction),
@@ -85,8 +83,6 @@ impl Action {
 
             // Write
             Self::WriteFileData(_) => OpCode::WriteFileData,
-            // ALP SPEC: This is not specified even though it is implemented
-            // Self::WriteFileDataFlush(_) => OpCode::WriteFileDataFlush,
             Self::WriteFileProperties(_) => OpCode::WriteFileProperties,
             Self::ActionQuery(_) => OpCode::ActionQuery,
             Self::BreakQuery(_) => OpCode::BreakQuery,
@@ -131,8 +127,6 @@ impl std::fmt::Display for Action {
 
             // Write
             Self::WriteFileData(op) => write!(f, "{}{}", op_code, op),
-            // ALP SPEC: This is not specified even though it is implemented
-            // Self::WriteFileDataFlush(op) => write!(f, "{}{}", op_code, op),
             Self::WriteFileProperties(op) => write!(f, "{}{}", op_code, op),
             Self::ActionQuery(op) => write!(f, "{}{}", op_code, op),
             Self::BreakQuery(op) => write!(f, "{}{}", op_code, op),
@@ -268,7 +262,6 @@ impl Codec for Action {
             Action::ReadFileData(x) => x.encoded_size(),
             Action::ReadFileProperties(x) => x.encoded_size(),
             Action::WriteFileData(x) => x.encoded_size(),
-            // Action::WriteFileDataFlush(x) => x.encoded_size(),
             Action::WriteFileProperties(x) => x.encoded_size(),
             Action::ActionQuery(x) => x.encoded_size(),
             Action::BreakQuery(x) => x.encoded_size(),
@@ -299,7 +292,6 @@ impl Codec for Action {
             Action::ReadFileData(x) => x.encode_in(out),
             Action::ReadFileProperties(x) => x.encode_in(out),
             Action::WriteFileData(x) => x.encode_in(out),
-            // Action::WriteFileDataFlush(x) => x.encode_in(out),
             Action::WriteFileProperties(x) => x.encode_in(out),
             Action::ActionQuery(x) => x.encode_in(out),
             Action::BreakQuery(x) => x.encode_in(out),
@@ -343,9 +335,6 @@ impl Codec for Action {
             OpCode::WriteFileData => FileDataAction::decode(out)
                 .map_err(ActionDecodingError::map_write_file_data)?
                 .map_value(Action::WriteFileData),
-            // OpCode::WriteFileDataActionFlush => {
-            //     WriteFileDataActionFlush::decode(&out)?.map_value( Action::WriteFileDataActionFlush)
-            // }
             OpCode::WriteFileProperties => FilePropertiesAction::decode(out)
                 .map_err(ActionDecodingError::map_write_file_properties)?
                 .map_value(Action::WriteFileProperties),

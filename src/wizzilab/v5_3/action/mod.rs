@@ -1,354 +1,19 @@
 #[cfg(test)]
-use crate::{spec::v1_2::dash7, test_tools::test_item};
+use crate::{test_tools::test_item, wizzilab::v5_3::dash7};
 #[cfg(test)]
 use hex_literal::hex;
 
-use crate::{
-    codec::{Codec, StdError, WithOffset, WithSize},
-    spec::v1_2::operand,
+use super::operand;
+use crate::codec::{Codec, StdError, WithOffset, WithSize};
+pub use crate::spec::v1_2::action::{
+    status, Chunk, CopyFile, FileDataAction, FileIdAction, FilePropertiesAction,
+    HeaderActionDecodingError, IndirectForward, Logic, Nop, OpCode as SpecOpCode,
+    PermissionRequest, QueryAction, ReadFileData, RequestTag, ResponseTag, Status,
 };
 
-pub mod chunk;
-pub mod copy_file;
-pub mod file_data_action;
-pub mod file_id_action;
-pub mod file_properties_action;
 pub mod forward;
-pub mod indirect_forward;
-pub mod logic;
-pub mod nop;
-pub mod permission_request;
-pub mod query_action;
-pub mod read_file_data;
-pub mod request_tag;
-pub mod response_tag;
-pub mod status;
 
-pub use chunk::Chunk;
-pub use copy_file::CopyFile;
-pub use file_data_action::FileDataAction;
-pub use file_id_action::FileIdAction;
-pub use file_properties_action::FilePropertiesAction;
 pub use forward::Forward;
-pub use indirect_forward::IndirectForward;
-pub use logic::Logic;
-pub use nop::Nop;
-pub use permission_request::PermissionRequest;
-pub use query_action::QueryAction;
-pub use read_file_data::ReadFileData;
-pub use request_tag::RequestTag;
-pub use response_tag::ResponseTag;
-pub use status::Status;
-
-// ===============================================================================
-// Macros
-// ===============================================================================
-macro_rules! serialize_all {
-    ($out: expr, $($x: expr),*) => {
-        {
-            let mut offset = 0;
-            $({
-                offset += $x.encode_in(&mut $out[offset..]);
-            })*
-            offset
-        }
-    }
-}
-pub(crate) use serialize_all;
-
-macro_rules! encoded_size {
-    ( $($x: expr),* ) => {
-        {
-            let mut total = 0;
-            $({
-                total += $x.encoded_size();
-            })*
-            total
-        }
-    }
-}
-pub(crate) use encoded_size;
-
-macro_rules! impl_op_serialized {
-    ($name: ident, $flag7: ident, $flag6: ident, $op1: ident, $op1_type: ty, $error: ty) => {
-        impl crate::codec::Codec for $name {
-            type Error = $error;
-            fn encoded_size(&self) -> usize {
-                1 + crate::spec::v1_2::action::encoded_size!(self.$op1)
-            }
-            unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
-                out[0] |= ((self.$flag7 as u8) << 7) | ((self.$flag6 as u8) << 6);
-                1 + crate::spec::v1_2::action::serialize_all!(&mut out[1..], &self.$op1)
-            }
-            fn decode(
-                out: &[u8],
-            ) -> Result<crate::codec::WithSize<Self>, crate::codec::WithOffset<Self::Error>> {
-                if (out.is_empty()) {
-                    Err(crate::spec::v1_2::WithOffset::new_head(
-                        Self::Error::MissingBytes(1),
-                    ))
-                } else {
-                    let mut offset = 1;
-                    let crate::spec::v1_2::WithSize {
-                        size: op1_size,
-                        value: op1,
-                    } = <$op1_type>::decode(&out[offset..]).map_err(|e| e.shift(offset))?;
-                    offset += op1_size;
-                    Ok(crate::spec::v1_2::WithSize {
-                        value: Self {
-                            $flag6: out[0] & 0x40 != 0,
-                            $flag7: out[0] & 0x80 != 0,
-                            $op1: op1,
-                        },
-                        size: offset,
-                    })
-                }
-            }
-        }
-    };
-}
-pub(crate) use impl_op_serialized;
-
-macro_rules! unsafe_varint_serialize_sizes {
-    ( $($x: expr),* ) => {{
-        let mut ret = 0;
-            $(unsafe {
-                ret += varint::size($x);
-            })*
-        ret
-    }}
-}
-pub(crate) use unsafe_varint_serialize_sizes;
-
-macro_rules! unsafe_varint_serialize {
-    ($out: expr, $($x: expr),*) => {
-        {
-            let mut offset: usize = 0;
-            $({
-                offset += varint::encode_in($x, &mut $out[offset..]) as usize;
-            })*
-            offset
-        }
-    }
-}
-pub(crate) use unsafe_varint_serialize;
-
-macro_rules! count {
-    () => (0usize);
-    ( $x:tt $($xs:tt)* ) => (1usize + crate::spec::v1_2::action::count!($($xs)*));
-}
-pub(crate) use count;
-
-macro_rules! build_simple_op {
-    ($name: ident, $out: expr, $flag7: ident, $flag6: ident, $x1: ident, $x2: ident) => {
-        $name {
-            $flag6: $out[0] & 0x40 != 0,
-            $flag7: $out[0] & 0x80 != 0,
-            $x1: $out[1],
-            $x2: $out[2],
-        }
-    };
-    ($name: ident, $out: expr, $flag7: ident, $flag6: ident, $x: ident) => {
-        $name {
-            $flag6: $out[0] & 0x40 != 0,
-            $flag7: $out[0] & 0x80 != 0,
-            $x: $out[1],
-        }
-    };
-}
-pub(crate) use build_simple_op;
-
-macro_rules! impl_simple_op {
-    ($name: ident, $flag7: ident, $flag6: ident, $($x: ident),* ) => {
-        impl Codec for $name {
-            type Error = StdError;
-            fn encoded_size(&self) -> usize {
-                1 + crate::spec::v1_2::action::count!($( $x )*)
-            }
-            unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
-                out[0] |= ((self.$flag7 as u8) << 7) | ((self.$flag6 as u8) << 6);
-                let mut offset = 1;
-                $({
-                    out[offset] = self.$x;
-                    offset += 1;
-                })*
-                1 + offset
-            }
-            fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
-                const SIZE: usize = 1 + crate::spec::v1_2::action::count!($( $x )*);
-                if(out.len() < SIZE) {
-                    Err(WithOffset::new_head( Self::Error::MissingBytes(SIZE - out.len())))
-                } else {
-                    Ok(WithSize {
-                        size: SIZE,
-                        value: crate::spec::v1_2::action::build_simple_op!($name, out, $flag7, $flag6, $($x),*),
-                    })
-                }
-            }
-        }
-    };
-}
-pub(crate) use impl_simple_op;
-
-macro_rules! impl_display_simple_op {
-    ($name: ident) => {
-        impl std::fmt::Display for $name {
-            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-                write!(
-                    f,
-                    "[{}{}]",
-                    if self.group { "G" } else { "-" },
-                    if self.resp { "R" } else { "-" },
-                )
-            }
-        }
-    };
-    ($name: ident, $field1: ident) => {
-        impl std::fmt::Display for $name {
-            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-                write!(
-                    f,
-                    "[{}{}]{}",
-                    if self.group { "G" } else { "-" },
-                    if self.resp { "R" } else { "-" },
-                    self.$field1
-                )
-            }
-        }
-    };
-    ($name: ident, $field1: ident, $field2: ident) => {
-        impl std::fmt::Display for $name {
-            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-                write!(
-                    f,
-                    "[{}{}]{},{}",
-                    if self.group { "G" } else { "-" },
-                    if self.resp { "R" } else { "-" },
-                    self.$field1,
-                    self.$field2
-                )
-            }
-        }
-    };
-}
-pub(crate) use impl_display_simple_op;
-
-macro_rules! impl_display_simple_file_op {
-    ($name: ident, $field1: ident) => {
-        impl std::fmt::Display for $name {
-            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-                write!(
-                    f,
-                    "[{}{}]f({})",
-                    if self.group { "G" } else { "-" },
-                    if self.resp { "R" } else { "-" },
-                    self.$field1,
-                )
-            }
-        }
-    };
-    ($name: ident, $field1: ident, $field2: ident) => {
-        impl std::fmt::Display for $name {
-            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-                write!(
-                    f,
-                    "[{}{}]f({},{})",
-                    if self.group { "G" } else { "-" },
-                    if self.resp { "R" } else { "-" },
-                    self.$field1,
-                    self.$field2,
-                )
-            }
-        }
-    };
-    ($name: ident, $field1: ident, $field2: ident, $field3: ident) => {
-        impl std::fmt::Display for $name {
-            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-                write!(
-                    f,
-                    "[{}{}]f({},{},{})",
-                    if self.group { "G" } else { "-" },
-                    if self.resp { "R" } else { "-" },
-                    self.$field1,
-                    self.$field2,
-                    self.$field3,
-                )
-            }
-        }
-    };
-}
-pub(crate) use impl_display_simple_file_op;
-
-macro_rules! impl_display_data_file_op {
-    ($name: ident) => {
-        impl std::fmt::Display for $name {
-            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-                write!(
-                    f,
-                    "[{}{}]f({},{},0x{})",
-                    if self.group { "G" } else { "-" },
-                    if self.resp { "R" } else { "-" },
-                    self.file_id,
-                    self.offset,
-                    hex::encode_upper(&self.data),
-                )
-            }
-        }
-    };
-}
-pub(crate) use impl_display_data_file_op;
-
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub enum HeaderActionDecodingError {
-    MissingBytes(usize),
-    FileHeader(StdError),
-}
-
-macro_rules! impl_header_op {
-    ($name: ident, $flag7: ident, $flag6: ident, $file_id: ident, $file_header: ident) => {
-        impl Codec for $name {
-            type Error = crate::spec::v1_2::action::HeaderActionDecodingError;
-            fn encoded_size(&self) -> usize {
-                1 + 1 + 12
-            }
-            unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
-                out[0] |= ((self.$flag7 as u8) << 7) | ((self.$flag6 as u8) << 6);
-                out[1] = self.file_id;
-                let mut offset = 2;
-                offset += self.$file_header.encode_in(&mut out[offset..]);
-                offset
-            }
-            fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
-                const SIZE: usize = 1 + 1 + 12;
-                if (out.len() < SIZE) {
-                    Err(WithOffset::new(
-                        0,
-                        Self::Error::MissingBytes(SIZE - out.len()),
-                    ))
-                } else {
-                    let WithSize { value: header, .. } = data::FileHeader::decode(&out[2..])
-                        .map_err(|e| {
-                            let WithOffset { offset, value } = e;
-                            WithOffset {
-                                offset: offset + 2,
-                                value: Self::Error::FileHeader(value),
-                            }
-                        })?;
-                    Ok(WithSize {
-                        value: Self {
-                            $flag6: out[0] & 0x40 != 0,
-                            $flag7: out[0] & 0x80 != 0,
-                            $file_id: out[1],
-                            $file_header: header,
-                        },
-                        size: SIZE,
-                    })
-                }
-            }
-        }
-    };
-}
-pub(crate) use impl_header_op;
 
 // ===============================================================================
 // Opcodes
@@ -356,42 +21,43 @@ pub(crate) use impl_header_op;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum OpCode {
     // Nop
-    Nop = 0,
+    Nop = SpecOpCode::Nop as isize,
 
     // Read
-    ReadFileData = 1,
-    ReadFileProperties = 2,
+    ReadFileData = SpecOpCode::ReadFileData as isize,
+    ReadFileProperties = SpecOpCode::ReadFileProperties as isize,
 
     // Write
-    WriteFileData = 4,
-    WriteFileProperties = 6,
-    ActionQuery = 8,
-    BreakQuery = 9,
-    PermissionRequest = 10,
-    VerifyChecksum = 11,
+    WriteFileData = SpecOpCode::WriteFileData as isize,
+    WriteFileDataFlush = 5,
+    WriteFileProperties = SpecOpCode::WriteFileProperties as isize,
+    ActionQuery = SpecOpCode::ActionQuery as isize,
+    BreakQuery = SpecOpCode::BreakQuery as isize,
+    PermissionRequest = SpecOpCode::PermissionRequest as isize,
+    VerifyChecksum = SpecOpCode::VerifyChecksum as isize,
 
     // Management
-    ExistFile = 16,
-    CreateNewFile = 17,
-    DeleteFile = 18,
-    RestoreFile = 19,
-    FlushFile = 20,
-    CopyFile = 23,
-    ExecuteFile = 31,
+    ExistFile = SpecOpCode::ExistFile as isize,
+    CreateNewFile = SpecOpCode::CreateNewFile as isize,
+    DeleteFile = SpecOpCode::DeleteFile as isize,
+    RestoreFile = SpecOpCode::RestoreFile as isize,
+    FlushFile = SpecOpCode::FlushFile as isize,
+    CopyFile = SpecOpCode::CopyFile as isize,
+    ExecuteFile = SpecOpCode::ExecuteFile as isize,
 
     // Response
-    ReturnFileData = 32,
-    ReturnFileProperties = 33,
-    Status = 34,
-    ResponseTag = 35,
+    ReturnFileData = SpecOpCode::ReturnFileData as isize,
+    ReturnFileProperties = SpecOpCode::ReturnFileProperties as isize,
+    Status = SpecOpCode::Status as isize,
+    ResponseTag = SpecOpCode::ResponseTag as isize,
 
     // Special
-    Chunk = 48,
-    Logic = 49,
-    Forward = 50,
-    IndirectForward = 51,
-    RequestTag = 52,
-    Extension = 63,
+    Chunk = SpecOpCode::Chunk as isize,
+    Logic = SpecOpCode::Logic as isize,
+    Forward = SpecOpCode::Forward as isize,
+    IndirectForward = SpecOpCode::IndirectForward as isize,
+    RequestTag = SpecOpCode::RequestTag as isize,
+    Extension = SpecOpCode::Extension as isize,
 }
 impl OpCode {
     pub(crate) fn from(n: u8) -> Result<Self, u8> {
@@ -451,6 +117,7 @@ impl std::fmt::Display for OpCode {
 
             // Write
             OpCode::WriteFileData => write!(f, "W"),
+            OpCode::WriteFileDataFlush => write!(f, "WF"),
             OpCode::WriteFileProperties => write!(f, "WP"),
             OpCode::ActionQuery => write!(f, "AQ"),
             OpCode::BreakQuery => write!(f, "BQ"),
@@ -508,6 +175,7 @@ pub enum Action {
 
     // Write
     WriteFileData(FileDataAction),
+    WriteFileDataFlush(FileDataAction),
     WriteFileProperties(FilePropertiesAction),
     ActionQuery(QueryAction),
     BreakQuery(QueryAction),
@@ -549,6 +217,7 @@ impl Action {
 
             // Write
             Self::WriteFileData(_) => OpCode::WriteFileData,
+            Self::WriteFileDataFlush(_) => OpCode::WriteFileDataFlush,
             Self::WriteFileProperties(_) => OpCode::WriteFileProperties,
             Self::ActionQuery(_) => OpCode::ActionQuery,
             Self::BreakQuery(_) => OpCode::BreakQuery,
@@ -593,8 +262,7 @@ impl std::fmt::Display for Action {
 
             // Write
             Self::WriteFileData(op) => write!(f, "{}{}", op_code, op),
-            // ALP SPEC: This is not specified even though it is implemented
-            // Self::WriteFileDataFlush(op) => write!(f, "{}{}", op_code, op),
+            Self::WriteFileDataFlush(op) => write!(f, "{}{}", op_code, op),
             Self::WriteFileProperties(op) => write!(f, "{}{}", op_code, op),
             Self::ActionQuery(op) => write!(f, "{}{}", op_code, op),
             Self::BreakQuery(op) => write!(f, "{}{}", op_code, op),
@@ -730,6 +398,7 @@ impl Codec for Action {
             Action::ReadFileData(x) => x.encoded_size(),
             Action::ReadFileProperties(x) => x.encoded_size(),
             Action::WriteFileData(x) => x.encoded_size(),
+            Action::WriteFileDataFlush(x) => x.encoded_size(),
             Action::WriteFileProperties(x) => x.encoded_size(),
             Action::ActionQuery(x) => x.encoded_size(),
             Action::BreakQuery(x) => x.encoded_size(),
@@ -760,6 +429,7 @@ impl Codec for Action {
             Action::ReadFileData(x) => x.encode_in(out),
             Action::ReadFileProperties(x) => x.encode_in(out),
             Action::WriteFileData(x) => x.encode_in(out),
+            Action::WriteFileDataFlush(x) => x.encode_in(out),
             Action::WriteFileProperties(x) => x.encode_in(out),
             Action::ActionQuery(x) => x.encode_in(out),
             Action::BreakQuery(x) => x.encode_in(out),
@@ -803,6 +473,9 @@ impl Codec for Action {
             OpCode::WriteFileData => FileDataAction::decode(out)
                 .map_err(ActionDecodingError::map_write_file_data)?
                 .map_value(Action::WriteFileData),
+            OpCode::WriteFileDataFlush => FileDataAction::decode(out)
+                .map_err(ActionDecodingError::map_write_file_data)?
+                .map_value(Action::WriteFileDataFlush),
             OpCode::WriteFileProperties => FilePropertiesAction::decode(out)
                 .map_err(ActionDecodingError::map_write_file_properties)?
                 .map_value(Action::WriteFileProperties),
@@ -1176,6 +849,21 @@ mod test_display {
             })
             .to_string(),
             "W[-R]f(1,2,0x030405)"
+        );
+    }
+
+    #[test]
+    fn write_file_data_flush() {
+        assert_eq!(
+            Action::WriteFileDataFlush(FileDataAction {
+                resp: true,
+                group: false,
+                file_id: 1,
+                offset: 2,
+                data: Box::new([3, 4, 5]),
+            })
+            .to_string(),
+            "WF[-R]f(1,2,0x030405)"
         );
     }
 
@@ -1580,7 +1268,7 @@ mod test_display {
                 resp: true,
                 conf: operand::InterfaceConfiguration::D7asp(dash7::InterfaceConfiguration {
                     qos: dash7::Qos {
-                        retry: dash7::RetryMode::No,
+                        retry: dash7::RetryMode::Oneshot,
                         resp: dash7::RespMode::Any,
                     },
                     to: 0x23,
@@ -1620,5 +1308,159 @@ mod test_display {
             Action::RequestTag(RequestTag { eop: true, id: 9 }).to_string(),
             "RTAG[E](9)"
         );
+    }
+
+    #[test]
+    fn consistency() {
+        use crate::spec::v1_2 as spec;
+        macro_rules! cmp_str {
+            ($name: ident, $op: expr) => {
+                assert_eq!(
+                    Action::$name($op.clone()).to_string(),
+                    spec::Action::$name($op.clone().into()).to_string()
+                );
+            };
+        }
+
+        let op = Nop {
+            resp: false,
+            group: true,
+        };
+        cmp_str!(Nop, op);
+        let op = ReadFileData {
+            resp: false,
+            group: true,
+            file_id: 1,
+            offset: 2,
+            size: 3,
+        };
+        cmp_str!(ReadFileData, op);
+
+        let op = FileDataAction {
+            group: false,
+            resp: true,
+            file_id: 9,
+            offset: 5,
+            data: Box::new(hex!("01 02 03")),
+        };
+        cmp_str!(WriteFileData, op);
+        cmp_str!(ReturnFileData, op);
+
+        let op = FilePropertiesAction {
+            group: true,
+            resp: false,
+            file_id: 9,
+            header: data::FileHeader {
+                permissions: data::Permissions {
+                    encrypted: true,
+                    executable: false,
+                    user: data::UserPermissions {
+                        read: true,
+                        write: true,
+                        run: true,
+                    },
+                    guest: data::UserPermissions {
+                        read: false,
+                        write: false,
+                        run: false,
+                    },
+                },
+                properties: data::FileProperties {
+                    act_en: false,
+                    act_cond: data::ActionCondition::Read,
+                    storage_class: data::StorageClass::Permanent,
+                },
+                alp_cmd_fid: 1,
+                interface_file_id: 2,
+                file_size: 0xDEAD_BEEF,
+                allocated_size: 0xBAAD_FACE,
+            },
+        };
+        cmp_str!(WriteFileProperties, op);
+        cmp_str!(CreateNewFile, op);
+        cmp_str!(ReturnFileProperties, op);
+
+        let op = QueryAction {
+            group: true,
+            resp: true,
+            query: crate::spec::v1_2::operand::Query::NonVoid(
+                crate::spec::v1_2::operand::NonVoid {
+                    size: 4,
+                    file: crate::spec::v1_2::operand::FileOffset { id: 5, offset: 6 },
+                },
+            ),
+        };
+        cmp_str!(ActionQuery, op);
+        cmp_str!(BreakQuery, op);
+        cmp_str!(VerifyChecksum, op);
+
+        let op = PermissionRequest {
+            group: false,
+            resp: false,
+            level: crate::spec::v1_2::operand::permission_level::ROOT,
+            permission: operand::Permission::Dash7(hex!("0102030405060708")),
+        };
+        cmp_str!(PermissionRequest, op);
+
+        let op = FileIdAction {
+            resp: true,
+            group: false,
+            file_id: 1,
+        };
+        cmp_str!(ReadFileProperties, op);
+        cmp_str!(ExistFile, op);
+        cmp_str!(DeleteFile, op);
+        cmp_str!(RestoreFile, op);
+        cmp_str!(FlushFile, op);
+        cmp_str!(ExecuteFile, op);
+
+        let op = CopyFile {
+            group: false,
+            resp: false,
+            src_file_id: 0x42,
+            dst_file_id: 0x24,
+        };
+        cmp_str!(CopyFile, op);
+
+        let op = Status::Action(operand::ActionStatus {
+            action_id: 2,
+            status: operand::status_code::UNKNOWN_OPERATION,
+        });
+        cmp_str!(Status, op);
+
+        let op = ResponseTag {
+            eop: true,
+            err: false,
+            id: 8,
+        };
+        cmp_str!(ResponseTag, op);
+
+        let op = Chunk::End;
+        cmp_str!(Chunk, op);
+
+        let op = Logic::Nand;
+        cmp_str!(Logic, op);
+
+        let op = Forward {
+            resp: true,
+            conf: operand::InterfaceConfiguration::Host,
+        };
+        cmp_str!(Forward, op);
+
+        let op = IndirectForward {
+            resp: true,
+            interface: operand::IndirectInterface::Overloaded(
+                operand::OverloadedIndirectInterface {
+                    interface_file_id: 4,
+                    nls_method: dash7::NlsMethod::AesCcm32,
+                    access_class: 0xFF,
+                    address: dash7::Address::Vid([0xAB, 0xCD]),
+                },
+            ),
+        };
+        cmp_str!(IndirectForward, op);
+
+        let op = RequestTag { eop: true, id: 8 };
+        cmp_str!(RequestTag, op);
     }
 }

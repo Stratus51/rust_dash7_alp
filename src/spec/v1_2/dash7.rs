@@ -352,7 +352,7 @@ pub enum RespMode {
     RespPreferred = 6,
 }
 impl RespMode {
-    fn from(n: u8) -> Result<Self, u8> {
+    pub(crate) fn from(n: u8) -> Result<Self, u8> {
         Ok(match n {
             0 => RespMode::No,
             1 => RespMode::All,

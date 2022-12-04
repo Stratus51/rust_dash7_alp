@@ -52,12 +52,16 @@
 //! assert_eq!(parsed_cmd, cmd);
 //! ```
 
-/// Implementation of the specification compliant Dash7 ALP protocol
+/// Implementation of the specification compliant Dash7 ALP protocol.
 pub mod spec;
 
 /// Implementation of the [Sub-IoT compatible](https://github.com/Sub-IoT/Sub-IoT-Stack)
-/// compatible Dash7 ALP protocol
+/// compatible Dash7 ALP protocol.
 pub mod sub_iot;
+
+/// Implementation of the [Wizzilab](https://www.wizzilab.com) compatible
+/// Dash7 ALP protocol.
+pub mod wizzilab;
 
 /// A Codec module specifying how to encode/decode each encodable items
 pub mod codec;
