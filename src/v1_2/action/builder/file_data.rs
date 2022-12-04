@@ -35,11 +35,7 @@ macro_rules! build {
                     + self.data.len()
             }
             unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
-                out[0] = crate::v1_2::action::control_byte!(
-                    self.group,
-                    self.resp,
-                    OpCode::WriteFileData
-                );
+                out[0] |= ((self.group as u8) << 7) | ((self.resp as u8) << 6);
                 out[1] = self.file_id;
                 let mut offset = 2;
                 offset += crate::v1_2::action::unsafe_varint_serialize!(
@@ -88,19 +84,6 @@ macro_rules! build {
                     size: off,
                 })
             }
-        }
-        #[test]
-        fn $test_name() {
-            test_item(
-                $name {
-                    group: true,
-                    resp: false,
-                    file_id: 9,
-                    offset: 5,
-                    data: Box::new(hex!("01 02 03")),
-                },
-                &hex!("84   09 05 03  010203"),
-            )
         }
     };
 }

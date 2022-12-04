@@ -1,8 +1,3 @@
-#[cfg(test)]
-use crate::test_tools::test_item;
-#[cfg(test)]
-use hex_literal::hex;
-
 use crate::codec::{Codec, StdError, WithOffset, WithSize};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -51,8 +46,4 @@ impl Codec for Logic {
             size: 1,
         })
     }
-}
-#[test]
-fn test_logic() {
-    test_item(Logic::Nand, &hex!("F1"))
 }

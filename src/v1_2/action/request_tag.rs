@@ -1,8 +1,3 @@
-#[cfg(test)]
-use crate::test_tools::test_item;
-#[cfg(test)]
-use hex_literal::hex;
-
 use crate::codec::{Codec, StdError, WithOffset, WithSize};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -25,7 +20,7 @@ impl Codec for RequestTag {
         1 + 1
     }
     unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
-        out[0] = super::control_byte!(self.eop, false, super::OpCode::RequestTag);
+        out[0] |= (self.eop as u8) << 7;
         out[1] = self.id;
         1 + 1
     }
@@ -45,8 +40,4 @@ impl Codec for RequestTag {
             size: 2,
         })
     }
-}
-#[test]
-fn test_request_tag() {
-    test_item(RequestTag { eop: true, id: 8 }, &hex!("B4 08"))
 }

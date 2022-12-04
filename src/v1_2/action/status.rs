@@ -1,11 +1,6 @@
-#[cfg(test)]
-use crate::test_tools::test_item;
-#[cfg(test)]
-use hex_literal::hex;
-
 use crate::{
     codec::{Codec, StdError, WithOffset, WithSize},
-    v1_2::{action::OpCode, operand},
+    v1_2::operand,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -55,12 +50,11 @@ impl Codec for Status {
         }
     }
     unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
-        out[0] = OpCode::Status as u8
-            + ((match self {
-                Status::Action(_) => StatusType::Action,
-                Status::Interface(_) => StatusType::Interface,
-            } as u8)
-                << 6);
+        out[0] |= (match self {
+            Status::Action(_) => StatusType::Action,
+            Status::Interface(_) => StatusType::Interface,
+        } as u8)
+            << 6;
         let out = &mut out[1..];
         1 + match self {
             Status::Action(op) => op.encode_in(out),
@@ -95,14 +89,4 @@ impl Codec for Status {
             },
         )
     }
-}
-#[test]
-fn test_status() {
-    test_item(
-        Status::Action(operand::ActionStatus {
-            action_id: 2,
-            status: operand::status_code::UNKNOWN_OPERATION,
-        }),
-        &hex!("22 02 F6"),
-    )
 }

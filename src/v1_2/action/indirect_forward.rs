@@ -1,8 +1,3 @@
-#[cfg(test)]
-use crate::{test_tools::test_item, v1_2::dash7};
-#[cfg(test)]
-use hex_literal::hex;
-
 use crate::{
     codec::{Codec, StdError, WithOffset, WithSize},
     v1_2::operand,
@@ -34,7 +29,7 @@ impl Codec for IndirectForward {
             operand::IndirectInterface::Overloaded(_) => true,
             operand::IndirectInterface::NonOverloaded(_) => false,
         };
-        out[0] = super::control_byte!(overload, self.resp, super::OpCode::IndirectForward);
+        out[0] |= ((overload as u8) << 7) | ((self.resp as u8) << 6);
         1 + super::serialize_all!(&mut out[1..], &self.interface)
     }
     fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
@@ -56,21 +51,4 @@ impl Codec for IndirectForward {
             })
         }
     }
-}
-#[test]
-fn test_indirect_forward() {
-    test_item(
-        IndirectForward {
-            resp: true,
-            interface: operand::IndirectInterface::Overloaded(
-                operand::OverloadedIndirectInterface {
-                    interface_file_id: 4,
-                    nls_method: dash7::NlsMethod::AesCcm32,
-                    access_class: 0xFF,
-                    address: dash7::Address::Vid([0xAB, 0xCD]),
-                },
-            ),
-        },
-        &hex!("F3   04   37 FF ABCD"),
-    )
 }

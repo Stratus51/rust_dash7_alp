@@ -1,8 +1,3 @@
-#[cfg(test)]
-use crate::test_tools::test_item;
-#[cfg(test)]
-use hex_literal::hex;
-
 use crate::{
     codec::{Codec, WithOffset, WithSize},
     v1_2::operand,
@@ -25,7 +20,7 @@ impl Codec for Forward {
         1 + self.conf.encoded_size()
     }
     unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
-        out[0] = super::control_byte!(false, self.resp, crate::v1_2::action::OpCode::Forward);
+        out[0] |= (self.resp as u8) << 6;
         1 + self.conf.encode_in(&mut out[1..])
     }
     fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
@@ -48,14 +43,4 @@ impl Codec for Forward {
             size: 1 + conf_size,
         })
     }
-}
-#[test]
-fn test_forward() {
-    test_item(
-        Forward {
-            resp: true,
-            conf: operand::InterfaceConfiguration::Host,
-        },
-        &hex!("72 00"),
-    )
 }

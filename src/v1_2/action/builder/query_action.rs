@@ -20,24 +20,6 @@ macro_rules! build {
             crate::v1_2::operand::Query,
             crate::v1_2::operand::QueryDecodingError
         );
-        #[test]
-        fn $test_name() {
-            crate::test_tools::test_item(
-                $name {
-                    group: true,
-                    resp: true,
-                    query: crate::v1_2::operand::Query::NonVoid(crate::v1_2::operand::NonVoid {
-                        size: 4,
-                        file: crate::v1_2::operand::FileOffset { id: 5, offset: 6 },
-                    }),
-                },
-                &vec![
-                    [crate::v1_2::action::OpCode::$name as u8 | (3 << 6)].as_slice(),
-                    &hex_literal::hex!("00 04  05 06"),
-                ]
-                .concat()[..],
-            )
-        }
     };
 }
 
