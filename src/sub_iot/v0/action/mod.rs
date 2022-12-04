@@ -1163,4 +1163,152 @@ mod test_display {
             "RTAG[E](9)"
         );
     }
+
+    #[test]
+    fn consistency() {
+        use crate::spec::v1_2 as spec;
+        macro_rules! cmp_str {
+            ($name: ident, $op: expr) => {
+                assert_eq!(
+                    Action::$name($op.clone()).to_string(),
+                    spec::Action::$name($op.clone()).to_string()
+                );
+            };
+        }
+
+        let op = Nop {
+            resp: false,
+            group: true,
+        };
+        cmp_str!(Nop, op);
+        let op = ReadFileData {
+            resp: false,
+            group: true,
+            file_id: 1,
+            offset: 2,
+            size: 3,
+        };
+        cmp_str!(ReadFileData, op);
+
+        let op = FileDataAction {
+            group: false,
+            resp: true,
+            file_id: 9,
+            offset: 5,
+            data: Box::new(hex!("01 02 03")),
+        };
+        cmp_str!(WriteFileData, op);
+        cmp_str!(ReturnFileData, op);
+
+        let op = FilePropertiesAction {
+            group: true,
+            resp: false,
+            file_id: 9,
+            header: data::FileHeader {
+                permissions: data::Permissions {
+                    encrypted: true,
+                    executable: false,
+                    user: data::UserPermissions {
+                        read: true,
+                        write: true,
+                        run: true,
+                    },
+                    guest: data::UserPermissions {
+                        read: false,
+                        write: false,
+                        run: false,
+                    },
+                },
+                properties: data::FileProperties {
+                    act_en: false,
+                    act_cond: data::ActionCondition::Read,
+                    storage_class: data::StorageClass::Permanent,
+                },
+                alp_cmd_fid: 1,
+                interface_file_id: 2,
+                file_size: 0xDEAD_BEEF,
+                allocated_size: 0xBAAD_FACE,
+            },
+        };
+        cmp_str!(WriteFileProperties, op);
+        cmp_str!(CreateNewFile, op);
+        cmp_str!(ReturnFileProperties, op);
+
+        let op = QueryAction {
+            group: true,
+            resp: true,
+            query: crate::spec::v1_2::operand::Query::NonVoid(
+                crate::spec::v1_2::operand::NonVoid {
+                    size: 4,
+                    file: crate::spec::v1_2::operand::FileOffset { id: 5, offset: 6 },
+                },
+            ),
+        };
+        cmp_str!(ActionQuery, op);
+        cmp_str!(BreakQuery, op);
+        cmp_str!(VerifyChecksum, op);
+
+        let op = PermissionRequest {
+            group: false,
+            resp: false,
+            level: crate::spec::v1_2::operand::permission_level::ROOT,
+            permission: operand::Permission::Dash7(hex!("0102030405060708")),
+        };
+        cmp_str!(PermissionRequest, op);
+
+        let op = FileIdAction {
+            resp: true,
+            group: false,
+            file_id: 1,
+        };
+        cmp_str!(ReadFileProperties, op);
+        cmp_str!(ExistFile, op);
+        cmp_str!(DeleteFile, op);
+        cmp_str!(RestoreFile, op);
+        cmp_str!(FlushFile, op);
+        cmp_str!(ExecuteFile, op);
+
+        let op = CopyFile {
+            group: false,
+            resp: false,
+            src_file_id: 0x42,
+            dst_file_id: 0x24,
+        };
+        cmp_str!(CopyFile, op);
+
+        let op = Status::Action(operand::ActionStatus {
+            action_id: 2,
+            status: operand::status_code::UNKNOWN_OPERATION,
+        });
+        cmp_str!(Status, op);
+
+        let op = ResponseTag {
+            eop: true,
+            err: false,
+            id: 8,
+        };
+        cmp_str!(ResponseTag, op);
+
+        let op = Chunk::End;
+        cmp_str!(Chunk, op);
+
+        let op = Logic::Nand;
+        cmp_str!(Logic, op);
+
+        let op = IndirectForward {
+            resp: true,
+            interface: operand::IndirectInterface::Overloaded(
+                operand::OverloadedIndirectInterface {
+                    interface_file_id: 4,
+                    nls_method: dash7::NlsMethod::AesCcm32,
+                    access_class: 0xFF,
+                    address: dash7::Address::Vid([0xAB, 0xCD]),
+                },
+            ),
+        };
+        cmp_str!(IndirectForward, op);
+
+        let op = RequestTag { eop: true, id: 8 };
+        cmp_str!(RequestTag, op);
+    }
 }
