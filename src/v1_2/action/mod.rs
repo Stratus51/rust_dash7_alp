@@ -5,18 +5,20 @@ use hex_literal::hex;
 
 use crate::{
     codec::{Codec, StdError, WithOffset, WithSize},
-    v1_2::{data, operand, varint},
+    v1_2::operand,
 };
-
-pub mod builder;
 
 pub mod chunk;
 pub mod copy_file;
+pub mod file_data_action;
+pub mod file_id_action;
+pub mod file_properties_action;
 pub mod forward;
 pub mod indirect_forward;
 pub mod logic;
 pub mod nop;
 pub mod permission_request;
+pub mod query_action;
 pub mod read_file_data;
 pub mod request_tag;
 pub mod response_tag;
@@ -24,30 +26,19 @@ pub mod status;
 
 pub use chunk::Chunk;
 pub use copy_file::CopyFile;
+pub use file_data_action::FileDataAction;
+pub use file_id_action::FileIdAction;
+pub use file_properties_action::FilePropertiesAction;
 pub use forward::Forward;
 pub use indirect_forward::IndirectForward;
 pub use logic::Logic;
 pub use nop::Nop;
 pub use permission_request::PermissionRequest;
+pub use query_action::QueryAction;
 pub use read_file_data::ReadFileData;
 pub use request_tag::RequestTag;
 pub use response_tag::ResponseTag;
 pub use status::Status;
-
-builder::query_action::build!(ActionQuery, test_action_query);
-builder::query_action::build!(BreakQuery, test_break_query);
-builder::query_action::build!(VerifyChecksum, test_verify_checksum);
-builder::file_data::build!(WriteFileData, test_write_file_data);
-builder::file_data::build!(ReturnFileData, test_return_file_data);
-builder::file_id::build!(ReadFileProperties, test_read_file_properties);
-builder::file_id::build!(ExistFile, test_exist_file);
-builder::file_id::build!(DeleteFile, test_delete_file);
-builder::file_id::build!(RestoreFile, test_restore_file);
-builder::file_id::build!(FlushFile, test_flush_file);
-builder::file_id::build!(ExecuteFile, test_execute_file);
-builder::file_properties::build!(WriteFileProperties, test_write_file_properties);
-builder::file_properties::build!(CreateNewFile, test_create_new_file);
-builder::file_properties::build!(ReturnFileProperties, test_return_file_properties);
 
 // ===============================================================================
 // Macros
@@ -516,30 +507,30 @@ pub enum Action {
 
     // Read
     ReadFileData(ReadFileData),
-    ReadFileProperties(ReadFileProperties),
+    ReadFileProperties(FileIdAction),
 
     // Write
-    WriteFileData(WriteFileData),
+    WriteFileData(FileDataAction),
     // ALP SPEC: This is not specified even though it is implemented
-    // WriteFileDataFlush(WriteFileDataFlush),
-    WriteFileProperties(WriteFileProperties),
-    ActionQuery(ActionQuery),
-    BreakQuery(BreakQuery),
+    // WriteFileDataActionFlush(WriteFileDataActionFlush),
+    WriteFileProperties(FilePropertiesAction),
+    ActionQuery(QueryAction),
+    BreakQuery(QueryAction),
     PermissionRequest(PermissionRequest),
-    VerifyChecksum(VerifyChecksum),
+    VerifyChecksum(QueryAction),
 
     // Management
-    ExistFile(ExistFile),
-    CreateNewFile(CreateNewFile),
-    DeleteFile(DeleteFile),
-    RestoreFile(RestoreFile),
-    FlushFile(FlushFile),
+    ExistFile(FileIdAction),
+    CreateNewFile(FilePropertiesAction),
+    DeleteFile(FileIdAction),
+    RestoreFile(FileIdAction),
+    FlushFile(FileIdAction),
     CopyFile(CopyFile),
-    ExecuteFile(ExecuteFile),
+    ExecuteFile(FileIdAction),
 
     // Response
-    ReturnFileData(ReturnFileData),
-    ReturnFileProperties(ReturnFileProperties),
+    ReturnFileData(FileDataAction),
+    ReturnFileProperties(FilePropertiesAction),
     Status(Status),
     ResponseTag(ResponseTag),
 
@@ -662,8 +653,8 @@ pub enum ActionDecodingError {
     FlushFile(StdError),
     CopyFile(StdError),
     ExecuteFile(StdError),
-    ReturnFileData(StdError),
-    ReturnFileProperties(HeaderActionDecodingError),
+    ReturnFileDataAction(StdError),
+    ReturnFilePropertiesAction(HeaderActionDecodingError),
     Status(status::StatusDecodingError),
     ResponseTag(StdError),
     Chunk(StdError),
@@ -719,10 +710,10 @@ impl ActionDecodingError {
     impl_std_error_map!(map_flush_file, FlushFile, StdError);
     impl_std_error_map!(map_copy_file, CopyFile, StdError);
     impl_std_error_map!(map_execute_file, ExecuteFile, StdError);
-    impl_std_error_map!(map_return_file_data, ReturnFileData, StdError);
+    impl_std_error_map!(map_return_file_data, ReturnFileDataAction, StdError);
     impl_std_error_map!(
         map_return_file_properties,
-        ReturnFileProperties,
+        ReturnFilePropertiesAction,
         HeaderActionDecodingError
     );
     impl_std_error_map!(map_status, Status, status::StatusDecodingError);
@@ -815,55 +806,55 @@ impl Codec for Action {
             OpCode::ReadFileData => ReadFileData::decode(out)
                 .map_err(ActionDecodingError::map_read_file_data)?
                 .map_value(Action::ReadFileData),
-            OpCode::ReadFileProperties => ReadFileProperties::decode(out)
+            OpCode::ReadFileProperties => FileIdAction::decode(out)
                 .map_err(ActionDecodingError::map_read_file_properties)?
                 .map_value(Action::ReadFileProperties),
-            OpCode::WriteFileData => WriteFileData::decode(out)
+            OpCode::WriteFileData => FileDataAction::decode(out)
                 .map_err(ActionDecodingError::map_write_file_data)?
                 .map_value(Action::WriteFileData),
-            // OpCode::WriteFileDataFlush => {
-            //     WriteFileDataFlush::decode(&out)?.map_value( Action::WriteFileDataFlush)
+            // OpCode::WriteFileDataActionFlush => {
+            //     WriteFileDataActionFlush::decode(&out)?.map_value( Action::WriteFileDataActionFlush)
             // }
-            OpCode::WriteFileProperties => WriteFileProperties::decode(out)
+            OpCode::WriteFileProperties => FilePropertiesAction::decode(out)
                 .map_err(ActionDecodingError::map_write_file_properties)?
                 .map_value(Action::WriteFileProperties),
-            OpCode::ActionQuery => ActionQuery::decode(out)
+            OpCode::ActionQuery => QueryAction::decode(out)
                 .map_err(ActionDecodingError::map_action_query)?
                 .map_value(Action::ActionQuery),
-            OpCode::BreakQuery => BreakQuery::decode(out)
+            OpCode::BreakQuery => QueryAction::decode(out)
                 .map_err(ActionDecodingError::map_break_query)?
                 .map_value(Action::BreakQuery),
             OpCode::PermissionRequest => PermissionRequest::decode(out)
                 .map_err(ActionDecodingError::map_permission_request)?
                 .map_value(Action::PermissionRequest),
-            OpCode::VerifyChecksum => VerifyChecksum::decode(out)
+            OpCode::VerifyChecksum => QueryAction::decode(out)
                 .map_err(ActionDecodingError::map_verify_checksum)?
                 .map_value(Action::VerifyChecksum),
-            OpCode::ExistFile => ExistFile::decode(out)
+            OpCode::ExistFile => FileIdAction::decode(out)
                 .map_err(ActionDecodingError::map_exist_file)?
                 .map_value(Action::ExistFile),
-            OpCode::CreateNewFile => CreateNewFile::decode(out)
+            OpCode::CreateNewFile => FilePropertiesAction::decode(out)
                 .map_err(ActionDecodingError::map_create_new_file)?
                 .map_value(Action::CreateNewFile),
-            OpCode::DeleteFile => DeleteFile::decode(out)
+            OpCode::DeleteFile => FileIdAction::decode(out)
                 .map_err(ActionDecodingError::map_delete_file)?
                 .map_value(Action::DeleteFile),
-            OpCode::RestoreFile => RestoreFile::decode(out)
+            OpCode::RestoreFile => FileIdAction::decode(out)
                 .map_err(ActionDecodingError::map_restore_file)?
                 .map_value(Action::RestoreFile),
-            OpCode::FlushFile => FlushFile::decode(out)
+            OpCode::FlushFile => FileIdAction::decode(out)
                 .map_err(ActionDecodingError::map_flush_file)?
                 .map_value(Action::FlushFile),
             OpCode::CopyFile => CopyFile::decode(out)
                 .map_err(ActionDecodingError::map_copy_file)?
                 .map_value(Action::CopyFile),
-            OpCode::ExecuteFile => ExecuteFile::decode(out)
+            OpCode::ExecuteFile => FileIdAction::decode(out)
                 .map_err(ActionDecodingError::map_execute_file)?
                 .map_value(Action::ExecuteFile),
-            OpCode::ReturnFileData => ReturnFileData::decode(out)
+            OpCode::ReturnFileData => FileDataAction::decode(out)
                 .map_err(ActionDecodingError::map_return_file_data)?
                 .map_value(Action::ReturnFileData),
-            OpCode::ReturnFileProperties => ReturnFileProperties::decode(out)
+            OpCode::ReturnFileProperties => FilePropertiesAction::decode(out)
                 .map_err(ActionDecodingError::map_return_file_properties)?
                 .map_value(Action::ReturnFileProperties),
             OpCode::Status => Status::decode(out)
@@ -895,6 +886,7 @@ impl Codec for Action {
 #[cfg(test)]
 mod test_codec {
     use super::*;
+    use crate::v1_2::data;
 
     #[test]
     fn nop() {
@@ -925,7 +917,7 @@ mod test_codec {
             #[test]
             fn $test_name() {
                 test_item(
-                    Action::$name($name {
+                    Action::$name(FileDataAction {
                         group: false,
                         resp: true,
                         file_id: 9,
@@ -949,7 +941,7 @@ mod test_codec {
             #[test]
             fn $test_name() {
                 test_item(
-                    Action::$name($name {
+                    Action::$name(FilePropertiesAction {
                         group: true,
                         resp: false,
                         file_id: 9,
@@ -997,7 +989,7 @@ mod test_codec {
             #[test]
             fn $test_name() {
                 crate::test_tools::test_item(
-                    Action::$name($name {
+                    Action::$name(QueryAction {
                         group: true,
                         resp: true,
                         query: crate::v1_2::operand::Query::NonVoid(
@@ -1038,7 +1030,7 @@ mod test_codec {
             #[test]
             fn $test_name() {
                 test_item(
-                    Action::$name($name {
+                    Action::$name(FileIdAction {
                         group: false,
                         resp: false,
                         file_id: 9,
@@ -1142,6 +1134,7 @@ mod test_codec {
 #[cfg(test)]
 mod test_display {
     use super::*;
+    use crate::v1_2::data;
 
     #[test]
     fn nop() {
@@ -1173,7 +1166,7 @@ mod test_display {
     #[test]
     fn read_file_properties() {
         assert_eq!(
-            Action::ReadFileProperties(ReadFileProperties {
+            Action::ReadFileProperties(FileIdAction {
                 resp: true,
                 group: false,
                 file_id: 1,
@@ -1186,7 +1179,7 @@ mod test_display {
     #[test]
     fn write_file_data() {
         assert_eq!(
-            Action::WriteFileData(WriteFileData {
+            Action::WriteFileData(FileDataAction {
                 resp: true,
                 group: false,
                 file_id: 1,
@@ -1201,7 +1194,7 @@ mod test_display {
     #[test]
     fn write_file_properties() {
         assert_eq!(
-            Action::WriteFileProperties(WriteFileProperties {
+            Action::WriteFileProperties(FilePropertiesAction {
                 resp: false,
                 group: true,
                 file_id: 1,
@@ -1239,7 +1232,7 @@ mod test_display {
     #[test]
     fn action_query() {
         assert_eq!(
-            Action::ActionQuery(ActionQuery {
+            Action::ActionQuery(QueryAction {
                 group: true,
                 resp: true,
                 query: operand::Query::BitmapRangeComparison(operand::BitmapRangeComparison {
@@ -1258,7 +1251,7 @@ mod test_display {
             "AQ[GR]BM:[U|1,2,3-32,msk=0x01020304,f(0,4)]"
         );
         assert_eq!(
-            Action::ActionQuery(ActionQuery {
+            Action::ActionQuery(QueryAction {
                 group: true,
                 resp: true,
                 query: operand::Query::ComparisonWithZero(operand::ComparisonWithZero {
@@ -1277,7 +1270,7 @@ mod test_display {
     #[test]
     fn break_query() {
         assert_eq!(
-            Action::BreakQuery(BreakQuery {
+            Action::BreakQuery(QueryAction {
                 group: true,
                 resp: true,
                 query: operand::Query::NonVoid(operand::NonVoid {
@@ -1289,7 +1282,7 @@ mod test_display {
             "BQ[GR]NV:[4,f(5,6)]"
         );
         assert_eq!(
-            Action::BreakQuery(BreakQuery {
+            Action::BreakQuery(QueryAction {
                 group: true,
                 resp: true,
                 query: operand::Query::ComparisonWithOtherFile(operand::ComparisonWithOtherFile {
@@ -1323,7 +1316,7 @@ mod test_display {
     #[test]
     fn verify_checksum() {
         assert_eq!(
-            Action::VerifyChecksum(VerifyChecksum {
+            Action::VerifyChecksum(QueryAction {
                 group: false,
                 resp: false,
                 query: operand::Query::ComparisonWithValue(operand::ComparisonWithValue {
@@ -1339,7 +1332,7 @@ mod test_display {
             "VCS[--]WV:[U|GTH,2,msk=0xF1F2,v=0xA9A8,f(4,5)]"
         );
         assert_eq!(
-            Action::VerifyChecksum(VerifyChecksum {
+            Action::VerifyChecksum(QueryAction {
                 group: true,
                 resp: false,
                 query: operand::Query::StringTokenSearch(operand::StringTokenSearch {
@@ -1358,7 +1351,7 @@ mod test_display {
     #[test]
     fn exist_file() {
         assert_eq!(
-            Action::ExistFile(ExistFile {
+            Action::ExistFile(FileIdAction {
                 group: false,
                 resp: true,
                 file_id: 9,
@@ -1371,7 +1364,7 @@ mod test_display {
     #[test]
     fn create_new_file() {
         assert_eq!(
-            Action::CreateNewFile(CreateNewFile {
+            Action::CreateNewFile(FilePropertiesAction {
                 group: true,
                 resp: false,
                 file_id: 6,
@@ -1409,7 +1402,7 @@ mod test_display {
     #[test]
     fn delete_file() {
         assert_eq!(
-            Action::DeleteFile(DeleteFile {
+            Action::DeleteFile(FileIdAction {
                 group: false,
                 resp: true,
                 file_id: 7,
@@ -1422,7 +1415,7 @@ mod test_display {
     #[test]
     fn restore_file() {
         assert_eq!(
-            Action::RestoreFile(RestoreFile {
+            Action::RestoreFile(FileIdAction {
                 group: false,
                 resp: true,
                 file_id: 5,
@@ -1435,7 +1428,7 @@ mod test_display {
     #[test]
     fn flush_file() {
         assert_eq!(
-            Action::FlushFile(FlushFile {
+            Action::FlushFile(FileIdAction {
                 group: false,
                 resp: true,
                 file_id: 4,
@@ -1462,7 +1455,7 @@ mod test_display {
     #[test]
     fn execute_file() {
         assert_eq!(
-            Action::ExecuteFile(ExecuteFile {
+            Action::ExecuteFile(FileIdAction {
                 group: false,
                 resp: true,
                 file_id: 4,
@@ -1475,7 +1468,7 @@ mod test_display {
     #[test]
     fn return_file_data() {
         assert_eq!(
-            Action::ReturnFileData(ReturnFileData {
+            Action::ReturnFileData(FileDataAction {
                 resp: true,
                 group: false,
                 file_id: 1,
@@ -1490,7 +1483,7 @@ mod test_display {
     #[test]
     fn return_file_properties() {
         assert_eq!(
-            Action::ReturnFileProperties(ReturnFileProperties {
+            Action::ReturnFileProperties(FilePropertiesAction {
                 resp: false,
                 group: true,
                 file_id: 1,
