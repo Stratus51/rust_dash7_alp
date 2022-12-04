@@ -1,6 +1,6 @@
 use crate::{
     codec::{Codec, StdError, WithOffset, WithSize},
-    v1_2::action::OpCode,
+    spec::v1_2::action::OpCode,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq)]

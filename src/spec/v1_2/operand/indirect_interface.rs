@@ -2,7 +2,7 @@
 use crate::test_tools::test_item;
 use crate::{
     codec::{Codec, StdError, WithOffset, WithSize},
-    v1_2::dash7,
+    spec::v1_2::dash7,
 };
 #[cfg(test)]
 use hex_literal::hex;

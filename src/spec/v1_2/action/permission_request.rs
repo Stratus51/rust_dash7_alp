@@ -1,6 +1,6 @@
 use crate::{
     codec::{Codec, WithOffset, WithSize},
-    v1_2::operand::{Permission, PermissionDecodingError},
+    spec::v1_2::operand::{Permission, PermissionDecodingError},
 };
 
 /// Request a level of permission using some permission type

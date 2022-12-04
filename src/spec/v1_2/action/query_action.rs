@@ -7,14 +7,14 @@ pub struct QueryAction {
     pub group: bool,
     /// Does not make sense.
     pub resp: bool,
-    pub query: crate::v1_2::operand::Query,
+    pub query: crate::spec::v1_2::operand::Query,
 }
-crate::v1_2::action::impl_display_simple_op!(QueryAction, query);
-crate::v1_2::action::impl_op_serialized!(
+super::impl_display_simple_op!(QueryAction, query);
+super::impl_op_serialized!(
     QueryAction,
     group,
     resp,
     query,
-    crate::v1_2::operand::Query,
-    crate::v1_2::operand::QueryDecodingError
+    super::operand::Query,
+    super::operand::QueryDecodingError
 );

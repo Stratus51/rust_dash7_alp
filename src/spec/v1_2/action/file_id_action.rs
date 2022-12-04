@@ -10,5 +10,5 @@ pub struct FileIdAction {
     pub resp: bool,
     pub file_id: u8,
 }
-crate::v1_2::action::impl_display_simple_file_op!(FileIdAction, file_id);
-crate::v1_2::action::impl_simple_op!(FileIdAction, group, resp, file_id);
+super::impl_display_simple_file_op!(FileIdAction, file_id);
+super::impl_simple_op!(FileIdAction, group, resp, file_id);

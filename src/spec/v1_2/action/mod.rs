@@ -1,11 +1,11 @@
 #[cfg(test)]
-use crate::{test_tools::test_item, v1_2::dash7};
+use crate::{spec::v1_2::dash7, test_tools::test_item};
 #[cfg(test)]
 use hex_literal::hex;
 
 use crate::{
     codec::{Codec, StdError, WithOffset, WithSize},
-    v1_2::operand,
+    spec::v1_2::operand,
 };
 
 pub mod chunk;
@@ -74,27 +74,27 @@ macro_rules! impl_op_serialized {
         impl crate::codec::Codec for $name {
             type Error = $error;
             fn encoded_size(&self) -> usize {
-                1 + crate::v1_2::action::encoded_size!(self.$op1)
+                1 + crate::spec::v1_2::action::encoded_size!(self.$op1)
             }
             unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
                 out[0] |= ((self.$flag7 as u8) << 7) | ((self.$flag6 as u8) << 6);
-                1 + crate::v1_2::action::serialize_all!(&mut out[1..], &self.$op1)
+                1 + crate::spec::v1_2::action::serialize_all!(&mut out[1..], &self.$op1)
             }
             fn decode(
                 out: &[u8],
             ) -> Result<crate::codec::WithSize<Self>, crate::codec::WithOffset<Self::Error>> {
                 if (out.is_empty()) {
-                    Err(crate::v1_2::WithOffset::new_head(
+                    Err(crate::spec::v1_2::WithOffset::new_head(
                         Self::Error::MissingBytes(1),
                     ))
                 } else {
                     let mut offset = 1;
-                    let crate::v1_2::WithSize {
+                    let crate::spec::v1_2::WithSize {
                         size: op1_size,
                         value: op1,
                     } = <$op1_type>::decode(&out[offset..]).map_err(|e| e.shift(offset))?;
                     offset += op1_size;
-                    Ok(crate::v1_2::WithSize {
+                    Ok(crate::spec::v1_2::WithSize {
                         value: Self {
                             $flag6: out[0] & 0x40 != 0,
                             $flag7: out[0] & 0x80 != 0,
@@ -135,7 +135,7 @@ pub(crate) use unsafe_varint_serialize;
 
 macro_rules! count {
     () => (0usize);
-    ( $x:tt $($xs:tt)* ) => (1usize + crate::v1_2::action::count!($($xs)*));
+    ( $x:tt $($xs:tt)* ) => (1usize + crate::spec::v1_2::action::count!($($xs)*));
 }
 pub(crate) use count;
 
@@ -163,7 +163,7 @@ macro_rules! impl_simple_op {
         impl Codec for $name {
             type Error = StdError;
             fn encoded_size(&self) -> usize {
-                1 + crate::v1_2::action::count!($( $x )*)
+                1 + crate::spec::v1_2::action::count!($( $x )*)
             }
             unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
                 out[0] |= ((self.$flag7 as u8) << 7) | ((self.$flag6 as u8) << 6);
@@ -175,13 +175,13 @@ macro_rules! impl_simple_op {
                 1 + offset
             }
             fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
-                const SIZE: usize = 1 + crate::v1_2::action::count!($( $x )*);
+                const SIZE: usize = 1 + crate::spec::v1_2::action::count!($( $x )*);
                 if(out.len() < SIZE) {
                     Err(WithOffset::new_head( Self::Error::MissingBytes(SIZE - out.len())))
                 } else {
                     Ok(WithSize {
                         size: SIZE,
-                        value: crate::v1_2::action::build_simple_op!($name, out, $flag7, $flag6, $($x),*),
+                        value: crate::spec::v1_2::action::build_simple_op!($name, out, $flag7, $flag6, $($x),*),
                     })
                 }
             }
@@ -307,7 +307,7 @@ pub enum HeaderActionDecodingError {
 macro_rules! impl_header_op {
     ($name: ident, $flag7: ident, $flag6: ident, $file_id: ident, $file_header: ident) => {
         impl Codec for $name {
-            type Error = crate::v1_2::action::HeaderActionDecodingError;
+            type Error = crate::spec::v1_2::action::HeaderActionDecodingError;
             fn encoded_size(&self) -> usize {
                 1 + 1 + 12
             }
@@ -886,7 +886,7 @@ impl Codec for Action {
 #[cfg(test)]
 mod test_codec {
     use super::*;
-    use crate::v1_2::data;
+    use crate::spec::v1_2::data;
 
     #[test]
     fn nop() {
@@ -925,7 +925,7 @@ mod test_codec {
                         data: Box::new(hex!("01 02 03")),
                     }),
                     &vec![
-                        [crate::v1_2::action::OpCode::$name as u8 | (1 << 6)].as_slice(),
+                        [crate::spec::v1_2::action::OpCode::$name as u8 | (1 << 6)].as_slice(),
                         &hex!("09 05 03  010203"),
                     ]
                     .concat()[..],
@@ -972,7 +972,7 @@ mod test_codec {
                         },
                     }),
                     &vec![
-                        [crate::v1_2::action::OpCode::$name as u8 | (1 << 7)].as_slice(),
+                        [crate::spec::v1_2::action::OpCode::$name as u8 | (1 << 7)].as_slice(),
                         &hex!("09   B8 13 01 02 DEADBEEF BAADFACE"),
                     ]
                     .concat()[..],
@@ -992,15 +992,15 @@ mod test_codec {
                     Action::$name(QueryAction {
                         group: true,
                         resp: true,
-                        query: crate::v1_2::operand::Query::NonVoid(
-                            crate::v1_2::operand::NonVoid {
+                        query: crate::spec::v1_2::operand::Query::NonVoid(
+                            crate::spec::v1_2::operand::NonVoid {
                                 size: 4,
-                                file: crate::v1_2::operand::FileOffset { id: 5, offset: 6 },
+                                file: crate::spec::v1_2::operand::FileOffset { id: 5, offset: 6 },
                             },
                         ),
                     }),
                     &vec![
-                        [crate::v1_2::action::OpCode::$name as u8 | (3 << 6)].as_slice(),
+                        [crate::spec::v1_2::action::OpCode::$name as u8 | (3 << 6)].as_slice(),
                         &hex_literal::hex!("00 04  05 06"),
                     ]
                     .concat()[..],
@@ -1018,7 +1018,7 @@ mod test_codec {
             Action::PermissionRequest(PermissionRequest {
                 group: false,
                 resp: false,
-                level: crate::v1_2::operand::permission_level::ROOT,
+                level: crate::spec::v1_2::operand::permission_level::ROOT,
                 permission: operand::Permission::Dash7(hex!("0102030405060708")),
             }),
             &hex!("0A   01 42 0102030405060708"),
@@ -1035,7 +1035,7 @@ mod test_codec {
                         resp: false,
                         file_id: 9,
                     }),
-                    &[crate::v1_2::action::OpCode::$name as u8, 0x09],
+                    &[crate::spec::v1_2::action::OpCode::$name as u8, 0x09],
                 )
             }
         };
@@ -1134,7 +1134,7 @@ mod test_codec {
 #[cfg(test)]
 mod test_display {
     use super::*;
-    use crate::v1_2::data;
+    use crate::spec::v1_2::data;
 
     #[test]
     fn nop() {

@@ -19,7 +19,7 @@
 //! ==============================================================================
 //!
 //! ```
-//! use dash7_alp::v1_2::{Command, Action, action};
+//! use dash7_alp::spec::v1_2::{Command, Action, action};
 //! use hex_literal::hex;
 //!
 //! let cmd = Command {
@@ -52,8 +52,8 @@
 //! assert_eq!(parsed_cmd, cmd);
 //! ```
 
-/// Implementation of the version 1.2 of the Dash7 ALP protocol
-pub mod v1_2;
+/// Implementation of the specification compliant Dash7 ALP protocol
+pub mod spec;
 
 /// A Codec module specifying how to encode/decode each encodable items
 pub mod codec;

@@ -1,6 +1,6 @@
 use crate::{
     codec::{Codec, WithOffset, WithSize},
-    v1_2::data,
+    spec::v1_2::data,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -12,7 +12,7 @@ pub struct FilePropertiesAction {
     pub file_id: u8,
     pub header: data::FileHeader,
 }
-crate::v1_2::action::impl_header_op!(FilePropertiesAction, group, resp, file_id, header);
+super::impl_header_op!(FilePropertiesAction, group, resp, file_id, header);
 impl std::fmt::Display for FilePropertiesAction {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(

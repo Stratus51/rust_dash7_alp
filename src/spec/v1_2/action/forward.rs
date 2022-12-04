@@ -1,6 +1,6 @@
 use crate::{
     codec::{Codec, WithOffset, WithSize},
-    v1_2::operand,
+    spec::v1_2::operand,
 };
 
 #[derive(Clone, Debug, PartialEq)]

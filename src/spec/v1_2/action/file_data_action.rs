@@ -1,6 +1,6 @@
 use crate::{
     codec::{Codec, StdError, WithOffset, WithSize},
-    v1_2::varint,
+    spec::v1_2::varint,
 };
 
 /// Write data to a file
@@ -14,15 +14,15 @@ pub struct FileDataAction {
     pub offset: u32,
     pub data: Box<[u8]>,
 }
-crate::v1_2::action::impl_display_data_file_op!(FileDataAction);
+super::impl_display_data_file_op!(FileDataAction);
 impl FileDataAction {
-    pub fn validate(&self) -> Result<(), crate::v1_2::action::OperandValidationError> {
+    pub fn validate(&self) -> Result<(), super::OperandValidationError> {
         if self.offset > varint::MAX {
-            return Err(crate::v1_2::action::OperandValidationError::OffsetTooBig);
+            return Err(super::OperandValidationError::OffsetTooBig);
         }
         let size = self.data.len() as u32;
         if size > varint::MAX {
-            return Err(crate::v1_2::action::OperandValidationError::SizeTooBig);
+            return Err(super::OperandValidationError::SizeTooBig);
         }
         Ok(())
     }
@@ -31,21 +31,15 @@ impl Codec for FileDataAction {
     type Error = StdError;
     fn encoded_size(&self) -> usize {
         1 + 1
-            + crate::v1_2::action::unsafe_varint_serialize_sizes!(
-                self.offset,
-                self.data.len() as u32
-            ) as usize
+            + super::unsafe_varint_serialize_sizes!(self.offset, self.data.len() as u32) as usize
             + self.data.len()
     }
     unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
         out[0] |= ((self.group as u8) << 7) | ((self.resp as u8) << 6);
         out[1] = self.file_id;
         let mut offset = 2;
-        offset += crate::v1_2::action::unsafe_varint_serialize!(
-            out[2..],
-            self.offset,
-            self.data.len() as u32
-        ) as usize;
+        offset +=
+            super::unsafe_varint_serialize!(out[2..], self.offset, self.data.len() as u32) as usize;
         out[offset..offset + self.data.len()].clone_from_slice(&self.data[..]);
         offset += self.data.len();
         offset
