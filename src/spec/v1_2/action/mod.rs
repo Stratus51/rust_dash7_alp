@@ -449,15 +449,15 @@ impl std::fmt::Display for OpCode {
             OpCode::Nop => write!(f, "NOP"),
 
             // Read
-            OpCode::ReadFileData => write!(f, "RD"),
-            OpCode::ReadFileProperties => write!(f, "RDP"),
+            OpCode::ReadFileData => write!(f, "R"),
+            OpCode::ReadFileProperties => write!(f, "RP"),
 
             // Write
-            OpCode::WriteFileData => write!(f, "WR"),
-            OpCode::WriteFileProperties => write!(f, "WRP"),
+            OpCode::WriteFileData => write!(f, "W"),
+            OpCode::WriteFileProperties => write!(f, "WP"),
             OpCode::ActionQuery => write!(f, "AQ"),
             OpCode::BreakQuery => write!(f, "BQ"),
-            OpCode::PermissionRequest => write!(f, "PR"),
+            OpCode::PermissionRequest => write!(f, "PRM"),
             OpCode::VerifyChecksum => write!(f, "VCS"),
 
             // Management
@@ -465,7 +465,7 @@ impl std::fmt::Display for OpCode {
             OpCode::CreateNewFile => write!(f, "NEW"),
             OpCode::DeleteFile => write!(f, "DEL"),
             OpCode::RestoreFile => write!(f, "RST"),
-            OpCode::FlushFile => write!(f, "FLUSH"),
+            OpCode::FlushFile => write!(f, "FLSH"),
             OpCode::CopyFile => write!(f, "CP"),
             OpCode::ExecuteFile => write!(f, "RUN"),
 
@@ -473,14 +473,14 @@ impl std::fmt::Display for OpCode {
             OpCode::ReturnFileData => write!(f, "DATA"),
             OpCode::ReturnFileProperties => write!(f, "PROP"),
             OpCode::Status => write!(f, "S"),
-            OpCode::ResponseTag => write!(f, "TG"),
+            OpCode::ResponseTag => write!(f, "TAG"),
 
             // Special
             OpCode::Chunk => write!(f, "CHK"),
             OpCode::Logic => write!(f, "LOG"),
             OpCode::Forward => write!(f, "FWD"),
             OpCode::IndirectForward => write!(f, "IFWD"),
-            OpCode::RequestTag => write!(f, "RTG"),
+            OpCode::RequestTag => write!(f, "RTAG"),
             OpCode::Extension => write!(f, "EXT"),
         }
     }
@@ -1159,7 +1159,7 @@ mod test_display {
                 size: 3,
             })
             .to_string(),
-            "RD[G-]f(1,2,3)"
+            "R[G-]f(1,2,3)"
         );
     }
 
@@ -1172,7 +1172,7 @@ mod test_display {
                 file_id: 1,
             })
             .to_string(),
-            "RDP[-R]f(1)"
+            "RP[-R]f(1)"
         );
     }
 
@@ -1187,7 +1187,7 @@ mod test_display {
                 data: Box::new([3, 4, 5]),
             })
             .to_string(),
-            "WR[-R]f(1,2,0x030405)"
+            "W[-R]f(1,2,0x030405)"
         );
     }
 
@@ -1225,7 +1225,7 @@ mod test_display {
                 }
             })
             .to_string(),
-            "WRP[G-]f(1)[E-|user=RWX|guest=---|0RP|f(1),2,3,4]"
+            "WP[G-]f(1)[E-|user=RWX|guest=---|0RP|f(1),2,3,4]"
         );
     }
 
@@ -1309,7 +1309,7 @@ mod test_display {
                 permission: operand::Permission::Dash7([2, 3, 4, 5, 6, 7, 8, 9]),
             })
             .to_string(),
-            "PR[-R]1,D7:0x0203040506070809"
+            "PRM[-R]1,D7:0x0203040506070809"
         );
     }
 
@@ -1434,7 +1434,7 @@ mod test_display {
                 file_id: 4,
             })
             .to_string(),
-            "FLUSH[-R]f(4)"
+            "FLSH[-R]f(4)"
         )
     }
 
@@ -1563,7 +1563,7 @@ mod test_display {
                 id: 8,
             })
             .to_string(),
-            "TG[E-](8)"
+            "TAG[E-](8)"
         );
     }
 
@@ -1630,7 +1630,7 @@ mod test_display {
     fn request_tag() {
         assert_eq!(
             Action::RequestTag(RequestTag { eop: true, id: 9 }).to_string(),
-            "RTG[E](9)"
+            "RTAG[E](9)"
         );
     }
 }

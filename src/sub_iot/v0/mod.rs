@@ -136,6 +136,6 @@ fn test_command_display() {
             ]
         }
         .to_string(),
-        "[RTG[E](66); NOP[GR]]"
+        "[RTAG[E](66); NOP[GR]]"
     );
 }
