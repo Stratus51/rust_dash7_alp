@@ -113,6 +113,7 @@ impl Action {
         }
     }
 }
+crate::spec::v1_2::action::impl_action_builders!(Action);
 
 impl std::fmt::Display for Action {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {

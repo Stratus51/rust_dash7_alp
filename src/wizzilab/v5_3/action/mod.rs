@@ -204,6 +204,7 @@ pub enum Action {
     IndirectForward(IndirectForward),
     RequestTag(RequestTag),
 }
+crate::spec::v1_2::action::impl_action_builders!(Action);
 
 impl Action {
     pub fn op_code(&self) -> OpCode {
