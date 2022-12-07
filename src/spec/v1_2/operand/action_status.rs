@@ -1,27 +1,75 @@
-use crate::codec::{Codec, StdError, WithOffset, WithSize};
+use crate::codec::{Codec, WithOffset, WithSize};
 #[cfg(test)]
 use crate::test_tools::test_item;
 #[cfg(test)]
 use hex_literal::hex;
+use std::convert::TryInto;
 
-pub mod status_code {
-    //! Status code that can be received as a result of some ALP actions.
-    /// Action received and partially completed at response. To be completed after response
-    pub const RECEIVED: u8 = 1;
-    pub const OK: u8 = 0;
-    pub const FILE_ID_MISSING: u8 = 0xFF;
-    pub const CREATE_FILE_ID_ALREADY_EXIST: u8 = 0xFE;
-    pub const FILE_IS_NOT_RESTORABLE: u8 = 0xFD;
-    pub const INSUFFICIENT_PERMISSION: u8 = 0xFC;
-    pub const CREATE_FILE_LENGTH_OVERFLOW: u8 = 0xFB;
-    pub const CREATE_FILE_ALLOCATION_OVERFLOW: u8 = 0xFA; // ALP_SPEC: ??? Difference with the previous one?;
-    pub const WRITE_OFFSET_OVERFLOW: u8 = 0xF9;
-    pub const WRITE_DATA_OVERFLOW: u8 = 0xF8;
-    pub const WRITE_STORAGE_UNAVAILABLE: u8 = 0xF7;
-    pub const UNKNOWN_OPERATION: u8 = 0xF6;
-    pub const OPERAND_INCOMPLETE: u8 = 0xF5;
-    pub const OPERAND_WRONG_FORMAT: u8 = 0xF4;
-    pub const UNKNOWN_ERROR: u8 = 0x80;
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum StatusCode {
+    Received = 1,
+    Ok = 0,
+    FileIdMissing = 0xff,
+    CreateFileIdAlreadyExist = 0xfe,
+    FileIsNotRestorable = 0xfd,
+    InsufficientPermission = 0xfc,
+    CreateFileLengthOverflow = 0xfb,
+    CreateFileAllocationOverflow = 0xfa,
+    WriteOffsetOverflow = 0xf9,
+    WriteDataOverflow = 0xf8,
+    WriteStorageUnavailable = 0xf7,
+    UnknownOperation = 0xf6,
+    OperandIncomplete = 0xf5,
+    OperandWrongFormat = 0xf4,
+    UnknownError = 0x80,
+}
+impl std::convert::TryFrom<u8> for StatusCode {
+    type Error = u8;
+    fn try_from(n: u8) -> Result<Self, Self::Error> {
+        Ok(match n {
+            1 => Self::Received,
+            0 => Self::Ok,
+            0xff => Self::FileIdMissing,
+            0xfe => Self::CreateFileIdAlreadyExist,
+            0xfd => Self::FileIsNotRestorable,
+            0xfc => Self::InsufficientPermission,
+            0xfb => Self::CreateFileLengthOverflow,
+            0xfa => Self::CreateFileAllocationOverflow,
+            0xf9 => Self::WriteOffsetOverflow,
+            0xf8 => Self::WriteDataOverflow,
+            0xf7 => Self::WriteStorageUnavailable,
+            0xf6 => Self::UnknownOperation,
+            0xf5 => Self::OperandIncomplete,
+            0xf4 => Self::OperandWrongFormat,
+            0x80 => Self::UnknownError,
+            x => return Err(x),
+        })
+    }
+}
+impl std::fmt::Display for StatusCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                Self::Received => "RCV",
+                Self::Ok => "OK",
+                Self::FileIdMissing => "E_FID",
+                Self::CreateFileIdAlreadyExist => "E_F_EXIST",
+                Self::FileIsNotRestorable => "E_F_RST",
+                Self::InsufficientPermission => "E_PRM",
+                Self::CreateFileLengthOverflow => "E_NEW_LEN",
+                Self::CreateFileAllocationOverflow => "E_NEW_ALLOC",
+                Self::WriteOffsetOverflow => "E_W_OFF",
+                Self::WriteDataOverflow => "E_W_DATA",
+                Self::WriteStorageUnavailable => "E_W_STOR",
+                Self::UnknownOperation => "E_UNK_OP",
+                Self::OperandIncomplete => "E_INC",
+                Self::OperandWrongFormat => "E_FMT",
+                Self::UnknownError => "E_?",
+            }
+        )
+    }
 }
 
 /// Result of an action in a previously sent request
@@ -34,15 +82,20 @@ pub struct ActionStatus {
     // responded (the local modem won't have the same index as the distant device.).
     pub action_id: u8,
     /// Result code
-    pub status: u8,
+    pub status: StatusCode,
 }
 impl std::fmt::Display for ActionStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "a[{}]=>{}", self.action_id, self.status)
     }
 }
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum ActionStatusDecodingError {
+    MissingBytes(usize),
+    UnknownStatusCode(u8),
+}
 impl Codec for ActionStatus {
-    type Error = StdError;
+    type Error = ActionStatusDecodingError;
     fn encoded_size(&self) -> usize {
         1 + 1
     }
@@ -60,7 +113,9 @@ impl Codec for ActionStatus {
         Ok(WithSize {
             value: Self {
                 action_id: out[0],
-                status: out[1],
+                status: out[1]
+                    .try_into()
+                    .map_err(|e| WithOffset::new(1, Self::Error::UnknownStatusCode(e)))?,
             },
             size: 2,
         })
@@ -71,7 +126,7 @@ fn test_status_operand() {
     test_item(
         ActionStatus {
             action_id: 2,
-            status: status_code::UNKNOWN_OPERATION,
+            status: StatusCode::UnknownOperation,
         },
         &hex!("02 F6"),
     )

@@ -1053,7 +1053,7 @@ mod test_codec {
         test_item(
             Action::Status(Status::Action(operand::ActionStatus {
                 action_id: 2,
-                status: operand::status_code::UNKNOWN_OPERATION,
+                status: operand::StatusCode::UnknownOperation,
             })),
             &hex!("22 02 F6"),
         )
@@ -1511,10 +1511,10 @@ mod test_display {
         assert_eq!(
             Action::Status(Status::Action(operand::ActionStatus {
                 action_id: 2,
-                status: 4
+                status: operand::StatusCode::UnknownError,
             }))
             .to_string(),
-            "S[ACT]:a[2]=>4"
+            "S[ACT]:a[2]=>E_?"
         );
         assert_eq!(
             Action::Status(Status::Interface(operand::InterfaceStatus::Host)).to_string(),
