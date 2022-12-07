@@ -1,5 +1,5 @@
 use crate::{
-    codec::{Codec, StdError, WithOffset, WithSize},
+    codec::{Codec, WithOffset, WithSize},
     spec::v1_2::operand,
 };
 
@@ -38,7 +38,7 @@ impl std::fmt::Display for Status {
 pub enum StatusDecodingError {
     MissingBytes(usize),
     UnknownType(u8),
-    Action(StdError),
+    Action(operand::ActionStatusDecodingError),
     Interface(operand::InterfaceStatusDecodingError),
 }
 impl Codec for Status {
