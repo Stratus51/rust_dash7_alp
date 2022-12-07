@@ -350,6 +350,168 @@ macro_rules! impl_header_op {
 }
 pub(crate) use impl_header_op;
 
+macro_rules! impl_action_builder_file_id {
+    ($function_name: ident, $variant_name: ident) => {
+        pub fn $function_name(group: bool, resp: bool, file_id: u8) -> Self {
+            Self::$variant_name(FileIdAction {
+                group,
+                resp,
+                file_id,
+            })
+        }
+    };
+}
+pub(crate) use impl_action_builder_file_id;
+
+macro_rules! impl_action_builder_file_data {
+    ($function_name: ident, $variant_name: ident) => {
+        pub fn $function_name<'a, T: Into<&'a [u8]> + 'a>(
+            group: bool,
+            resp: bool,
+            file_id: u8,
+            offset: u32,
+            data: T,
+        ) -> Self {
+            Self::$variant_name(FileDataAction {
+                group,
+                resp,
+                file_id,
+                offset,
+                data: data.into().into(),
+            })
+        }
+    };
+}
+pub(crate) use impl_action_builder_file_data;
+
+macro_rules! impl_action_builder_file_properties {
+    ($function_name: ident, $variant_name: ident) => {
+        pub fn $function_name(
+            group: bool,
+            resp: bool,
+            file_id: u8,
+            header: crate::spec::v1_2::data::FileHeader,
+        ) -> Self {
+            Self::$variant_name(FilePropertiesAction {
+                group,
+                resp,
+                file_id,
+                header,
+            })
+        }
+    };
+}
+pub(crate) use impl_action_builder_file_properties;
+
+macro_rules! impl_action_builder_query {
+    ($function_name: ident, $variant_name: ident) => {
+        pub fn $function_name(group: bool, resp: bool, query: operand::Query) -> Self {
+            Self::$variant_name(QueryAction { group, resp, query })
+        }
+    };
+}
+pub(crate) use impl_action_builder_query;
+
+macro_rules! impl_action_builders {
+    ($ty: ty) => {
+        impl $ty {
+            pub fn nop(group: bool, resp: bool) -> Self {
+                Self::Nop(Nop { group, resp })
+            }
+
+            pub fn read_file_data(
+                group: bool,
+                resp: bool,
+                file_id: u8,
+                offset: u32,
+                size: u32,
+            ) -> Self {
+                Self::ReadFileData(ReadFileData {
+                    group,
+                    resp,
+                    file_id,
+                    offset,
+                    size,
+                })
+            }
+
+            crate::spec::v1_2::action::impl_action_builder_file_data!(
+                write_file_data,
+                WriteFileData
+            );
+            crate::spec::v1_2::action::impl_action_builder_file_data!(
+                return_file_data,
+                ReturnFileData
+            );
+
+            crate::spec::v1_2::action::impl_action_builder_file_properties!(
+                write_file_properties,
+                WriteFileProperties
+            );
+            crate::spec::v1_2::action::impl_action_builder_file_properties!(
+                create_new_file,
+                CreateNewFile
+            );
+            crate::spec::v1_2::action::impl_action_builder_file_properties!(
+                return_file_properties,
+                ReturnFileProperties
+            );
+
+            crate::spec::v1_2::action::impl_action_builder_query!(action_query, ActionQuery);
+            crate::spec::v1_2::action::impl_action_builder_query!(break_query, BreakQuery);
+            crate::spec::v1_2::action::impl_action_builder_query!(verify_checksum, VerifyChecksum);
+
+            crate::spec::v1_2::action::impl_action_builder_file_id!(
+                read_file_properties,
+                ReadFileProperties
+            );
+            crate::spec::v1_2::action::impl_action_builder_file_id!(test_exist_file, ExistFile);
+            crate::spec::v1_2::action::impl_action_builder_file_id!(test_delete_file, DeleteFile);
+            crate::spec::v1_2::action::impl_action_builder_file_id!(test_restore_file, RestoreFile);
+            crate::spec::v1_2::action::impl_action_builder_file_id!(test_flush_file, FlushFile);
+            crate::spec::v1_2::action::impl_action_builder_file_id!(test_execute_file, ExecuteFile);
+
+            pub fn copy_file(group: bool, resp: bool, src_file_id: u8, dst_file_id: u8) -> Self {
+                Self::CopyFile(CopyFile {
+                    group,
+                    resp,
+                    src_file_id,
+                    dst_file_id,
+                })
+            }
+
+            pub fn status(status: Status) -> Self {
+                Self::Status(status)
+            }
+
+            pub fn response_tag(eop: bool, err: bool, id: u8) -> Self {
+                Self::ResponseTag(ResponseTag { eop, err, id })
+            }
+
+            pub fn chunk(chunk: Chunk) -> Self {
+                Self::Chunk(chunk)
+            }
+
+            pub fn logic(logic: Logic) -> Self {
+                Self::Logic(logic)
+            }
+
+            pub fn forward(forward: Forward) -> Self {
+                Self::Forward(forward)
+            }
+
+            pub fn indirect_forward(indirect_forward: IndirectForward) -> Self {
+                Self::IndirectForward(indirect_forward)
+            }
+
+            pub fn request_tag(eop: bool, id: u8) -> Self {
+                Self::RequestTag(RequestTag { eop, id })
+            }
+        }
+    };
+}
+pub(crate) use impl_action_builders;
+
 // ===============================================================================
 // Opcodes
 // ===============================================================================
@@ -536,6 +698,7 @@ pub enum Action {
     IndirectForward(IndirectForward),
     RequestTag(RequestTag),
 }
+impl_action_builders!(Action);
 
 impl Action {
     pub fn op_code(&self) -> OpCode {
