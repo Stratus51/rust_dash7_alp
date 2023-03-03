@@ -89,6 +89,24 @@ impl Command {
         }
         Ok(Self { actions })
     }
+
+    pub fn request_id(&self) -> Option<u8> {
+        for action in self.actions.iter() {
+            if let Action::RequestTag(action::RequestTag { id, .. }) = action {
+                return Some(*id);
+            }
+        }
+        None
+    }
+
+    pub fn response_id(&self) -> Option<u8> {
+        for action in self.actions.iter() {
+            if let Action::ResponseTag(action::ResponseTag { id, .. }) = action {
+                return Some(*id);
+            }
+        }
+        None
+    }
 }
 #[test]
 fn test_command() {
@@ -137,5 +155,61 @@ fn test_command_display() {
         }
         .to_string(),
         "[RTAG[E](66); NOP[GR]]"
+    );
+}
+
+#[test]
+fn test_command_request_id() {
+    assert_eq!(
+        Command {
+            actions: vec![Action::request_tag(true, 66), Action::nop(true, true)]
+        }
+        .request_id(),
+        Some(66)
+    );
+    assert_eq!(
+        Command {
+            actions: vec![Action::nop(true, false), Action::request_tag(true, 44)]
+        }
+        .request_id(),
+        Some(44)
+    );
+    assert_eq!(
+        Command {
+            actions: vec![Action::nop(true, false), Action::nop(true, false)]
+        }
+        .request_id(),
+        None
+    );
+}
+
+#[test]
+fn test_comman_response_id() {
+    assert_eq!(
+        Command {
+            actions: vec![
+                Action::response_tag(true, true, 66),
+                Action::nop(true, true)
+            ]
+        }
+        .response_id(),
+        Some(66)
+    );
+    assert_eq!(
+        Command {
+            actions: vec![
+                Action::nop(true, false),
+                Action::response_tag(true, true, 44)
+            ]
+        }
+        .response_id(),
+        Some(44)
+    );
+    assert_eq!(
+        Command {
+            actions: vec![Action::nop(true, false), Action::nop(true, false)]
+        }
+        .response_id(),
+        None
     );
 }
