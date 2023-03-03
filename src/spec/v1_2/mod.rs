@@ -125,6 +125,15 @@ impl Command {
         }
         None
     }
+
+    pub fn is_last_response(&self) -> bool {
+        for action in self.actions.iter() {
+            if let Action::ResponseTag(action::ResponseTag { eop, .. }) = action {
+                return *eop;
+            }
+        }
+        false
+    }
 }
 #[test]
 fn test_command() {
@@ -230,4 +239,33 @@ fn test_comman_response_id() {
         .response_id(),
         None
     );
+}
+
+#[test]
+fn test_command_is_last_response() {
+    assert!(Command {
+        actions: vec![
+            Action::response_tag(true, true, 66),
+            Action::nop(true, true)
+        ]
+    }
+    .is_last_response());
+    assert!(!Command {
+        actions: vec![
+            Action::response_tag(false, false, 66),
+            Action::nop(true, true)
+        ]
+    }
+    .is_last_response());
+    assert!(!Command {
+        actions: vec![
+            Action::response_tag(false, true, 44),
+            Action::response_tag(true, true, 44)
+        ]
+    }
+    .is_last_response());
+    assert!(!Command {
+        actions: vec![Action::nop(true, false), Action::nop(true, false)]
+    }
+    .is_last_response());
 }
