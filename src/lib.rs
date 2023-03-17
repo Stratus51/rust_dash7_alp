@@ -66,5 +66,8 @@ pub mod wizzilab;
 /// A Codec module specifying how to encode/decode each encodable items
 pub mod codec;
 
+/// A abstraction of the grouping of ALP actions into an ALP command.
+pub mod command;
+
 #[cfg(test)]
 pub(crate) mod test_tools;

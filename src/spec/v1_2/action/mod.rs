@@ -466,10 +466,10 @@ macro_rules! impl_action_builders {
                 ReadFileProperties
             );
             crate::spec::v1_2::action::impl_action_builder_file_id!(test_exist_file, ExistFile);
-            crate::spec::v1_2::action::impl_action_builder_file_id!(test_delete_file, DeleteFile);
-            crate::spec::v1_2::action::impl_action_builder_file_id!(test_restore_file, RestoreFile);
-            crate::spec::v1_2::action::impl_action_builder_file_id!(test_flush_file, FlushFile);
-            crate::spec::v1_2::action::impl_action_builder_file_id!(test_execute_file, ExecuteFile);
+            crate::spec::v1_2::action::impl_action_builder_file_id!(delete_file, DeleteFile);
+            crate::spec::v1_2::action::impl_action_builder_file_id!(restore_file, RestoreFile);
+            crate::spec::v1_2::action::impl_action_builder_file_id!(flush_file, FlushFile);
+            crate::spec::v1_2::action::impl_action_builder_file_id!(execute_file, ExecuteFile);
 
             pub fn copy_file(group: bool, resp: bool, src_file_id: u8, dst_file_id: u8) -> Self {
                 Self::CopyFile(CopyFile {
