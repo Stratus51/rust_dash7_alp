@@ -161,11 +161,12 @@ fn test_interface_status_d7asp() {
             token: 6,
             seq: 7,
             resp_to: 8,
+            fof: 9,
             access_class: 0xFF,
             address: dash7::Address::Vid([0xAB, 0xCD]),
             nls_state: dash7::NlsState::AesCcm32(hex!("00 11 22 33 44")),
         }),
-        &hex!("D7 13    01 0123 02 03 04 B0 06 07 08   37 FF ABCD  0011223344"),
+        &hex!("D7 16    01 0123 02 03 04 B0 06 07 0800 0900   37 FF ABCD  0011223344"),
     )
 }
 #[test]
