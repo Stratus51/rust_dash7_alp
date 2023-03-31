@@ -1695,13 +1695,14 @@ mod test_display {
                 token: 6,
                 seq: 7,
                 resp_to: 8,
+                fof: 9,
                 access_class: 0xFF,
                 address: dash7::Address::Vid([0xAB, 0xCD]),
                 nls_state: dash7::NlsState::AesCcm32(hex!("00 11 22 33 44")),
             }
         )))
         .to_string(),
-        "S[ITF]:D7=ch(1;291),sig(2,3,4),s=5,tok=6,sq=7,rto=8,xclass=0xFF,VID[ABCD],NLS[7|0011223344]"
+        "S[ITF]:D7=ch(1;291),sig(2,3,4),s=5,tok=6,sq=7,rto=8,fof=9,xclass=0xFF,VID[ABCD],NLS[7|0011223344]"
     );
     }
 

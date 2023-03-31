@@ -505,6 +505,7 @@ impl Codec for InterfaceConfiguration {
         5 + self.address.encode_in(&mut out[5..])
     }
     fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
+        println!("InterfaceConfiguration: {:X?}", out);
         if out.len() < 5 {
             return Err(WithOffset::new_head(Self::Error::MissingBytes(
                 5 - out.len(),
@@ -649,8 +650,10 @@ pub struct InterfaceStatus {
     pub token: u8,
     /// Value of the D7ATP Transaction ID
     pub seq: u8,
-    /// Time during which the response is expected in Compressed Format
-    pub resp_to: u8,
+    /// Response delay (request to response time) in TiT
+    pub resp_to: u16,
+    /// Frequency offset in Hz
+    pub fof: u16,
     /// Listening access class of the sender
     pub access_class: u8,
     /// Address of source
@@ -662,7 +665,7 @@ impl std::fmt::Display for InterfaceStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(
             f,
-            "ch({};{}),sig({},{},{}),s={},tok={},sq={},rto={},xclass=0x{},{},{}",
+            "ch({};{}),sig({},{},{}),s={},tok={},sq={},rto={},fof={},xclass=0x{},{},{}",
             self.ch_header,
             self.ch_idx,
             self.rxlev,
@@ -672,6 +675,7 @@ impl std::fmt::Display for InterfaceStatus {
             self.token,
             self.seq,
             self.resp_to,
+            self.fof,
             hex::encode_upper([self.access_class]),
             self.address,
             self.nls_state
@@ -681,7 +685,7 @@ impl std::fmt::Display for InterfaceStatus {
 impl Codec for InterfaceStatus {
     type Error = StdError;
     fn encoded_size(&self) -> usize {
-        12 + self.address.encoded_size() + self.nls_state.encoded_size()
+        15 + self.address.encoded_size() + self.nls_state.encoded_size()
     }
 
     unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
@@ -702,7 +706,13 @@ impl Codec for InterfaceStatus {
         i += 1;
         out[i] = self.seq;
         i += 1;
-        out[i] = self.resp_to;
+        out[i] = (self.resp_to & 0xFF) as u8;
+        i += 1;
+        out[i] = (self.resp_to >> 8) as u8;
+        i += 1;
+        out[i] = (self.fof & 0xFF) as u8;
+        i += 1;
+        out[i] = (self.fof >> 8) as u8;
         i += 1;
         out[i] = ((self.address.id_type() as u8) << 4) | (self.nls_state.method() as u8);
         i += 1;
@@ -729,18 +739,19 @@ impl Codec for InterfaceStatus {
         let status = out[6];
         let token = out[7];
         let seq = out[8];
-        let resp_to = out[9];
+        let resp_to = ((out[10] as u16) << 8) + out[9] as u16;
+        let fof = ((out[12] as u16) << 8) + out[11] as u16;
 
-        let address_type = AddressType::from((out[10] & 0x30) >> 4);
-        let nls_method = unsafe { NlsMethod::from(out[10] & 0x0F) };
-        let access_class = out[11];
+        let address_type = AddressType::from((out[13] & 0x30) >> 4);
+        let nls_method = unsafe { NlsMethod::from(out[13] & 0x0F) };
+        let access_class = out[14];
 
         let WithSize {
             size: address_size,
             value: address,
-        } = Address::parse(address_type, &out[12..]).map_err(|e| e.shift(12))?;
+        } = Address::parse(address_type, &out[15..]).map_err(|e| e.shift(15))?;
 
-        let mut offset = 12 + address_size;
+        let mut offset = 15 + address_size;
         let nls_state = match nls_method {
             NlsMethod::None => NlsState::None,
             method => {
@@ -769,6 +780,7 @@ impl Codec for InterfaceStatus {
                 token,
                 seq,
                 resp_to,
+                fof,
                 access_class,
                 address,
                 nls_state,
@@ -790,11 +802,12 @@ fn test_interface_status() {
             token: 6,
             seq: 7,
             resp_to: 8,
+            fof: 9,
             access_class: 0xFF,
             address: Address::Vid([0xAB, 0xCD]),
             nls_state: NlsState::AesCcm32(hex!("00 11 22 33 44")),
         },
-        &hex!("01 0123 02 03 04 05 06 07 08   37 FF ABCD  0011223344"),
+        &hex!("01 0123 02 03 04 05 06 07 0800 0900  37 FF ABCD  0011223344"),
     )
 }
 
