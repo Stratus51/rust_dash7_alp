@@ -71,6 +71,7 @@ impl OpCode {
 
             // Write
             4 => OpCode::WriteFileData,
+            5 => OpCode::WriteFileDataFlush,
             6 => OpCode::WriteFileProperties,
             8 => OpCode::ActionQuery,
             9 => OpCode::BreakQuery,
