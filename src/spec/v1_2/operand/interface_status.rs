@@ -104,17 +104,19 @@ impl Codec for InterfaceStatus {
                         value: value.into(),
                     }
                 })?;
-                let size = size as usize;
+                let announced_size = size as usize;
                 offset += size_size;
-                let WithSize { value, size } =
-                    dash7::InterfaceStatus::decode(&out[offset..offset + size]).map_err(|e| {
-                        let WithOffset { offset: off, value } = e;
-                        WithOffset {
-                            offset: offset + off,
-                            value: value.into(),
-                        }
-                    })?;
-                offset += size;
+                let WithSize { value, size } = dash7::InterfaceStatus::decode(
+                    &out[offset..offset + announced_size],
+                )
+                .map_err(|e| {
+                    let WithOffset { offset: off, value } = e;
+                    WithOffset {
+                        offset: offset + off,
+                        value: value.into(),
+                    }
+                })?;
+                offset += size.max(announced_size);
                 InterfaceStatus::D7asp(value)
             }
             id => {
