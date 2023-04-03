@@ -8,12 +8,14 @@ use crate::{
 pub enum StatusType {
     Action = 0,
     Interface = 1,
+    InterfaceFinal = 3,
 }
 impl StatusType {
     fn from(n: u8) -> Result<Self, u8> {
         Ok(match n {
             0 => StatusType::Action,
             1 => StatusType::Interface,
+            3 => StatusType::InterfaceFinal,
             x => return Err(x),
         })
     }
@@ -25,6 +27,7 @@ pub enum Status {
     // other statuses.
     Action(operand::ActionStatus),
     Interface(operand::InterfaceStatus),
+    InterfaceFinal(operand::InterfaceFinalStatus),
     // ALP SPEC: Where are the stack errors?
 }
 impl std::fmt::Display for Status {
@@ -32,6 +35,7 @@ impl std::fmt::Display for Status {
         match self {
             Self::Action(v) => write!(f, "[ACT]:{}", v),
             Self::Interface(v) => write!(f, "[ITF]:{}", v),
+            Self::InterfaceFinal(v) => write!(f, "[ITF_END]:{}", v),
         }
     }
 }
@@ -41,6 +45,7 @@ pub enum StatusDecodingError {
     UnknownType(u8),
     Action(operand::ActionStatusDecodingError),
     Interface(operand::InterfaceStatusDecodingError),
+    InterfaceFinal(operand::InterfaceFinalStatusDecodingError),
 }
 impl Codec for Status {
     type Error = StatusDecodingError;
@@ -48,18 +53,21 @@ impl Codec for Status {
         1 + match self {
             Status::Action(op) => op.encoded_size(),
             Status::Interface(op) => op.encoded_size(),
+            Status::InterfaceFinal(op) => op.encoded_size(),
         }
     }
     unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
         out[0] |= (match self {
             Status::Action(_) => StatusType::Action,
             Status::Interface(_) => StatusType::Interface,
+            Status::InterfaceFinal(_) => StatusType::InterfaceFinal,
         } as u8)
             << 6;
         let out = &mut out[1..];
         1 + match self {
             Status::Action(op) => op.encode_in(out),
             Status::Interface(op) => op.encode_in(out),
+            Status::InterfaceFinal(op) => op.encode_in(out),
         }
     }
     fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
@@ -87,6 +95,14 @@ impl Codec for Status {
                         value: Self::Interface(value),
                     }
                 }
+                StatusType::InterfaceFinal => {
+                    let WithSize { size, value } = operand::InterfaceFinalStatus::decode(&out[1..])
+                        .map_err(|e| e.shift(1).map_value(Self::Error::InterfaceFinal))?;
+                    WithSize {
+                        size: size + 1,
+                        value: Self::InterfaceFinal(value),
+                    }
+                }
             },
         )
     }
@@ -96,7 +112,7 @@ impl From<spec::action::status::Status> for Status {
     fn from(v: spec::action::status::Status) -> Self {
         match v {
             spec::action::status::Status::Action(v) => Self::Action(v.into()),
-            spec::action::status::Status::Interface(v) => Self::Interface(v.into()),
+            spec::action::status::Status::Interface(v) => Self::Interface(v),
         }
     }
 }

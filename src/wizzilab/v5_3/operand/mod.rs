@@ -12,3 +12,6 @@ pub use interface_configuration::{
 
 pub mod action_status;
 pub use action_status::{ActionStatus, ActionStatusDecodingError, StatusCode};
+
+pub mod interface_final_status;
+pub use interface_final_status::{InterfaceFinalStatus, InterfaceFinalStatusDecodingError};
