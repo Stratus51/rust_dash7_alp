@@ -481,7 +481,7 @@ macro_rules! impl_action_builders {
             }
 
             pub fn status(status: Status) -> Self {
-                Self::Status(status)
+                Self::Status(status.into())
             }
 
             pub fn response_tag(eop: bool, err: bool, id: u8) -> Self {

@@ -6,12 +6,14 @@ use hex_literal::hex;
 use super::operand;
 use crate::codec::{Codec, StdError, WithOffset, WithSize};
 pub use crate::spec::v1_2::action::{
-    status, Chunk, CopyFile, FileDataAction, FileIdAction, FilePropertiesAction,
-    HeaderActionDecodingError, IndirectForward, Logic, Nop, OpCode as SpecOpCode,
-    PermissionRequest, QueryAction, ReadFileData, RequestTag, ResponseTag, Status,
+    Chunk, CopyFile, FileDataAction, FileIdAction, FilePropertiesAction, HeaderActionDecodingError,
+    IndirectForward, Logic, Nop, OpCode as SpecOpCode, PermissionRequest, QueryAction,
+    ReadFileData, RequestTag, ResponseTag,
 };
+pub use status::Status;
 
 pub mod forward;
+pub mod status;
 
 pub use forward::Forward;
 
@@ -1319,7 +1321,7 @@ mod test_display {
         macro_rules! cmp_str {
             ($name: ident, $op: expr) => {
                 assert_eq!(
-                    Action::$name($op.clone()).to_string(),
+                    Action::$name($op.clone().into()).to_string(),
                     spec::Action::$name($op.clone().into()).to_string()
                 );
             };
@@ -1425,9 +1427,9 @@ mod test_display {
         };
         cmp_str!(CopyFile, op);
 
-        let op = Status::Action(operand::ActionStatus {
+        let op = spec::action::Status::Action(spec::operand::ActionStatus {
             action_id: 2,
-            status: operand::StatusCode::UnknownOperation,
+            status: spec::operand::StatusCode::UnknownOperation,
         });
         cmp_str!(Status, op);
 
