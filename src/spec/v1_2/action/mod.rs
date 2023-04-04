@@ -172,7 +172,7 @@ macro_rules! impl_simple_op {
                     out[offset] = self.$x;
                     offset += 1;
                 })*
-                1 + offset
+                offset
             }
             fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
                 const SIZE: usize = 1 + crate::spec::v1_2::action::count!($( $x )*);
@@ -1784,5 +1784,27 @@ mod test_display {
             Action::RequestTag(RequestTag { eop: true, id: 9 }).to_string(),
             "RTAG[E](9)"
         );
+    }
+
+    #[test]
+    fn debug() {
+        let cmd = super::super::Command {
+            actions: vec![
+                Action::ResponseTag(ResponseTag {
+                    eop: true,
+                    err: false,
+                    id: 2,
+                }),
+                Action::ReturnFileData(FileDataAction {
+                    group: false,
+                    resp: false,
+                    file_id: 2,
+                    offset: 4,
+                    data: Box::new([0, 0, 0, 0]),
+                }),
+            ],
+        };
+        cmd.encode();
+        assert_eq!(cmd.to_string(), "[TAG[E-](2); DATA[--]f(2,4,0x00000000)]");
     }
 }
