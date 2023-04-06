@@ -72,6 +72,12 @@ impl std::fmt::Display for StatusCode {
     }
 }
 
+impl StatusCode {
+    pub fn is_err(&self) -> bool {
+        *self as u8 >= 0x80
+    }
+}
+
 /// Result of an action in a previously sent request
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ActionStatus {
