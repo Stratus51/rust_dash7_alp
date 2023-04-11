@@ -460,17 +460,23 @@ pub struct InterfaceConfiguration {
     pub nls_method: NlsMethod,
     /// Address of the target.
     pub address: Address,
+
+    /// Use VID instead of UID when possible
+    pub use_vid: bool,
+    // TODO
+    // pub group_condition: GroupCondition,
 }
 
 impl std::fmt::Display for InterfaceConfiguration {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(
             f,
-            "{},{},{}|0x{},{},{}",
+            "{},{},{}|0x{},use_vid={},{},{}",
             self.qos,
             self.to,
             self.te,
-            hex::encode_upper(&[self.access_class]),
+            hex::encode_upper([self.access_class]),
+            self.use_vid,
             self.nls_method,
             self.address
         )
@@ -500,7 +506,9 @@ impl Codec for InterfaceConfiguration {
         self.qos.encode_in(out);
         out[1] = self.to;
         out[2] = self.te;
-        out[3] = ((self.address.id_type() as u8) << 4) | (self.nls_method as u8);
+        out[3] = ((self.address.id_type() as u8) << 4)
+            | ((self.use_vid as u8) << 3)
+            | (self.nls_method as u8);
         out[4] = self.access_class;
         5 + self.address.encode_in(&mut out[5..])
     }
@@ -518,7 +526,8 @@ impl Codec for InterfaceConfiguration {
         let to = out[1];
         let te = out[2];
         let address_type = AddressType::from((out[3] & 0x30) >> 4);
-        let nls_method = unsafe { NlsMethod::from(out[3] & 0x0F) };
+        let use_vid = (out[3] & 0x08) != 0;
+        let nls_method = unsafe { NlsMethod::from(out[3] & 0x07) };
         let access_class = out[4];
         let WithSize {
             value: address,
@@ -538,6 +547,7 @@ impl Codec for InterfaceConfiguration {
                 access_class,
                 nls_method,
                 address,
+                use_vid,
             },
             size: qos_size + 4 + address_size,
         })
@@ -555,6 +565,7 @@ fn test_interface_configuration() {
             te: 0x34,
             nls_method: NlsMethod::AesCcm32,
             access_class: 0xFF,
+            use_vid: false,
             address: Address::Vid([0xAB, 0xCD]),
         },
         &hex!("02 23 34   37 FF ABCD"),
@@ -574,8 +585,9 @@ fn test_interface_configuration_with_address_nbid() {
             nls_method: NlsMethod::None,
             access_class: 0x00,
             address: Address::NbId(0x15),
+            use_vid: true,
         },
-        &hex!("02 23 34   00 00 15"),
+        &hex!("02 23 34   08 00 15"),
     )
 }
 #[test]
@@ -591,6 +603,7 @@ fn test_interface_configuration_with_address_noid() {
             nls_method: NlsMethod::AesCbcMac128,
             access_class: 0x24,
             address: Address::NoId,
+            use_vid: false,
         },
         &hex!("02 23 34   12 24"),
     )
@@ -608,8 +621,9 @@ fn test_interface_configuration_with_address_uid() {
             nls_method: NlsMethod::AesCcm64,
             access_class: 0x48,
             address: Address::Uid([0, 1, 2, 3, 4, 5, 6, 7]),
+            use_vid: true,
         },
-        &hex!("02 23 34   26 48 0001020304050607"),
+        &hex!("02 23 34   2E 48 0001020304050607"),
     )
 }
 #[test]
@@ -625,6 +639,7 @@ fn test_interface_configuration_with_address_vid() {
             nls_method: NlsMethod::AesCcm32,
             access_class: 0xFF,
             address: Address::Vid([0xAB, 0xCD]),
+            use_vid: false,
         },
         &hex!("02 23 34   37 FF AB CD"),
     )
@@ -743,7 +758,7 @@ impl Codec for InterfaceStatus {
         let fof = ((out[12] as u16) << 8) + out[11] as u16;
 
         let address_type = AddressType::from((out[13] & 0x30) >> 4);
-        let nls_method = unsafe { NlsMethod::from(out[13] & 0x0F) };
+        let nls_method = unsafe { NlsMethod::from(out[13] & 0x07) };
         let access_class = out[14];
 
         let WithSize {

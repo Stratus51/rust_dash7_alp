@@ -1281,6 +1281,7 @@ mod test_display {
                     nls_method: dash7::NlsMethod::AesCcm32,
                     access_class: 0xFF,
                     address: dash7::Address::Vid([0xAB, 0xCD]),
+                    use_vid: false,
                 }),
             })
             .to_string(),
