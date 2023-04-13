@@ -558,7 +558,6 @@ impl Codec for InterfaceConfiguration {
         5 + self.address.encode_in(&mut out[5..])
     }
     fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
-        println!("InterfaceConfiguration: {:X?}", out);
         if out.len() < 5 {
             return Err(WithOffset::new_head(Self::Error::MissingBytes(
                 5 - out.len(),
