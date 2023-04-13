@@ -1753,10 +1753,11 @@ mod test_display {
                     access_class: 0xFF,
                     address: dash7::Address::Vid([0xAB, 0xCD]),
                     use_vid: false,
+                    group_condition: dash7::GroupCondition::Any,
                 }),
             })
             .to_string(),
-            "FWD[R]D7:0X,35,52|0xFF,use_vid=false,NLS[7],VID[ABCD]"
+            "FWD[R]D7:0X,35,52|0xFF,use_vid=false,NLS[7],GCD=X,VID[ABCD]"
         );
     }
 

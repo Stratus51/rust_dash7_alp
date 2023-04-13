@@ -91,6 +91,7 @@ fn test_interface_configuration_d7asp() {
             access_class: 0xFF,
             address: dash7::Address::Vid([0xAB, 0xCD]),
             use_vid: false,
+            group_condition: dash7::GroupCondition::Any,
         }),
         &hex!("D7   02 23 34   37 FF ABCD"),
     )

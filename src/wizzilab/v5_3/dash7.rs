@@ -4,12 +4,14 @@ pub use crate::{
     codec::{Codec, StdError, WithOffset, WithSize},
     spec::v1_2 as spec,
     spec::v1_2::dash7::{
-        file, Address, AddressType, InterfaceConfigurationDecodingError, InterfaceStatus,
-        NlsMethod, NlsState, QosDecodingError, RespMode, RetryMode as SpecRetryMode,
+        file, Address, AddressType, GroupCondition, InterfaceConfigurationDecodingError,
+        InterfaceStatus, NlsMethod, NlsState, QosDecodingError, RespMode,
+        RetryMode as SpecRetryMode,
     },
 };
 #[cfg(test)]
 use hex_literal::hex;
+use std::convert::TryFrom;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 /// The Retry Modes define the pattern for re-flushing a FIFO that terminates on error.
@@ -168,18 +170,23 @@ pub struct InterfaceConfiguration {
 
     /// Use VID instead of UID when possible
     pub use_vid: bool,
+
+    /// Group condition
+    pub group_condition: GroupCondition,
 }
 
 impl std::fmt::Display for InterfaceConfiguration {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(
             f,
-            "{},{},{}|0x{},{},{}",
+            "{},{},{}|0x{},use_vid={},{},{},{}",
             self.qos,
             self.to,
             self.te,
-            hex::encode_upper(&[self.access_class]),
+            hex::encode_upper([self.access_class]),
+            self.use_vid,
             self.nls_method,
+            self.group_condition,
             self.address
         )
     }
@@ -194,7 +201,8 @@ impl Codec for InterfaceConfiguration {
         self.qos.encode_in(out);
         out[1] = self.to;
         out[2] = self.te;
-        out[3] = ((self.address.id_type() as u8) << 4)
+        out[3] = ((self.group_condition as u8) << 6)
+            | ((self.address.id_type() as u8) << 4)
             | ((self.use_vid as u8) << 3)
             | (self.nls_method as u8);
         out[4] = self.access_class;
@@ -212,6 +220,7 @@ impl Codec for InterfaceConfiguration {
         } = Qos::decode(out).map_err(|e| e.map_value(Self::Error::Qos))?;
         let to = out[1];
         let te = out[2];
+        let group_condition = GroupCondition::try_from((out[3] >> 6) & 0x03).unwrap();
         let address_type = AddressType::from((out[3] & 0x30) >> 4);
         let use_vid = (out[3] & 0x08) != 0;
         let nls_method = unsafe { NlsMethod::from(out[3] & 0x07) };
@@ -235,6 +244,7 @@ impl Codec for InterfaceConfiguration {
                 nls_method,
                 address,
                 use_vid,
+                group_condition,
             },
             size: qos_size + 4 + address_size,
         })
@@ -254,6 +264,7 @@ fn test_interface_configuration() {
             access_class: 0xFF,
             address: Address::Vid([0xAB, 0xCD]),
             use_vid: false,
+            group_condition: GroupCondition::Any,
         },
         &hex!("02 23 34   37 FF ABCD"),
     )
@@ -273,8 +284,9 @@ fn test_interface_configuration_with_address_nbid() {
             access_class: 0x00,
             address: Address::NbId(0x15),
             use_vid: true,
+            group_condition: GroupCondition::NotEqual,
         },
-        &hex!("02 23 34   08 00 15"),
+        &hex!("02 23 34   48 00 15"),
     )
 }
 #[test]
@@ -291,8 +303,9 @@ fn test_interface_configuration_with_address_noid() {
             access_class: 0x24,
             address: Address::NoId,
             use_vid: false,
+            group_condition: GroupCondition::Equal,
         },
-        &hex!("02 23 34   12 24"),
+        &hex!("02 23 34   92 24"),
     )
 }
 #[test]
@@ -309,8 +322,9 @@ fn test_interface_configuration_with_address_uid() {
             access_class: 0x48,
             address: Address::Uid([0, 1, 2, 3, 4, 5, 6, 7]),
             use_vid: true,
+            group_condition: GroupCondition::GreaterThan,
         },
-        &hex!("02 23 34   2E 48 0001020304050607"),
+        &hex!("02 23 34   EE 48 0001020304050607"),
     )
 }
 #[test]
@@ -327,6 +341,7 @@ fn test_interface_configuration_with_address_vid() {
             access_class: 0xFF,
             address: Address::Vid([0xAB, 0xCD]),
             use_vid: false,
+            group_condition: GroupCondition::Any,
         },
         &hex!("02 23 34   37 FF AB CD"),
     )
@@ -341,6 +356,7 @@ impl From<spec::dash7::InterfaceConfiguration> for InterfaceConfiguration {
             access_class,
             address,
             use_vid,
+            group_condition,
         } = o;
         Self {
             qos: qos.into(),
@@ -350,6 +366,7 @@ impl From<spec::dash7::InterfaceConfiguration> for InterfaceConfiguration {
             access_class,
             address,
             use_vid,
+            group_condition,
         }
     }
 }
@@ -363,6 +380,7 @@ impl From<InterfaceConfiguration> for spec::dash7::InterfaceConfiguration {
             access_class,
             address,
             use_vid,
+            group_condition,
         } = o;
         Self {
             qos: qos.into(),
@@ -372,6 +390,7 @@ impl From<InterfaceConfiguration> for spec::dash7::InterfaceConfiguration {
             access_class,
             address,
             use_vid,
+            group_condition,
         }
     }
 }
