@@ -2,21 +2,13 @@
 use crate::test_tools::test_item;
 use crate::{
     codec::{Codec, StdError, WithOffset, WithSize},
-    spec::v1_2::{dash7, operand::InterfaceId, varint},
+    spec::v1_2 as spec,
+    wizzilab::v5_3::{dash7, operand::InterfaceId, varint},
 };
 #[cfg(test)]
 use hex_literal::hex;
+pub use spec::operand::InterfaceStatusUnknown;
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct InterfaceStatusUnknown {
-    pub id: u8,
-    pub data: Box<[u8]>,
-}
-impl std::fmt::Display for InterfaceStatusUnknown {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}:0x{}", self.id, hex::encode_upper(&self.data))
-    }
-}
 // TODO Allow padding at the end
 // We should support the parsing and the encoding of this padding
 /// Meta data from a received packet depending on the receiving interface type
@@ -170,10 +162,30 @@ fn test_interface_status_d7asp() {
             address: dash7::Address::Vid([0xAB, 0xCD]),
             nls_state: dash7::NlsState::AesCcm32(hex!("00 11 22 33 44")),
         }),
-        &hex!("D7 16    01 0123 02 03 04 B0 06 07 0800 0900   37 FF ABCD  0011223344"),
+        &hex!("D7 1C    01 0123 02 03 04 B0 06 07 0800 0900   37 FF ABCD 000000000000  0011223344"),
     )
 }
 #[test]
 fn test_interface_status_host() {
     test_item(InterfaceStatus::Host, &hex!("00 00"))
+}
+
+impl From<spec::operand::InterfaceStatus> for InterfaceStatus {
+    fn from(itf: spec::operand::InterfaceStatus) -> Self {
+        match itf {
+            spec::operand::InterfaceStatus::Host => Self::Host,
+            spec::operand::InterfaceStatus::D7asp(itf) => Self::D7asp(itf.into()),
+            spec::operand::InterfaceStatus::Unknown(itf) => Self::Unknown(itf),
+        }
+    }
+}
+
+impl From<InterfaceStatus> for spec::operand::InterfaceStatus {
+    fn from(itf: InterfaceStatus) -> Self {
+        match itf {
+            InterfaceStatus::Host => Self::Host,
+            InterfaceStatus::D7asp(itf) => Self::D7asp(itf.into()),
+            InterfaceStatus::Unknown(itf) => Self::Unknown(itf),
+        }
+    }
 }

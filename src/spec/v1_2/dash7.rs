@@ -57,7 +57,7 @@ pub enum NlsState {
 }
 
 impl NlsState {
-    fn build_non_none(method: NlsMethod, state: [u8; 5]) -> Self {
+    pub(crate) fn build_non_none(method: NlsMethod, state: [u8; 5]) -> Self {
         match method {
             NlsMethod::None => panic!(),
             NlsMethod::AesCtr => Self::AesCtr(state),
@@ -70,7 +70,7 @@ impl NlsState {
         }
     }
 
-    fn method(&self) -> NlsMethod {
+    pub fn method(&self) -> NlsMethod {
         match self {
             Self::None => NlsMethod::None,
             Self::AesCtr(_) => NlsMethod::AesCtr,
@@ -83,14 +83,14 @@ impl NlsState {
         }
     }
 
-    fn encoded_size(&self) -> usize {
+    pub fn encoded_size(&self) -> usize {
         match self {
             Self::None => 0,
             _ => 5,
         }
     }
 
-    fn get_data(&self) -> Option<&[u8; 5]> {
+    pub fn get_data(&self) -> Option<&[u8; 5]> {
         match self {
             Self::None => None,
             Self::AesCtr(state) => Some(state),

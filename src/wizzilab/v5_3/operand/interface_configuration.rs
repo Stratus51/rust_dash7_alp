@@ -93,7 +93,7 @@ fn test_interface_configuration_d7asp() {
             use_vid: false,
             group_condition: dash7::GroupCondition::Any,
         }),
-        &hex!("D7   02 23 34   37 FF ABCD"),
+        &hex!("D7   02 23 34   37 FF ABCD  000000000000"),
     )
 }
 #[test]

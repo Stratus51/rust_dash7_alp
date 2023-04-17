@@ -112,7 +112,7 @@ impl From<spec::action::status::Status> for Status {
     fn from(v: spec::action::status::Status) -> Self {
         match v {
             spec::action::status::Status::Action(v) => Self::Action(v.into()),
-            spec::action::status::Status::Interface(v) => Self::Interface(v),
+            spec::action::status::Status::Interface(v) => Self::Interface(v.into()),
         }
     }
 }

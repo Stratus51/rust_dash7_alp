@@ -9,6 +9,7 @@ pub mod dash7;
 pub mod operand;
 /// ALP variable int codec implementation
 pub use crate::codec::{Codec, WithOffset, WithSize};
+pub use crate::spec::v1_2::varint;
 pub use action::Action;
 
 // ===============================================================================

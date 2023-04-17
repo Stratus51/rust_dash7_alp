@@ -7,15 +7,17 @@ use super::operand;
 use crate::codec::{Codec, StdError, WithOffset, WithSize};
 pub use crate::spec::v1_2::action::{
     Chunk, CopyFile, FileDataAction, FileIdAction, FilePropertiesAction, HeaderActionDecodingError,
-    IndirectForward, Logic, Nop, OpCode as SpecOpCode, PermissionRequest, QueryAction,
-    ReadFileData, RequestTag, ResponseTag,
+    Logic, Nop, OpCode as SpecOpCode, PermissionRequest, QueryAction, ReadFileData, RequestTag,
+    ResponseTag,
 };
 pub use status::Status;
 
 pub mod forward;
+pub mod indirect_forward;
 pub mod status;
 
 pub use forward::Forward;
+pub use indirect_forward::IndirectForward;
 
 // ===============================================================================
 // Opcodes
@@ -783,7 +785,7 @@ mod test_codec {
                     },
                 ),
             }),
-            &hex!("F3   04   37 FF ABCD"),
+            &hex!("F3   04   37 FF ABCD  000000000000"),
         )
     }
 
@@ -1213,26 +1215,26 @@ mod test_display {
             "S[ITF]:HOST"
         );
         assert_eq!(
-        Action::Status(Status::Interface(operand::InterfaceStatus::D7asp(
-            dash7::InterfaceStatus {
-                ch_header: 1,
-                ch_idx: 0x0123,
-                rxlev: 2,
-                lb: 3,
-                snr: 4,
-                status: 5,
-                token: 6,
-                seq: 7,
-                resp_to: 8,
-                fof: 9,
-                access_class: 0xFF,
-                address: dash7::Address::Vid([0xAB, 0xCD]),
-                nls_state: dash7::NlsState::AesCcm32(hex!("00 11 22 33 44")),
-            }
-        )))
-        .to_string(),
-        "S[ITF]:D7=ch(1;291),sig(2,3,4),s=5,tok=6,sq=7,rto=8,fof=9,xclass=0xFF,VID[ABCD],NLS[7|0011223344]"
-    );
+            Action::Status(Status::Interface(operand::InterfaceStatus::D7asp(
+                dash7::InterfaceStatus {
+                    ch_header: 1,
+                    ch_idx: 0x0123,
+                    rxlev: 2,
+                    lb: 3,
+                    snr: 4,
+                    status: 5,
+                    token: 6,
+                    seq: 7,
+                    resp_to: 8,
+                    fof: 9,
+                    access_class: 0xFF,
+                    address: dash7::Address::Vid([0xAB, 0xCD]),
+                    nls_state: dash7::NlsState::AesCcm32(hex!("00 11 22 33 44")),
+                }
+            )))
+            .to_string(),
+            "S[ITF]:D7=ch(1;291),sig(2,3,4),s=5,tok=6,sq=7,rto=8,fof=9,xclass=0xFF,VID[ABCD],NLS[7|0011223344]"
+        );
     }
 
     #[test]
