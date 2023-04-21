@@ -8,9 +8,28 @@ use crate::{
 use hex_literal::hex;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[repr(u8)]
 pub enum InterfaceId {
     Host = 0,
     D7asp = 0xD7,
+}
+impl std::fmt::Display for InterfaceId {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::Host => write!(f, "HST"),
+            Self::D7asp => write!(f, "D7"),
+        }
+    }
+}
+impl std::convert::TryFrom<u8> for InterfaceId {
+    type Error = u8;
+    fn try_from(v: u8) -> Result<Self, Self::Error> {
+        match v {
+            0 => Ok(Self::Host),
+            0xD7 => Ok(Self::D7asp),
+            _ => Err(v),
+        }
+    }
 }
 
 /// Meta data required to send a packet depending on the sending interface type
@@ -94,6 +113,8 @@ fn test_interface_configuration_d7asp() {
             nls_method: dash7::NlsMethod::AesCcm32,
             access_class: 0xFF,
             address: dash7::Address::Vid([0xAB, 0xCD]),
+            use_vid: false,
+            group_condition: dash7::GroupCondition::Any,
         }),
         &hex!("D7   02 23 34   37 FF ABCD"),
     )

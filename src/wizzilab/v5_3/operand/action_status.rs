@@ -1,12 +1,16 @@
-use crate::codec::{Codec, WithOffset, WithSize};
 #[cfg(test)]
 use crate::test_tools::test_item;
+use crate::{
+    codec::{Codec, WithOffset, WithSize},
+    spec::v1_2 as spec,
+};
 #[cfg(test)]
 use hex_literal::hex;
 use std::convert::TryInto;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum StatusCode {
+    ItfFull = 2,
     Received = 1,
     Ok = 0,
     FileIdMissing = 0xff,
@@ -27,6 +31,7 @@ impl std::convert::TryFrom<u8> for StatusCode {
     type Error = u8;
     fn try_from(n: u8) -> Result<Self, Self::Error> {
         Ok(match n {
+            2 => Self::ItfFull,
             1 => Self::Received,
             0 => Self::Ok,
             0xff => Self::FileIdMissing,
@@ -52,6 +57,7 @@ impl std::fmt::Display for StatusCode {
             f,
             "{}",
             match self {
+                Self::ItfFull => "FULL",
                 Self::Received => "RCV",
                 Self::Ok => "OK",
                 Self::FileIdMissing => "E_FID",
@@ -71,7 +77,6 @@ impl std::fmt::Display for StatusCode {
         )
     }
 }
-
 impl StatusCode {
     pub fn is_err(&self) -> bool {
         *self as u8 >= 0x80
@@ -136,4 +141,37 @@ fn test_status_operand() {
         },
         &hex!("02 F6"),
     )
+}
+
+impl From<spec::operand::StatusCode> for StatusCode {
+    fn from(s: spec::operand::StatusCode) -> Self {
+        match s {
+            spec::operand::StatusCode::Received => Self::Received,
+            spec::operand::StatusCode::Ok => Self::Ok,
+            spec::operand::StatusCode::FileIdMissing => Self::FileIdMissing,
+            spec::operand::StatusCode::CreateFileIdAlreadyExist => Self::CreateFileIdAlreadyExist,
+            spec::operand::StatusCode::FileIsNotRestorable => Self::FileIsNotRestorable,
+            spec::operand::StatusCode::InsufficientPermission => Self::InsufficientPermission,
+            spec::operand::StatusCode::CreateFileLengthOverflow => Self::CreateFileLengthOverflow,
+            spec::operand::StatusCode::CreateFileAllocationOverflow => {
+                Self::CreateFileAllocationOverflow
+            }
+            spec::operand::StatusCode::WriteOffsetOverflow => Self::WriteOffsetOverflow,
+            spec::operand::StatusCode::WriteDataOverflow => Self::WriteDataOverflow,
+            spec::operand::StatusCode::WriteStorageUnavailable => Self::WriteStorageUnavailable,
+            spec::operand::StatusCode::UnknownOperation => Self::UnknownOperation,
+            spec::operand::StatusCode::OperandIncomplete => Self::OperandIncomplete,
+            spec::operand::StatusCode::OperandWrongFormat => Self::OperandWrongFormat,
+            spec::operand::StatusCode::UnknownError => Self::UnknownError,
+        }
+    }
+}
+
+impl From<spec::operand::ActionStatus> for ActionStatus {
+    fn from(s: spec::operand::ActionStatus) -> Self {
+        Self {
+            action_id: s.action_id,
+            status: s.status.into(),
+        }
+    }
 }

@@ -1,7 +1,10 @@
-use crate::codec::{Codec, StdError, WithOffset, WithSize};
-use crate::spec::v1_2::dash7;
 #[cfg(test)]
 use crate::test_tools::test_item;
+use crate::{
+    codec::{Codec, StdError, WithOffset, WithSize},
+    spec::v1_2 as spec,
+    wizzilab::v5_3::dash7,
+};
 #[cfg(test)]
 use hex_literal::hex;
 
@@ -70,8 +73,30 @@ fn test_overloaded_indirect_interface() {
             access_class: 0xFF,
             address: dash7::Address::Vid([0xAB, 0xCD]),
         },
-        &hex!("04   37 FF ABCD"),
+        &hex!("04   37 FF ABCD 000000000000"),
     )
+}
+
+impl From<spec::operand::OverloadedIndirectInterface> for OverloadedIndirectInterface {
+    fn from(v: spec::operand::OverloadedIndirectInterface) -> Self {
+        Self {
+            interface_file_id: v.interface_file_id,
+            nls_method: v.nls_method,
+            access_class: v.access_class,
+            address: v.address.into(),
+        }
+    }
+}
+
+impl From<OverloadedIndirectInterface> for spec::operand::OverloadedIndirectInterface {
+    fn from(v: OverloadedIndirectInterface) -> Self {
+        Self {
+            interface_file_id: v.interface_file_id,
+            nls_method: v.nls_method,
+            access_class: v.access_class,
+            address: v.address.into(),
+        }
+    }
 }
 
 /// Non Dash7 interface
@@ -108,6 +133,24 @@ impl std::fmt::Display for NonOverloadedIndirectInterface {
             self.interface_file_id,
             hex::encode_upper(&self.data)
         )
+    }
+}
+
+impl From<spec::operand::NonOverloadedIndirectInterface> for NonOverloadedIndirectInterface {
+    fn from(v: spec::operand::NonOverloadedIndirectInterface) -> Self {
+        Self {
+            interface_file_id: v.interface_file_id,
+            data: v.data,
+        }
+    }
+}
+
+impl From<NonOverloadedIndirectInterface> for spec::operand::NonOverloadedIndirectInterface {
+    fn from(v: NonOverloadedIndirectInterface) -> Self {
+        Self {
+            interface_file_id: v.interface_file_id,
+            data: v.data,
+        }
     }
 }
 
@@ -158,5 +201,23 @@ impl Codec for IndirectInterface {
                 value: Self::NonOverloaded(value),
             }
         })
+    }
+}
+
+impl From<spec::operand::IndirectInterface> for IndirectInterface {
+    fn from(v: spec::operand::IndirectInterface) -> Self {
+        match v {
+            spec::operand::IndirectInterface::Overloaded(v) => Self::Overloaded(v.into()),
+            spec::operand::IndirectInterface::NonOverloaded(v) => Self::NonOverloaded(v.into()),
+        }
+    }
+}
+
+impl From<IndirectInterface> for spec::operand::IndirectInterface {
+    fn from(v: IndirectInterface) -> Self {
+        match v {
+            IndirectInterface::Overloaded(v) => Self::Overloaded(v.into()),
+            IndirectInterface::NonOverloaded(v) => Self::NonOverloaded(v.into()),
+        }
     }
 }

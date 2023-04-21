@@ -3,6 +3,7 @@ use crate::codec::{Codec, StdError, WithOffset, WithSize};
 use crate::test_tools::test_item;
 #[cfg(test)]
 use hex_literal::hex;
+use std::convert::TryFrom;
 
 /// Encryption algorigthm for over-the-air packets
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -56,7 +57,7 @@ pub enum NlsState {
 }
 
 impl NlsState {
-    fn build_non_none(method: NlsMethod, state: [u8; 5]) -> Self {
+    pub(crate) fn build_non_none(method: NlsMethod, state: [u8; 5]) -> Self {
         match method {
             NlsMethod::None => panic!(),
             NlsMethod::AesCtr => Self::AesCtr(state),
@@ -69,7 +70,7 @@ impl NlsState {
         }
     }
 
-    fn method(&self) -> NlsMethod {
+    pub fn method(&self) -> NlsMethod {
         match self {
             Self::None => NlsMethod::None,
             Self::AesCtr(_) => NlsMethod::AesCtr,
@@ -82,14 +83,14 @@ impl NlsState {
         }
     }
 
-    fn encoded_size(&self) -> usize {
+    pub fn encoded_size(&self) -> usize {
         match self {
             Self::None => 0,
             _ => 5,
         }
     }
 
-    fn get_data(&self) -> Option<&[u8; 5]> {
+    pub fn get_data(&self) -> Option<&[u8; 5]> {
         match self {
             Self::None => None,
             Self::AesCtr(state) => Some(state),
@@ -432,6 +433,47 @@ impl std::fmt::Display for Qos {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[repr(u8)]
+pub enum GroupCondition {
+    /// <, =, > (always true)
+    Any = 0,
+    /// <, >
+    NotEqual = 1,
+    /// =
+    Equal = 2,
+    /// >
+    GreaterThan = 3,
+}
+
+impl TryFrom<u8> for GroupCondition {
+    type Error = u8;
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(GroupCondition::Any),
+            1 => Ok(GroupCondition::NotEqual),
+            2 => Ok(GroupCondition::Equal),
+            3 => Ok(GroupCondition::GreaterThan),
+            x => Err(x),
+        }
+    }
+}
+
+impl std::fmt::Display for GroupCondition {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "GCD={}",
+            match self {
+                Self::Any => "X",
+                Self::NotEqual => "!=",
+                Self::Equal => "==",
+                Self::GreaterThan => ">",
+            }
+        )
+    }
+}
+
 /// Section 9.2.1
 ///
 /// Parameters to handle the sending of a request.
@@ -460,18 +502,26 @@ pub struct InterfaceConfiguration {
     pub nls_method: NlsMethod,
     /// Address of the target.
     pub address: Address,
+
+    /// Use VID instead of UID when possible
+    pub use_vid: bool,
+
+    /// Group condition
+    pub group_condition: GroupCondition,
 }
 
 impl std::fmt::Display for InterfaceConfiguration {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(
             f,
-            "{},{},{}|0x{},{},{}",
+            "{},{},{}|0x{},use_vid={},{},{},{}",
             self.qos,
             self.to,
             self.te,
-            hex::encode_upper(&[self.access_class]),
+            hex::encode_upper([self.access_class]),
+            self.use_vid,
             self.nls_method,
+            self.group_condition,
             self.address
         )
     }
@@ -500,12 +550,14 @@ impl Codec for InterfaceConfiguration {
         self.qos.encode_in(out);
         out[1] = self.to;
         out[2] = self.te;
-        out[3] = ((self.address.id_type() as u8) << 4) | (self.nls_method as u8);
+        out[3] = ((self.group_condition as u8) << 6)
+            | ((self.address.id_type() as u8) << 4)
+            | ((self.use_vid as u8) << 3)
+            | (self.nls_method as u8);
         out[4] = self.access_class;
         5 + self.address.encode_in(&mut out[5..])
     }
     fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
-        println!("InterfaceConfiguration: {:X?}", out);
         if out.len() < 5 {
             return Err(WithOffset::new_head(Self::Error::MissingBytes(
                 5 - out.len(),
@@ -517,8 +569,10 @@ impl Codec for InterfaceConfiguration {
         } = Qos::decode(out).map_err(|e| e.map_value(Self::Error::Qos))?;
         let to = out[1];
         let te = out[2];
+        let group_condition = GroupCondition::try_from((out[3] >> 6) & 0x03).unwrap();
         let address_type = AddressType::from((out[3] & 0x30) >> 4);
-        let nls_method = unsafe { NlsMethod::from(out[3] & 0x0F) };
+        let use_vid = (out[3] & 0x08) != 0;
+        let nls_method = unsafe { NlsMethod::from(out[3] & 0x07) };
         let access_class = out[4];
         let WithSize {
             value: address,
@@ -538,6 +592,8 @@ impl Codec for InterfaceConfiguration {
                 access_class,
                 nls_method,
                 address,
+                use_vid,
+                group_condition,
             },
             size: qos_size + 4 + address_size,
         })
@@ -555,7 +611,9 @@ fn test_interface_configuration() {
             te: 0x34,
             nls_method: NlsMethod::AesCcm32,
             access_class: 0xFF,
+            use_vid: false,
             address: Address::Vid([0xAB, 0xCD]),
+            group_condition: GroupCondition::Any,
         },
         &hex!("02 23 34   37 FF ABCD"),
     )
@@ -574,8 +632,10 @@ fn test_interface_configuration_with_address_nbid() {
             nls_method: NlsMethod::None,
             access_class: 0x00,
             address: Address::NbId(0x15),
+            use_vid: true,
+            group_condition: GroupCondition::NotEqual,
         },
-        &hex!("02 23 34   00 00 15"),
+        &hex!("02 23 34   48 00 15"),
     )
 }
 #[test]
@@ -591,8 +651,10 @@ fn test_interface_configuration_with_address_noid() {
             nls_method: NlsMethod::AesCbcMac128,
             access_class: 0x24,
             address: Address::NoId,
+            use_vid: false,
+            group_condition: GroupCondition::Equal,
         },
-        &hex!("02 23 34   12 24"),
+        &hex!("02 23 34   92 24"),
     )
 }
 #[test]
@@ -608,8 +670,10 @@ fn test_interface_configuration_with_address_uid() {
             nls_method: NlsMethod::AesCcm64,
             access_class: 0x48,
             address: Address::Uid([0, 1, 2, 3, 4, 5, 6, 7]),
+            use_vid: true,
+            group_condition: GroupCondition::GreaterThan,
         },
-        &hex!("02 23 34   26 48 0001020304050607"),
+        &hex!("02 23 34   EE 48 0001020304050607"),
     )
 }
 #[test]
@@ -625,6 +689,8 @@ fn test_interface_configuration_with_address_vid() {
             nls_method: NlsMethod::AesCcm32,
             access_class: 0xFF,
             address: Address::Vid([0xAB, 0xCD]),
+            use_vid: false,
+            group_condition: GroupCondition::Any,
         },
         &hex!("02 23 34   37 FF AB CD"),
     )
@@ -743,7 +809,7 @@ impl Codec for InterfaceStatus {
         let fof = ((out[12] as u16) << 8) + out[11] as u16;
 
         let address_type = AddressType::from((out[13] & 0x30) >> 4);
-        let nls_method = unsafe { NlsMethod::from(out[13] & 0x0F) };
+        let nls_method = unsafe { NlsMethod::from(out[13] & 0x07) };
         let access_class = out[14];
 
         let WithSize {

@@ -38,8 +38,7 @@ impl Codec for FileDataAction {
         out[0] |= ((self.group as u8) << 7) | ((self.resp as u8) << 6);
         out[1] = self.file_id;
         let mut offset = 2;
-        offset +=
-            super::unsafe_varint_serialize!(out[2..], self.offset, self.data.len() as u32) as usize;
+        offset += super::unsafe_varint_serialize!(out[2..], self.offset, self.data.len() as u32);
         out[offset..offset + self.data.len()].clone_from_slice(&self.data[..]);
         offset += self.data.len();
         offset
@@ -67,6 +66,12 @@ impl Codec for FileDataAction {
         } = varint::decode(&out[off..])?;
         off += size_size;
         let size = size as usize;
+        if out.len() < off + size {
+            return Err(WithOffset::new(
+                0,
+                Self::Error::MissingBytes(off + size - out.len()),
+            ));
+        }
         let mut data = vec![0u8; size].into_boxed_slice();
         data.clone_from_slice(&out[off..off + size]);
         off += size;

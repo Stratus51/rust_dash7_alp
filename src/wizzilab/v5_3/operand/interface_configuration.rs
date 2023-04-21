@@ -90,8 +90,10 @@ fn test_interface_configuration_d7asp() {
             nls_method: dash7::NlsMethod::AesCcm32,
             access_class: 0xFF,
             address: dash7::Address::Vid([0xAB, 0xCD]),
+            use_vid: false,
+            group_condition: dash7::GroupCondition::Any,
         }),
-        &hex!("D7   02 23 34   37 FF ABCD"),
+        &hex!("D7   02 23 34   37 FF ABCD  000000000000"),
     )
 }
 #[test]
