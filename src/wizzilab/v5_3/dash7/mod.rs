@@ -11,6 +11,8 @@ pub use crate::{
 #[cfg(test)]
 use hex_literal::hex;
 use std::convert::TryFrom;
+pub mod interface_tx_status;
+pub mod stack_error;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 /// The Retry Modes define the pattern for re-flushing a FIFO that terminates on error.
@@ -556,7 +558,7 @@ impl std::fmt::Display for InterfaceStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(
             f,
-            "ch({};{}),sig({},{},{}),s={},tok={},sq={},rto={},fof={},xclass=0x{},{},{}",
+            "ch({};{}),sig({},{},{}),s={},tok={},sq={},rto={},fof={},xcl=0x{},{},{}",
             self.ch_header,
             self.ch_idx,
             self.rxlev,

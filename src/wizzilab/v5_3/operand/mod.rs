@@ -20,3 +20,6 @@ pub use interface_status::{InterfaceStatus, InterfaceStatusDecodingError};
 
 pub mod indirect_interface;
 pub use indirect_interface::{IndirectInterface, OverloadedIndirectInterface};
+
+pub mod interface_tx_status;
+pub use interface_tx_status::{InterfaceTxStatus, InterfaceTxStatusDecodingError};

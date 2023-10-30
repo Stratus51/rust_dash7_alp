@@ -15,9 +15,11 @@ pub use status::Status;
 pub mod forward;
 pub mod indirect_forward;
 pub mod status;
+pub mod tx_status;
 
 pub use forward::Forward;
 pub use indirect_forward::IndirectForward;
+pub use tx_status::TxStatus;
 
 // ===============================================================================
 // Opcodes
@@ -54,6 +56,7 @@ pub enum OpCode {
     ReturnFileProperties = SpecOpCode::ReturnFileProperties as isize,
     Status = SpecOpCode::Status as isize,
     ResponseTag = SpecOpCode::ResponseTag as isize,
+    TxStatus = 38,
 
     // Special
     Chunk = SpecOpCode::Chunk as isize,
@@ -96,6 +99,7 @@ impl OpCode {
             33 => OpCode::ReturnFileProperties,
             34 => OpCode::Status,
             35 => OpCode::ResponseTag,
+            38 => OpCode::TxStatus,
 
             // Special
             48 => OpCode::Chunk,
@@ -143,6 +147,7 @@ impl std::fmt::Display for OpCode {
             OpCode::ReturnFileProperties => write!(f, "PROP"),
             OpCode::Status => write!(f, "S"),
             OpCode::ResponseTag => write!(f, "TAG"),
+            OpCode::TxStatus => write!(f, "TXS"),
 
             // Special
             OpCode::Chunk => write!(f, "CHK"),
@@ -201,6 +206,7 @@ pub enum Action {
     ReturnFileProperties(FilePropertiesAction),
     Status(Status),
     ResponseTag(ResponseTag),
+    TxStatus(TxStatus),
 
     // Special
     Chunk(Chunk),
@@ -244,6 +250,7 @@ impl Action {
             Self::ReturnFileProperties(_) => OpCode::ReturnFileProperties,
             Self::Status(_) => OpCode::Status,
             Self::ResponseTag(_) => OpCode::ResponseTag,
+            Self::TxStatus(_) => OpCode::TxStatus,
 
             // Special
             Self::Chunk(_) => OpCode::Chunk,
@@ -289,6 +296,7 @@ impl std::fmt::Display for Action {
             Self::ReturnFileProperties(op) => write!(f, "{}{}", op_code, op),
             Self::Status(op) => write!(f, "{}{}", op_code, op),
             Self::ResponseTag(op) => write!(f, "{}{}", op_code, op),
+            Self::TxStatus(op) => write!(f, "{}{}", op_code, op),
 
             // Special
             Self::Chunk(op) => write!(f, "{}{}", op_code, op),
@@ -324,6 +332,7 @@ pub enum ActionDecodingError {
     ReturnFilePropertiesAction(HeaderActionDecodingError),
     Status(status::StatusDecodingError),
     ResponseTag(StdError),
+    TxStatus(tx_status::TxStatusDecodingError),
     Chunk(StdError),
     Logic(StdError),
     Forward(operand::InterfaceConfigurationDecodingError),
@@ -385,6 +394,7 @@ impl ActionDecodingError {
     );
     impl_std_error_map!(map_status, Status, status::StatusDecodingError);
     impl_std_error_map!(map_response_tag, ResponseTag, StdError);
+    impl_std_error_map!(map_tx_status, TxStatus, tx_status::TxStatusDecodingError);
     impl_std_error_map!(map_chunk, Chunk, StdError);
     impl_std_error_map!(map_logic, Logic, StdError);
     impl_std_error_map!(
@@ -421,6 +431,7 @@ impl Codec for Action {
             Action::ReturnFileProperties(x) => x.encoded_size(),
             Action::Status(x) => x.encoded_size(),
             Action::ResponseTag(x) => x.encoded_size(),
+            Action::TxStatus(x) => x.encoded_size(),
             Action::Chunk(x) => x.encoded_size(),
             Action::Logic(x) => x.encoded_size(),
             Action::Forward(x) => x.encoded_size(),
@@ -452,6 +463,7 @@ impl Codec for Action {
             Action::ReturnFileProperties(x) => x.encode_in(out),
             Action::Status(x) => x.encode_in(out),
             Action::ResponseTag(x) => x.encode_in(out),
+            Action::TxStatus(x) => x.encode_in(out),
             Action::Chunk(x) => x.encode_in(out),
             Action::Logic(x) => x.encode_in(out),
             Action::Forward(x) => x.encode_in(out),
@@ -530,6 +542,9 @@ impl Codec for Action {
             OpCode::ResponseTag => ResponseTag::decode(out)
                 .map_err(ActionDecodingError::map_response_tag)?
                 .map_value(Action::ResponseTag),
+            OpCode::TxStatus => TxStatus::decode(out)
+                .map_err(ActionDecodingError::map_tx_status)?
+                .map_value(Action::TxStatus),
             OpCode::Chunk => Chunk::decode(out)
                 .map_err(ActionDecodingError::map_chunk)?
                 .map_value(Action::Chunk),
@@ -747,6 +762,28 @@ mod test_codec {
                 id: 8,
             }),
             &hex!("A3 08"),
+        )
+    }
+
+    #[test]
+    fn tx_status() {
+        test_item(
+            Action::TxStatus(TxStatus::Interface(operand::InterfaceTxStatus::D7asp(
+                dash7::interface_tx_status::InterfaceTxStatus {
+                    ch_header: 1,
+                    ch_idx: 0x0123,
+                    eirp: 2,
+                    err: dash7::stack_error::InterfaceFinalStatusCode::Busy,
+                    rfu_0: 4,
+                    rfu_1: 5,
+                    rfu_2: 6,
+                    lts: 0x0708_0000,
+                    access_class: 0xFF,
+                    nls_method: dash7::NlsMethod::AesCcm64,
+                    address: dash7::Address::Vid([0x00, 0x11]),
+                },
+            ))),
+            &hex!("66 D7 16    01 0123 02 FF 04 05 06 0000 0807  36 FF 0011 000000000000"),
         )
     }
 
@@ -1233,7 +1270,16 @@ mod test_display {
                 }
             )))
             .to_string(),
-            "S[ITF]:D7=ch(1;291),sig(2,3,4),s=5,tok=6,sq=7,rto=8,fof=9,xclass=0xFF,VID[ABCD],NLS[7|0011223344]"
+            "S[ITF]:D7=ch(1;291),sig(2,3,4),s=5,tok=6,sq=7,rto=8,fof=9,xcl=0xFF,VID[ABCD],NLS[7|0011223344]"
+        );
+        assert_eq!(
+            Action::Status(Status::InterfaceFinal(operand::InterfaceFinalStatus {
+                interface: dash7::spec::operand::InterfaceId::D7asp,
+                len: 1,
+                status: dash7::stack_error::InterfaceFinalStatusCode::Busy
+            }))
+            .to_string(),
+            "S[ITF_END]:f_itf[D7][1]=>BUSY"
         );
     }
 
@@ -1247,6 +1293,33 @@ mod test_display {
             })
             .to_string(),
             "TAG[E-](8)"
+        );
+    }
+
+    #[test]
+    fn tx_status() {
+        assert_eq!(
+            Action::TxStatus(TxStatus::Interface(operand::InterfaceTxStatus::Host)).to_string(),
+            "TXS[ITF]:HOST"
+        );
+        assert_eq!(
+            Action::TxStatus(TxStatus::Interface(operand::InterfaceTxStatus::D7asp(
+                dash7::interface_tx_status::InterfaceTxStatus {
+                    ch_header: 1,
+                    ch_idx: 0x0123,
+                    eirp: 2,
+                    err: dash7::stack_error::InterfaceFinalStatusCode::Busy,
+                    rfu_0: 4,
+                    rfu_1: 5,
+                    rfu_2: 6,
+                    lts: 0x0708_0000,
+                    access_class: 0xFF,
+                    nls_method: dash7::NlsMethod::AesCcm128,
+                    address: dash7::Address::Vid([0x00, 0x11]),
+                }
+            )))
+            .to_string(),
+            "TXS[ITF]:D7=ch(1;291),eirp=2,err=BUSY,lts=117964800,address=VID[0011]"
         );
     }
 
@@ -1443,6 +1516,9 @@ mod test_display {
             id: 8,
         };
         cmp_str!(ResponseTag, op);
+
+        // let op = TxStatus::Interface(operand::InterfaceTxStatus::Host);
+        // cmp_str!(TxStatus, op);
 
         let op = Chunk::End;
         cmp_str!(Chunk, op);
