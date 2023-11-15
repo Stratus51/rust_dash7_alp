@@ -47,11 +47,8 @@ pub fn decode(out: &[u8]) -> Result<WithSize<u32>, WithOffset<StdError>> {
         return Err(WithOffset::new(0, StdError::MissingBytes(1)));
     }
     let size = ((out[0] >> 6) + 1) as usize;
-    if out.len() < size as usize {
-        return Err(WithOffset::new(
-            0,
-            StdError::MissingBytes(size as usize - out.len()),
-        ));
+    if out.len() < size {
+        return Err(WithOffset::new(0, StdError::MissingBytes(size - out.len())));
     }
     let mut ret = (out[0] & 0x3F) as u32;
     for byte in out.iter().take(size).skip(1) {

@@ -38,7 +38,7 @@ impl std::fmt::Display for InterfaceConfiguration {
             "{},{}|0x{},{},{}",
             self.qos,
             self.to,
-            hex::encode_upper(&[self.access_class]),
+            hex::encode_upper([self.access_class]),
             self.nls_method,
             self.address
         )

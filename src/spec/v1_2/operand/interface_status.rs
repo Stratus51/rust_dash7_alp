@@ -141,7 +141,7 @@ impl Codec for InterfaceStatus {
                     ));
                 }
                 let mut data = vec![0u8; size].into_boxed_slice();
-                data.clone_from_slice(&out[offset..size]);
+                data.clone_from_slice(&out[offset..offset + size]);
                 offset += size;
                 InterfaceStatus::Unknown(InterfaceStatusUnknown { id, data })
             }

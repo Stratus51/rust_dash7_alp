@@ -235,7 +235,7 @@ impl Address {
                 size: 1,
                 value: Self::NbId(
                     *data
-                        .get(0)
+                        .first()
                         .ok_or_else(|| WithOffset::new_head(StdError::MissingBytes(1)))?,
                 ),
             },
