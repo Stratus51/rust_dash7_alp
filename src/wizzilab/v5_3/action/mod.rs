@@ -12,11 +12,13 @@ pub use crate::spec::v1_2::action::{
 };
 pub use status::Status;
 
+pub mod flow;
 pub mod forward;
 pub mod indirect_forward;
 pub mod status;
 pub mod tx_status;
 
+pub use flow::{Flow, FlowSeqnum};
 pub use forward::Forward;
 pub use indirect_forward::IndirectForward;
 pub use tx_status::TxStatus;
@@ -64,6 +66,7 @@ pub enum OpCode {
     Forward = SpecOpCode::Forward as isize,
     IndirectForward = SpecOpCode::IndirectForward as isize,
     RequestTag = SpecOpCode::RequestTag as isize,
+    Flow = 54,
     Extension = SpecOpCode::Extension as isize,
 }
 impl OpCode {
@@ -107,6 +110,7 @@ impl OpCode {
             50 => OpCode::Forward,
             51 => OpCode::IndirectForward,
             52 => OpCode::RequestTag,
+            54 => OpCode::Flow,
             63 => OpCode::Extension,
 
             // On unknown OpCode return an error
@@ -155,6 +159,7 @@ impl std::fmt::Display for OpCode {
             OpCode::Forward => write!(f, "FWD"),
             OpCode::IndirectForward => write!(f, "IFWD"),
             OpCode::RequestTag => write!(f, "RTAG"),
+            OpCode::Flow => write!(f, "FLOW"),
             OpCode::Extension => write!(f, "EXT"),
         }
     }
@@ -214,6 +219,7 @@ pub enum Action {
     Forward(Forward),
     IndirectForward(IndirectForward),
     RequestTag(RequestTag),
+    Flow(Flow),
 }
 crate::spec::v1_2::action::impl_action_builders!(Action);
 
@@ -258,6 +264,7 @@ impl Action {
             Self::Forward(_) => OpCode::Forward,
             Self::IndirectForward(_) => OpCode::IndirectForward,
             Self::RequestTag(_) => OpCode::RequestTag,
+            Self::Flow(_) => OpCode::Flow,
         }
     }
 }
@@ -304,6 +311,7 @@ impl std::fmt::Display for Action {
             Self::Forward(op) => write!(f, "{}{}", op_code, op),
             Self::IndirectForward(op) => write!(f, "{}{}", op_code, op),
             Self::RequestTag(op) => write!(f, "{}{}", op_code, op),
+            Self::Flow(op) => write!(f, "{}{}", op_code, op),
         }
     }
 }
@@ -338,6 +346,7 @@ pub enum ActionDecodingError {
     Forward(operand::InterfaceConfigurationDecodingError),
     IndirectForward(StdError),
     RequestTag(StdError),
+    Flow(StdError),
     Extension,
 }
 
@@ -404,6 +413,7 @@ impl ActionDecodingError {
     );
     impl_std_error_map!(map_indirect_forward, IndirectForward, StdError);
     impl_std_error_map!(map_request_tag, RequestTag, StdError);
+    impl_std_error_map!(map_flow, Flow, StdError);
 }
 
 impl Codec for Action {
@@ -437,6 +447,7 @@ impl Codec for Action {
             Action::Forward(x) => x.encoded_size(),
             Action::IndirectForward(x) => x.encoded_size(),
             Action::RequestTag(x) => x.encoded_size(),
+            Action::Flow(x) => x.encoded_size(),
         }
     }
     unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
@@ -469,6 +480,7 @@ impl Codec for Action {
             Action::Forward(x) => x.encode_in(out),
             Action::IndirectForward(x) => x.encode_in(out),
             Action::RequestTag(x) => x.encode_in(out),
+            Action::Flow(x) => x.encode_in(out),
         }
     }
     fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
@@ -560,6 +572,9 @@ impl Codec for Action {
             OpCode::RequestTag => RequestTag::decode(out)
                 .map_err(ActionDecodingError::map_request_tag)?
                 .map_value(Action::RequestTag),
+            OpCode::Flow => Flow::decode(out)
+                .map_err(ActionDecodingError::map_flow)?
+                .map_value(Action::Flow),
             OpCode::Extension => return Err(WithOffset::new_head(ActionDecodingError::Extension)),
         })
     }
@@ -831,6 +846,19 @@ mod test_codec {
         test_item(
             Action::RequestTag(RequestTag { eop: true, id: 8 }),
             &hex!("B4 08"),
+        )
+    }
+
+    #[test]
+    fn flow() {
+        let raw = "36 FD 0004";
+        let raw = hex::decode(raw.replace(' ', "")).unwrap();
+        test_item(
+            Action::Flow(Flow {
+                flow: 0xFD,
+                seqnum: FlowSeqnum::U16(0x0004),
+            }),
+            &raw,
         )
     }
 }
