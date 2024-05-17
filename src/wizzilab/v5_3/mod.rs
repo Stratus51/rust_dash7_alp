@@ -25,7 +25,7 @@ pub struct Command {
 impl std::fmt::Display for Command {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "[")?;
-        let end = self.actions.len() - 1;
+        let end = self.actions.len().wrapping_sub(1);
         for (i, action) in self.actions.iter().enumerate() {
             write!(f, "{}", action)?;
             if i != end {
