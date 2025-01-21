@@ -1,4 +1,6 @@
-pub use crate::spec::v1_2::operand::interface_configuration::InterfaceConfigurationDecodingError;
+pub use crate::spec::v1_2::operand::interface_configuration::{
+    InterfaceConfigurationDecodingError, InterfaceId,
+};
 #[cfg(test)]
 use crate::test_tools::test_item;
 use crate::{
@@ -7,12 +9,6 @@ use crate::{
 };
 #[cfg(test)]
 use hex_literal::hex;
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum InterfaceId {
-    Host = 0,
-    D7asp = 0xD7,
-}
 
 /// Meta data required to send a packet depending on the sending interface type
 #[derive(Clone, Debug, PartialEq)]
