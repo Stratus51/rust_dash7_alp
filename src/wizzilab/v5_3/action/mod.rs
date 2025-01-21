@@ -718,7 +718,7 @@ mod test_codec {
                 level: crate::spec::v1_2::operand::permission_level::ROOT,
                 permission: operand::Permission::Dash7(hex!("0102030405060708")),
             }),
-            &hex!("0A   01 42 0102030405060708"),
+            &hex!("0A   01 2A 0102030405060708"),
         )
     }
 

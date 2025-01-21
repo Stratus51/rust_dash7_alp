@@ -9,7 +9,7 @@ pub enum Permission {
 impl Permission {
     fn id(self) -> u8 {
         match self {
-            Permission::Dash7(_) => 0x42, // ALP_SPEC Undefined
+            Permission::Dash7(_) => 42, // ALP_SPEC Undefined
         }
     }
 }
@@ -49,7 +49,7 @@ impl Codec for Permission {
         }
         let mut offset = 1;
         match out[0] {
-            0x42 => {
+            42 => {
                 let mut token = [0; 8];
                 token.clone_from_slice(&out[offset..offset + 8]);
                 offset += 8;
