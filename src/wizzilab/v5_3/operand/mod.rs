@@ -1,6 +1,6 @@
 pub use crate::spec::v1_2::operand::{
-    BitmapRangeComparison, ComparisonWithOtherFile, ComparisonWithValue, ComparisonWithZero,
-    FileOffset, NonVoid, Permission, PermissionDecodingError, Query, QueryCode,
+    permission_level, BitmapRangeComparison, ComparisonWithOtherFile, ComparisonWithValue,
+    ComparisonWithZero, FileOffset, NonVoid, Permission, PermissionDecodingError, Query, QueryCode,
     QueryComparisonType, QueryDecodingError, QueryRangeComparisonType, StringTokenSearch,
 };
 
