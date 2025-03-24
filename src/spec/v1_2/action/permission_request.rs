@@ -23,7 +23,7 @@ impl Codec for PermissionRequest {
     unsafe fn encode_in(&self, out: &mut [u8]) -> usize {
         out[0] |= ((self.group as u8) << 7) | ((self.resp as u8) << 6);
         out[1] = self.level;
-        1 + super::serialize_all!(&mut out[2..], self.permission)
+        2 + super::serialize_all!(&mut out[2..], self.permission)
     }
     fn decode(out: &[u8]) -> Result<WithSize<Self>, WithOffset<Self::Error>> {
         if out.is_empty() {
@@ -47,5 +47,25 @@ impl Codec for PermissionRequest {
                 size: offset,
             })
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::test_tools::test_item;
+    use hex_literal::hex;
+
+    #[test]
+    fn consistency() {
+        test_item(
+            PermissionRequest {
+                group: false,
+                resp: true,
+                level: 1,
+                permission: Permission::Dash7([0, 1, 2, 3, 4, 5, 6, 7]),
+            },
+            &hex!("40 01 2A 0001020304050607"),
+        )
     }
 }
